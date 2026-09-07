@@ -353,12 +353,22 @@ def simulate(
     sol: Solution,
     n_households: int = 1,
     seed: int = 0,
+    initial_wealth: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """Forward-simulate households through the solved policy rules.
 
     Port of ``LifecycleSim_ForwardIter.m``. Households are seeded at the SCF
     median liquid/illiquid wealth-to-income ratios at age 20 and followed for
-    the full lifecycle. Note their forward pass applies **no** mortality: death
+    the full lifecycle.
+
+    ``initial_wealth`` overrides that seed with an ``(n_households, 2)`` array of
+    ``(liquid, illiquid)`` ratios to age-20 mean income -- one row per household,
+    so households no longer all start from the same point. Their default is a
+    single SCF median for everybody, which means every simulated household
+    begins life identically and all cross-sectional dispersion afterwards comes
+    from income shocks alone (RESULTS.md 7.1). Pass the pair jointly: liquid and
+    illiquid holdings are strongly dependent, and drawing them independently
+    manufactures households that do not exist. Note their forward pass applies **no** mortality: death
     enters only through the backward induction and through the ``alive_``
     weights used when averaging moments, so no household is ever replaced.
 
@@ -411,14 +421,37 @@ def simulate(
 
     # --- initial wealth (SCF medians, as multiples of age-20 mean income) --
     y0 = ylevel[0]
+    if initial_wealth is not None:
+        w = np.asarray(initial_wealth, dtype=float)
+        if w.shape != (N, 2):
+            raise ValueError(
+                f"initial_wealth must have shape ({N}, 2) of (liquid, illiquid) "
+                f"ratios to age-20 mean income; got {w.shape}"
+            )
+        # Clamp to what is feasible at age 20, NOT to zero. The default seed
+        # is clamped non-negative below (`max(ix0, argmin|X|)`), but a drawn
+        # household may legitimately start in credit-card debt -- `somehs`'s own
+        # SCF median liquid ratio is -0.037 -- and forcing those to zero would
+        # erase exactly the variation being added.
+        #
+        # `grids.credit_limit` returns the borrowing limit as a POSITIVE
+        # magnitude in dollars (its docstring; the solver passes it to
+        # `discretize_transitory` as an offset, never as a signed bound), so the
+        # floor on the liquid position is -xmin[0]. Using +xmin[0] here forces
+        # every drawn household to start at or above +5,000 -- silently erasing
+        # the indebted households this override exists to create.
+        x0 = np.clip(w[:, 0] * y0, -xmin[0], X[-1])
+        xind = _nearest_index(X, x0).astype(np.int64)
+        zind = _nearest_index(Z, np.clip(w[:, 1] * y0, 0.0, Z[-1])).astype(np.int64)
     iz = int(_nearest_index(Z, np.array(
         [(cal.MED_TOTAL_WEALTH - cal.MED_LIQ_WEALTH) * y0]))[0])
     ix0 = int(_nearest_index(X, np.array([cal.MED_LIQ_WEALTH * y0]))[0])
     ix0 = max(ix0, int(np.argmin(np.abs(X))))
 
     # --- decisions --------------------------------------------------------
-    xind = np.full(N, ix0, dtype=np.int64)
-    zind = np.full(N, iz, dtype=np.int64)
+    if initial_wealth is None:
+        xind = np.full(N, ix0, dtype=np.int64)
+        zind = np.full(N, iz, dtype=np.int64)
     cash = np.empty((N, T))
     illiquid = np.empty((N, T))
     cons = np.empty((N, T))

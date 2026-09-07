@@ -60,6 +60,23 @@ TRAINING = dict(flow="nsf", max_num_epochs=200, stop_after_epochs=20,
                 learning_rate=5e-4, batch_size=256, validation_fraction=0.1)
 
 
+def add_obs_noise(x: torch.Tensor, sigma: float, features, seed: int):
+    """Multiplicative lognormal noise on dollar features only.
+
+    Median-preserving (exp(-sigma^2/2) centring), so this widens the observation
+    distribution without shifting its level -- a level shift would be a
+    different experiment.
+    """
+    if sigma <= 0:
+        return x
+    idx = [i for i, f in enumerate(features) if f != "age"]
+    g = torch.Generator().manual_seed(seed)
+    noise = torch.exp(torch.randn(x.shape, generator=g) * sigma - sigma ** 2 / 2)
+    out = x.clone()
+    out[..., idx] = x[..., idx] * noise[..., idx]
+    return out
+
+
 def split_shards(shard_files: list[Path], train_n: int):
     """Shards below the panel cutoff train; the rest are held out."""
     train, held = [], []
@@ -142,6 +159,15 @@ def main() -> None:
                    help="Windows per panel (augmentation).")
     p.add_argument("--no_age", action="store_true",
                    help="Drop the per-wave age channel.")
+    p.add_argument("--obs_noise", type=float, default=0.0,
+                   help="Multiplicative lognormal observation noise on the four "
+                        "dollar features, sigma in logs. Models PSID reporting "
+                        "and imputation error, which the simulated data has "
+                        "none of. Applied to the TRAINING, HELD-OUT and SBC "
+                        "windows alike -- the observation model must be the "
+                        "same everywhere or calibration measures the mismatch "
+                        "instead of the posterior. `age` is exact in PSID and "
+                        "is never perturbed.")
     p.add_argument("--per_sequence", action="store_true",
                    help="Normalise each dollar feature within a household, "
                         "across its waves: (x - hh mean) / hh sd. A "
@@ -241,6 +267,10 @@ def main() -> None:
         th_ho, x_ho, _pid = build_windowed(
             held_sh, theta_all, k=1, n_waves=k, seed=999, **win
         )
+        feats = (FEATURE_SETS[args.features] if args.features
+                 else (FEATURES_TWOASSET if args.no_age else FEATURES_TWOASSET_AGE))
+        x_tr = add_obs_noise(x_tr, args.obs_noise, feats, seed=11)
+        x_ho = add_obs_noise(x_ho, args.obs_noise, feats, seed=22)
         th_ho, x_ho = th_ho[: args.n_heldout_eval], x_ho[: args.n_heldout_eval]
         n_panels = len(pid_tr.unique())
         log.info(f"=== {k} waves ({ages}) | train {len(th_tr)} windows from "
@@ -290,6 +320,7 @@ def main() -> None:
             th_sbc, x_sbc, ids = window_panel(
                 sbc_panels, sbc_thetas.numpy(), k=1, n_waves=k, seed=4242, **win
             )
+            x_sbc = add_obs_noise(x_sbc, args.obs_noise, feats, seed=33)
             entry["calibration"] = calibration_scores(
                 post, PHASE3, th_sbc, x_sbc,
                 n_post=args.n_post, out_dir=args.out, tag=f"{k}w",
@@ -307,6 +338,7 @@ def main() -> None:
         "train_n": args.train_n, "train_seed": args.train_seed,
         "batch_size": args.batch_size, "learning_rate": args.learning_rate,
         "per_sequence": args.per_sequence,
+        "obs_noise": args.obs_noise,
         "features": list(FEATURE_SETS[args.features]) if args.features else None,
         "n_sbc": args.n_sbc, "n_post": args.n_post,
         "n_heldout_eval": args.n_heldout_eval,

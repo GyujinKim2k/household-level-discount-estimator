@@ -269,3 +269,150 @@ PSID microdata is not in the repository — see `PSID_DATA.md` for the variable
 codes needed to re-pull it. Six Data Center extracts are used: `J364786` (IND
 linkage), `J364817` (FAM superset), `J364913` (education), `J364914` (rental
 value). `J364812`, `J364814` and `J364816` are strict subsets of `J364817`.
+
+---
+
+## 9. Regeneration gates
+
+Before spending ~9.5 GPU-days regenerating the training set with household
+heterogeneity, four candidate sources were priced at a **single fixed θ** =
+(0.8465, 0.9898, 4.5002), the posterior median. Holding θ fixed is the point:
+an earlier comparison used *pooled* simulated dispersion, which mixes in the
+whole uniform prior over θ and cannot answer whether `p(x|θ)` is too narrow.
+
+Each source is one GPU solve (~15 s via `twoasset_gpu.solve_batch`, against
+~28 min on one CPU core), so all of this cost minutes rather than days.
+
+```
+source                                widening   acts at
+education group (4 calib. blocks)       1.79x     every age, GROWS 1.04 -> 3.18
+income process (10-param bootstrap)     1.23x     every age
+returns (R_gamma +-2pp)                 1.08x     every age
+randomised initial wealth               1.00x     forgotten by age 35
+```
+
+### 9.1 Initial wealth is a dead end — the plan's §2 fails its own gate
+
+`scripts/gate_within_theta.py`. Widening from randomising the age-20 seed,
+by age band:
+
+```
+band     illiquid   liquid
+25-30      1.38      1.04
+31-34      1.05      1.02
+35-44      1.00      1.01
+45-55      1.00      1.00
+```
+
+The model is a buffer-stock model: it converges to its ergodic distribution and
+**forgets its initial condition** well before the ages the PSID sample covers.
+The gate's stated criterion — *"if `B/A ≈ 1`, regeneration cannot help and must
+not run"* — is met at exactly the ages that matter.
+
+**A sign bug was found and fixed before this verdict was accepted.**
+`grids.credit_limit` returns the borrowing limit as a *positive magnitude*; the
+first version of the clamp read it as a signed floor, so every drawn household
+was forced to at least +5,000 liquid and the liquid dimension was never actually
+randomised. Re-running after the fix (`logs/gate2_fixed.log`) changes the numbers
+in the third decimal and none of the conclusions — PSID's liquid ratios are ~0
+for most households (p25 = p50 = 0.000), so a correct draw adds almost nothing
+on that axis either. The verdict stands, but it stands on the re-run.
+
+This does not generalise to the other sources, and that distinction is the
+substantive finding: **transient heterogeneity decays, persistent heterogeneity
+compounds.** Randomised initial wealth is still worth keeping as a free rider on
+a regeneration justified by something else (it costs no extra solve and gives
+1.38x for the youngest households), but it cannot justify one.
+
+Two wealth problems surfaced alongside, neither of them about dispersion.
+**A first pass described the illiquid one as a 16x level gap in medians; that
+was wrong** -- 41.8% of PSID household-waves at ages 25-30 sit at exactly zero
+illiquid, so the PSID median rests on a mass point created partly by our own
+non-negativity floor, and comparing medians across it measures the floor. By
+quantile the two distributions **cross**:
+
+```
+ages 25-30 illiquid        p10       p25       p50       p75       p90
+PSID                         0         0      1939     13106     44600
+model                    10000     24000     32000     40000     44000
+
+ages 35-44 illiquid
+PSID                         0         0     12882     70352    165611
+model                     4000     14000     40000     56000     84000
+```
+
+- **Illiquid: the model is far too compressed, not uniformly too high.** At
+  ages 25-30 its p90 nearly matches PSID's (44,000 vs 44,600) while its p10 is
+  10,000 against PSID's 0 — the model generates **no poor households at all**.
+  By 35-44 the error reverses at the top: PSID's p90 is 165,611 against the
+  model's 84,000. Both tails are missing, which is the same
+  cannot-generate-dispersion story as section 9.2, seen in levels.
+- **Liquid: the model puts most households in credit-card debt and PSID does
+  not.** At ages 35-44 the simulated p75 is still -1,000, so over 75% of
+  simulated households are borrowing, against 21.3% of PSID household-waves.
+  Simulated median liquid is negative at every age (-3,000 to -13,000) where
+  PSID's is 0. This is the exact margin β is identified off, and it is a level
+  error no amount of added heterogeneity fixes.
+
+The age-20 seed itself is correctly ported: their `4_initialwealth.do:63` takes
+`r(p50)` of the typical-household-adjusted ratio for `AGE <= 24`. But it is
+computed on **credit-card holders only** (`drop if hasVisa != 1`), and our PSID
+sample is not card-restricted — deviation 1 in section 6 — so the seed describes
+a richer population than the one we apply it to.
+
+### 9.2 Education group is the source that works
+
+`scripts/gate_edu_mixture.py`. All three groups' first-stage estimates are in the
+replication package and differ far more than any within-group dispersion:
+
+```
+group      auto   vareps   varnu  agecoef    cons  C0_cred  med_liq
+comphs   0.8400   0.0571  0.0451   0.1350   7.563  0.16721  +0.0549
+somehs   0.8104   0.0588  0.0686   0.0794   8.209  0.00057  -0.0371
+compco   0.7624   0.0448  0.0303   0.2467   5.817  0.42195  +0.1923
+```
+
+Mixing the three uniformly widens `p(x|θ)` by **1.79x**, and the widening
+**grows with age** (1.04 at 25-30 to 3.18 at 45-55) rather than decaying,
+because education moves the income profile, AR(1), credit limit and initial
+wealth together at every age.
+
+It also moves the simulated spread toward PSID's on the features that were too
+narrow — illiquid at 35-44 goes from 0.54x PSID to 1.19x, income from 0.81x to
+1.09x.
+
+**Two caveats, stated rather than buried:**
+
+1. The mixture **over-widens liquid assets by 10-22x**. PSID's liquid IQR is
+   tiny (776-4,661) because most households sit at ~0; the model already
+   generated 4.8x too much liquid dispersion before any mixing. Education makes
+   a pre-existing liquid-side mismatch worse, not better.
+2. The comparison as run is **apples-to-oranges**: a 3-group mixture against a
+   comphs-only PSID sample. The honest version needs the 1,635-household tensor
+   without the comphs filter. Uniform weighting also deliberately
+   over-represents somehs and compco relative to population shares.
+
+### 9.3 Income process and returns
+
+`scripts/gate_nuisance_mixture.py`. The single 10x10 `VCV_firststage_income.mat`
+covers the whole first stage — 7 profile coefficients then 3 AR(1) parameters —
+so all ten are drawn jointly rather than the AR(1) alone.
+
+Income process gives **1.23x**, concentrated where it is needed: illiquid 2.00x
+at 25-30, 1.43x at 35-44, 1.50x at 45-55. Returns give **1.08x** and are
+marginal.
+
+**The conceptual objection stands and is not resolved by the number.** This
+bootstrap is *sampling uncertainty in a group-level estimate*, not household
+heterogeneity — the relative sd runs from 3.4% on the constant to **62% on
+`kidscoeff`**, which is a statement about how precisely the coefficient was
+estimated, not about how much households differ. Returns have no calibrated
+dispersion at all; +-2pp is a chosen sensitivity. Both must be reported as
+sensitivity ranges, never as estimated quantities.
+
+### 9.4 Status
+
+Gate 1 (observation noise, σ=0.30 in logs on the four dollar features,
+5-seed retrain) is running. It is the cheap fix: if reporting error accounts for
+the misfit, the regeneration is unnecessary regardless of §9.2. Regeneration
+proceeds only if Gate 1 fails.
