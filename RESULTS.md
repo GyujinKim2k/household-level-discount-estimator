@@ -748,6 +748,32 @@ The run is resumable — `generate_dataset.py` skips existing shards — and the
 education draw is taken from the run seed, so a shard written after an
 interruption describes the same draw it would have originally.
 
+**Run log.** Started 2026-09-08 01:52 UTC.
+
+```
+stage 1  SBC simulations   3.46 h   (predicted 3.5)
+         educ counts [335 342 323] over 1000 draws, uniform target 333
+         same thetas as the comphs cache, different panels -- so SBC now
+         differs from the previous run in the generative process only
+stage 2  generation        started 05:20 UTC, 12.5 s/sample, ETA 9.40 d
+         shard size 16.0 MB x 128 = 2.05 GB (projected 2.18)
+```
+
+SBC uses **M = 1**, not M = 8. It validates `q(θ | x)` for a *single*
+observation, and each training row is one household's `x`, so one household per
+θ is the marginal each row is drawn from. M > 1 would give M observations per θ
+and muddle the rank computation.
+
+The precheck's 13.07 s/draw overstated, as expected: 32 draws is three partial
+batches against a `theta_batch` of 16, average fill 10.7. At `block = 512` the
+fill is 15.5 and the measured rate is 12.5 s/sample, which is the figure the
+9.4-day budget was built on.
+
+First shard verified rather than assumed: 512 draws, `M = 8`, `x` of
+(4096, 7, 4) = 512 × 8, `educ` of length 512 (draws, not rows), 100% alive, and
+the income ordering somehs 33,000 < comphs 49,000 < compco 78,000 reproducing on
+simulated data what §10.6 finds independently in PSID.
+
 **One accepted imperfection.** With education grouped before solving, each
 group's last batch within a block is partial, and `solve_batch` is reproducible
 only at a fixed `theta_batch`. That is a tie-breaking difference, not an error:
