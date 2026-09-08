@@ -351,8 +351,7 @@ model                     4000     14000     40000     56000     84000
   not.** At ages 35-44 the simulated p75 is still -1,000, so over 75% of
   simulated households are borrowing, against 21.3% of PSID household-waves.
   Simulated median liquid is negative at every age (-3,000 to -13,000) where
-  PSID's is 0. This is the exact margin β is identified off, and it is a level
-  error no amount of added heterogeneity fixes.
+  PSID's is 0. See §9.5 — this one is not about heterogeneity at all.
 
 The age-20 seed itself is correctly ported: their `4_initialwealth.do:63` takes
 `r(p50)` of the typical-household-adjusted ratio for `AGE <= 24`. But it is
@@ -416,3 +415,49 @@ Gate 1 (observation noise, σ=0.30 in logs on the four dollar features,
 5-seed retrain) is running. It is the cheap fix: if reporting error accounts for
 the misfit, the regeneration is unnecessary regardless of §9.2. Regeneration
 proceeds only if Gate 1 fails.
+
+### 9.5 The credit-card margin is wrong at every θ, including theirs
+
+`scripts/borrowing_margin.py`. Share of households in net credit-card debt:
+
+```
+ages           PSID   ours (posterior median)        Laibson et al. MSM
+25-30         19.5%                     47.0%                     61.2%
+31-34         22.0%                     71.1%                     59.2%
+35-44         21.3%                     76.1%                     56.1%
+45-55         21.4%                     77.6%                     49.6%
+```
+
+The two-asset model exists to explain the **credit-card debt puzzle** —
+households holding illiquid wealth while revolving expensive card debt — and
+that is also the margin β is identified off: present bias is what makes a
+household borrow at 10.59% while holding an asset returning 5%. So this is the
+one moment the model should get right.
+
+It over-generates borrowers by 2.5–3.5×, **at Laibson et al.'s own MSM estimate
+as well as ours**. That rules out the parameters we recovered as the cause. It
+also rules out heterogeneity as the fix: this is the location of the whole
+distribution, not its width, and §9.1–9.4 are all about width.
+
+PSID's borrowing share is essentially **flat in age** (19.5 / 22.0 / 21.3 /
+21.4). The model's is steeply age-varying and *in opposite directions at the two
+θ* — rising 47%→78% at ours, falling 61%→50% at theirs. Whatever the model is
+doing on this margin, it is not what the data do.
+
+Construction is comparable on both sides, which is why the comparison is worth
+making: PSID `liquid` is checking/saving + CD/bonds − credit-card debt, a single
+net position, and the model's `X` is likewise a single net position, negative
+exactly when the household is borrowing.
+
+**Caveat.** Their α = 2.02 doubling of SCF card debt (§6, deviation 2) scales
+the *amount* owed, not the *incidence* of owing, so it moves this comparison far
+less than it moves debt levels — but households who deny card debt outright are
+still missed on the PSID side. Deviation 1 compounds it: their sample is
+conditional on *holding* a card and ours is not, so our denominator includes
+households that cannot borrow at all. Both push the same way, and neither is
+remotely large enough to close a 3× gap.
+
+**This displaces heterogeneity as the leading explanation for β.** §7.1 proposed
+that missing precautionary motives are routed through ρ; that still stands for
+ρ. But β is identified off borrowing, and borrowing is misfit by 3× before any
+parameter is estimated. Any β this project reports is conditional on that.
