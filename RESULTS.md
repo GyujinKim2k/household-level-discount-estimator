@@ -421,12 +421,20 @@ proceeds only if Gate 1 fails.
 `scripts/borrowing_margin.py`. Share of households in net credit-card debt:
 
 ```
-ages           PSID   ours (posterior median)        Laibson et al. MSM
-25-30         19.5%                     47.0%                     61.2%
-31-34         22.0%                     71.1%                     59.2%
-35-44         21.3%                     76.1%                     56.1%
-45-55         21.4%                     77.6%                     49.6%
+ages      PSID gross  PSID net   ours (post. median)   Laibson et al. MSM
+25-30          31.5%     19.5%                 47.0%                61.2%
+31-34          34.3%     22.0%                 71.1%                59.2%
+35-44          34.3%     21.3%                 76.1%                56.1%
+45-55          37.9%     21.4%                 77.6%                49.6%
 ```
+
+**Two denominators, because the model admits only one account.** Its `X` is a
+single net position: a household cannot hold cash and card debt at once, they
+*are* the same account. PSID households can and do — **13.9% of household-waves
+hold card debt alongside non-negative net liquid**, and the model cannot
+represent them at all. So PSID's gross incidence (35.2%) and its net-negative
+share (21.3%) bracket what `X < 0` is trying to be, and the overshoot is quoted
+against the bracket: **1.5–2.2× against gross, 2.4–3.6× against net.**
 
 The two-asset model exists to explain the **credit-card debt puzzle** —
 households holding illiquid wealth while revolving expensive card debt — and
@@ -434,8 +442,8 @@ that is also the margin β is identified off: present bias is what makes a
 household borrow at 10.59% while holding an asset returning 5%. So this is the
 one moment the model should get right.
 
-It over-generates borrowers by 2.5–3.5×, **at Laibson et al.'s own MSM estimate
-as well as ours**. That rules out the parameters we recovered as the cause. It
+It over-generates borrowers by **1.5–3.6× depending on the denominator, at
+Laibson et al.'s own MSM estimate as well as ours**. That rules out the parameters we recovered as the cause. It
 also rules out heterogeneity as the fix: this is the location of the whole
 distribution, not its width, and §9.1–9.4 are all about width.
 
@@ -444,18 +452,13 @@ PSID's borrowing share is essentially **flat in age** (19.5 / 22.0 / 21.3 /
 θ* — rising 47%→78% at ours, falling 61%→50% at theirs. Whatever the model is
 doing on this margin, it is not what the data do.
 
-Construction is comparable on both sides, which is why the comparison is worth
-making: PSID `liquid` is checking/saving + CD/bonds − credit-card debt, a single
-net position, and the model's `X` is likewise a single net position, negative
-exactly when the household is borrowing.
-
 **Caveat.** Their α = 2.02 doubling of SCF card debt (§6, deviation 2) scales
 the *amount* owed, not the *incidence* of owing, so it moves this comparison far
 less than it moves debt levels — but households who deny card debt outright are
 still missed on the PSID side. Deviation 1 compounds it: their sample is
 conditional on *holding* a card and ours is not, so our denominator includes
 households that cannot borrow at all. Both push the same way, and neither is
-remotely large enough to close a 3× gap.
+remotely large enough to close even the 1.5× low end.
 
 **This displaces heterogeneity as the leading explanation for β.** §7.1 proposed
 that missing precautionary motives are routed through ρ; that still stands for
