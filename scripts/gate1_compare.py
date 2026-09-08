@@ -19,8 +19,20 @@ two findings that motivated the regeneration in the first place:
 mechanically: a wider ``p(x|theta)`` means less information per household, so
 within-household sd rises and the between/within ratio falls even when nothing
 real has changed. A ratio that *drops* is therefore not evidence of anything --
-it is the null result dressed up. The pass condition is the pileup falling
-*and* the beta ratio rising.
+it is the null result dressed up.
+
+**And that is not sufficient either**, which the first version of this script
+got wrong. Those two conditions alone cannot separate "noise revealed that the
+sharp estimates were overconfident" from "noise destroyed the signal" -- both
+push the pileup down, because a posterior wide enough stops concentrating
+anywhere near a boundary. The separating evidence is **recovery on held-out
+simulated data, where the truth is known**: an honest observation model costs
+some precision, but if the network can no longer recover parameters it
+demonstrably could recover before, the movement on PSID is information loss
+wearing a finding's clothes.
+
+So the pass condition is the pileup falling, the beta ratio rising, **and**
+held-out recovery surviving.
 
 Usage::
 
@@ -81,6 +93,33 @@ def draws_for(posts, x, i, n_post):
     return d[((d >= lo) & (d <= hi)).all(axis=1)]
 
 
+def recovery(base_ens: Path, noisy_ens: Path):
+    """Held-out recovery, both ensembles. Simulated data, so truth is known.
+
+    ``corr`` is the correlation between the posterior mean and the true theta
+    across held-out draws, and ``mae`` the mean absolute error. Neither can be
+    computed on PSID -- there is no truth there -- which is exactly why this is
+    the check that separates an honest observation model from a destroyed one.
+    """
+    out = {}
+    print("\n=== held-out recovery on SIMULATED data (truth known) ===")
+    print(f"{'':10s}{'corr base':>11s}{'corr noisy':>12s}"
+          f"{'mae base':>11s}{'mae noisy':>11s}{'mae change':>12s}")
+    for name, p in (("baseline", base_ens), ("noisy", noisy_ens)):
+        out[name] = json.loads((p / "results.json").read_text())["ensemble"]
+    worst = 0.0
+    for k in PHASE3.names:
+        e0, e1 = out["baseline"]["estimation"][k], out["noisy"]["estimation"][k]
+        d = e1["mae"] / e0["mae"] - 1.0
+        worst = max(worst, d)
+        print(f"{k:10s}{e0['corr']:11.3f}{e1['corr']:12.3f}"
+              f"{e0['mae']:11.4f}{e1['mae']:11.4f}{d:+12.1%}")
+    print(f"\nworst mae degradation: {worst:+.1%}")
+    return {"worst_mae_degradation": float(worst),
+            "baseline": out["baseline"]["estimation"],
+            "noisy": out["noisy"]["estimation"]}
+
+
 def report(tag, means, sd, in_box, draws):
     hi = np.asarray(PHASE3.high)
     lo = np.asarray(PHASE3.low)
@@ -115,6 +154,10 @@ def main() -> None:
     ap.add_argument("--x", type=Path,
                     default=Path("data/processed/psid_x_rental.pt"))
     ap.add_argument("--waves", type=int, default=7)
+    ap.add_argument("--base_ens", type=Path,
+                    default=Path("outputs/ensemble/flowfix_w7"))
+    ap.add_argument("--noisy_ens", type=Path,
+                    default=Path("outputs/ensemble/gate1_w7"))
     ap.add_argument("--n_post", type=int, default=6000)
     ap.add_argument("--out", type=Path, default=Path("outputs/gate1_psid"))
     args = ap.parse_args()
@@ -128,6 +171,8 @@ def main() -> None:
         res[tag] = report(tag, means, sd, in_box,
                           draws_for(posts, x, i, args.n_post))
 
+    rec = recovery(args.base_ens, args.noisy_ens)
+
     a, b = res["baseline (no noise)"], res["gate 1 (sigma=0.30)"]
     print("\n=== the two numbers the gate turns on ===")
     print(f"{'':22s}{'baseline':>10s}{'noisy':>10s}{'change':>10s}")
@@ -138,19 +183,32 @@ def main() -> None:
           f"{b['beta']['ratio']:10.2f}"
           f"{b['beta']['ratio'] - a['beta']['ratio']:+10.2f}")
 
+    print(f"{'rho between/within':22s}{a['crra']['ratio']:10.2f}"
+          f"{b['crra']['ratio']:10.2f}"
+          f"{b['crra']['ratio'] - a['crra']['ratio']:+10.2f}")
+
     pile_fell = b["crra"]["at_ceiling"] < a["crra"]["at_ceiling"] - 0.02
     ratio_rose = b["beta"]["ratio"] > a["beta"]["ratio"] + 0.05
-    print(f"\npileup fell materially: {pile_fell}")
-    print(f"beta ratio rose:        {ratio_rose}")
-    print("\nPASS (skip the regeneration) only if BOTH. A falling beta ratio is\n"
-          "the null result, not a finding: noise widens every posterior, so the\n"
-          "within-household sd rises mechanically whether or not anything real\n"
-          "changed.")
-    print(f"\nVERDICT: {'PASS' if (pile_fell and ratio_rose) else 'FAIL'}")
+    # 25% is generous: an observation model that is genuinely closer to the
+    # truth should cost little recovery, since it is not removing signal that
+    # was ever really there.
+    recovery_held = rec["worst_mae_degradation"] < 0.25
+    ok = pile_fell and ratio_rose and recovery_held
+    print(f"\npileup fell materially:   {pile_fell}")
+    print(f"beta ratio rose:          {ratio_rose}")
+    print(f"held-out recovery held:   {recovery_held}")
+    print("\nPASS (skip the regeneration) only if ALL THREE. The first two alone\n"
+          "cannot tell 'the sharp estimates were overconfident' from 'the signal\n"
+          "is gone' -- both push the pileup down, because a posterior wide enough\n"
+          "stops concentrating near any boundary.")
+    print(f"\nVERDICT: {'PASS' if ok else 'FAIL'}")
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "gate1_verdict.json").write_text(json.dumps(
-        {**res, "pass": bool(pile_fell and ratio_rose)}, indent=2))
+        {**res, "recovery": rec, "pass": bool(ok),
+         "criteria": {"pileup_fell": bool(pile_fell),
+                      "beta_ratio_rose": bool(ratio_rose),
+                      "recovery_held": bool(recovery_held)}}, indent=2))
     print(f"wrote {args.out}/gate1_verdict.json")
 
 

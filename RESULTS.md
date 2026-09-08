@@ -409,12 +409,59 @@ estimated, not about how much households differ. Returns have no calibrated
 dispersion at all; +-2pp is a chosen sensitivity. Both must be reported as
 sensitivity ranges, never as estimated quantities.
 
-### 9.4 Status
+### 9.4 Gate 1 — observation noise: FAIL
 
-Gate 1 (observation noise, σ=0.30 in logs on the four dollar features,
-5-seed retrain) is running. It is the cheap fix: if reporting error accounts for
-the misfit, the regeneration is unnecessary regardless of §9.2. Regeneration
-proceeds only if Gate 1 fails.
+`scripts/gate1_compare.py`. σ = 0.30 in logs on the four dollar features (age is
+exact in PSID and never perturbed), applied identically to the training,
+held-out and SBC windows, 5-seed retrain, then re-run on PSID.
+
+**The two numbers the gate was written to check both moved the "right" way:**
+
+```
+                        baseline     noisy    change
+rho at ceiling              9.3%      0.1%     -9.2pp
+beta between/within         0.80      0.87     +0.06
+```
+
+**That was a PASS on the criterion as originally written, and the criterion was
+wrong.** It had no guard against the estimates simply becoming uninformative,
+which is what happened. Held-out recovery on *simulated* data, where the truth
+is known:
+
+```
+            corr base  corr noisy   mae base  mae noisy  mae change
+beta            0.799       0.611     0.0906     0.1326      +46.4%
+delta           0.817       0.747     0.0174     0.0216      +24.1%
+crra            0.847       0.683     0.4220     0.7177      +70.1%
+```
+
+The network can no longer recover parameters it demonstrably recovered before.
+The tell is that **ρ between/within collapsed 6.62 → 0.79** — the project's one
+solid heterogeneity finding evaporates, because ρ's within-household sd widened
+8.3× (0.107 → 0.887). A posterior that wide stops concentrating near any
+boundary, which is the whole reason the ceiling pileup fell.
+
+The two readings — *"noise revealed the sharp estimates were overconfident"* and
+*"noise destroyed the signal"* — are **indistinguishable from the PSID numbers
+alone**, and separable only on simulated data. There the answer is unambiguous.
+
+The gate now carries a third condition, that held-out recovery must survive.
+Recording that the first version would have passed this run is the point: two
+sensible-looking criteria were not enough.
+
+### 9.5 Decision
+
+```
+Gate 1  observation noise      FAIL   destroys signal, does not explain misfit
+Gate 2  initial wealth         FAIL   forgotten by age 35
+Gate 2b education group        PASS   1.79x, grows with age
+Gate 2c income process         weak   1.23x, and the wrong object conceptually
+Gate 2c returns                weak   1.08x, no calibrated dispersion at all
+```
+
+Regeneration proceeds on the **narrowed scope**: education group as the
+justifying source, with the sources that cost no extra solve carried along.
+The four-source design in the original plan is not what survived.
 
 ### 9.5 The credit-card margin is wrong at every θ, including theirs
 
