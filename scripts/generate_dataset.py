@@ -38,6 +38,7 @@ from joblib import Parallel, delayed
 from hh_npe.data.dataset import save_dataset, shard_dir as _shard_dir
 from hh_npe.data.waves import FEATURES_TWOASSET, aggregate_waves
 from hh_npe.npe.prior import PHASE3, PriorBox, sample_sobol
+from hh_npe.simulator import laibson_calibration as cal
 from hh_npe.simulator.dispatch import (
     AGE_START_SIM, SIMULATORS, simulate_batch_twoasset_gpu,
 )
@@ -79,7 +80,8 @@ def _solver_config(args) -> dict:
     cfg = {"simulator": args.simulator, "grid": args.grid, "device": args.device,
            "start_age": args.start_age, "n_waves": args.n_waves,
            "wave_years": args.wave_years, "seed": args.seed,
-           "store_panel": _stores_panel(args)}
+           "store_panel": _stores_panel(args),
+           "n_households": args.n_households, "educ": args.educ}
     if args.device == "cuda":
         import torch
         cfg |= {"theta_batch": args.theta_batch, "chunk": args.chunk,
@@ -124,11 +126,17 @@ def assemble(out: Path, theta_np: np.ndarray, log_fn, window: dict | None = None
         log_fn("No shards found.")
         return False
 
-    xs, alives, expected, rewindowed = [], [], 0, 0
+    xs, alives, thetas, expected, rewindowed = [], [], [], 0, 0
     for sf in shards:
         d = np.load(sf)
         if int(d["lo"]) != expected:  # gap - stop at the contiguous prefix
             break
+        lo_i, hi_i = int(d["lo"]), int(d["hi"])
+        # M households per solve: the shard holds M rows per draw, so theta has
+        # to repeat alongside them. Read from the shard rather than assumed, so
+        # pre-M shards (which have no such field) stay correct at M=1.
+        m = int(d["n_households"]) if "n_households" in d.files else 1
+        thetas.append(np.repeat(theta_np[lo_i:hi_i], m, axis=0))
         panel = _panel_of(d)
         if panel and window:
             xi, ai = aggregate_waves(
@@ -158,7 +166,13 @@ def assemble(out: Path, theta_np: np.ndarray, log_fn, window: dict | None = None
 
     x_np = np.concatenate(xs)
     alive_np = np.concatenate(alives)
+    theta_rows = np.concatenate(thetas)
     n = x_np.shape[0]
+    if len(theta_rows) != n:
+        raise SystemExit(
+            f"{len(theta_rows)} theta rows for {n} x rows: the shards' "
+            f"n_households does not describe their contents."
+        )
     fully_alive = alive_np.all(axis=1)
     n_alive = int(fully_alive.sum())
     log_fn(
@@ -166,7 +180,7 @@ def assemble(out: Path, theta_np: np.ndarray, log_fn, window: dict | None = None
         f"survival filter keeps {n_alive} ({100 * n_alive / n:.1f}%)."
     )
 
-    theta = torch.from_numpy(theta_np[:n][fully_alive]).float()
+    theta = torch.from_numpy(theta_rows[fully_alive]).float()
     x = torch.from_numpy(x_np[fully_alive]).float()
     save_dataset(theta, x, out)
     log_fn(f"Saved (theta {tuple(theta.shape)}, x {tuple(x.shape)}) to {out}")
@@ -223,10 +237,27 @@ def main() -> None:
     parser.add_argument("--no_panel", action="store_true",
                         help="Do not store the annual panel in each shard. The "
                              "panel costs ~1 MB per 256 draws and no measurable "
-                             "time -- the solve is ~99% of the cost -- and it is "
+                             "time -- the solve is ~99%% of the cost -- and it is "
                              "what makes the observation window changeable "
                              "afterwards. Without it, a different --n_waves "
                              "means generating the whole dataset again.")
+    parser.add_argument("--n_households", type=int, default=1,
+                        help="Households simulated per solve. The forward pass "
+                             "is negligible against the solve, so M>1 is nearly "
+                             "free and gives genuine independent draws from "
+                             "p(x|theta) -- unlike the `k` window augmentation, "
+                             "which reuses one trajectory. Rows are grouped by "
+                             "draw, M consecutive rows per theta.")
+    parser.add_argument("--educ", choices=["comphs", "mixed"], default="comphs",
+                        help="'comphs' is Laibson et al.'s benchmark group and "
+                             "every result before Phase 4. 'mixed' draws an "
+                             "education group uniformly per Sobol draw, which "
+                             "widens p(x|theta) by 1.79x and is the only "
+                             "heterogeneity source that survived the gates "
+                             "(RESULTS.md 9.2). Uniform, not population shares: "
+                             "equal draws per group support a separate per-group "
+                             "model, and a representative result is recovered by "
+                             "reweighting.")
     parser.add_argument("--verbose", type=int, default=0)
     args = parser.parse_args()
 
@@ -238,6 +269,12 @@ def main() -> None:
     fn = SIMULATORS[args.simulator]
     store_panel = _stores_panel(args)
     theta_np = sample_sobol(args.n_samples, box, seed=args.seed)
+    # Drawn once, from the run seed, so it is identical on every resume: a
+    # shard written today and one written after an interruption must describe
+    # the same draw. Uniform over the three groups.
+    educ_np = (None if args.educ == "comphs" else
+               np.random.default_rng(args.seed).integers(
+                   0, len(cal.EDUC_GROUPS), size=args.n_samples))
     window = {"start_age": args.start_age, "n_waves": args.n_waves,
               "wave_years": args.wave_years}
 
@@ -301,7 +338,8 @@ def main() -> None:
             out_batch = simulate_batch_twoasset_gpu(
                 theta_np[lo:hi], args.seed + lo + 1, args.start_age,
                 args.n_waves, args.wave_years, args.grid, args.theta_batch,
-                args.chunk, store_panel,
+                args.chunk, store_panel, args.n_households,
+                None if educ_np is None else educ_np[lo:hi],
             )
             xb, ab = out_batch[0], out_batch[1]
             if store_panel:
@@ -326,7 +364,14 @@ def main() -> None:
         # already end in .npz (np.savez appends the suffix otherwise, which
         # breaks the rename) and must not match the shard_*.npz glob.
         tmp = shard_dir / f".tmp_shard_{b:05d}.npz"
+        # The education index is stored per draw and cannot be recovered
+        # afterwards. Without it the dataset cannot be split per group,
+        # conditioned on, or reweighted to population shares -- which is the
+        # whole reason for drawing it. Forgetting this makes the run unusable
+        # for its stated purpose.
+        extra = {} if educ_np is None else {"educ": educ_np[lo:hi]}
         np.savez(tmp, x=xb, alive=ab, lo=lo, hi=hi,
+                 n_households=args.n_households, **extra,
                  **{PANEL_PREFIX + k: v for k, v in panels.items()})
         tmp.rename(sf)
 

@@ -511,3 +511,203 @@ remotely large enough to close even the 1.5× low end.
 that missing precautionary motives are routed through ρ; that still stands for
 ρ. But β is identified off borrowing, and borrowing is misfit by 3× before any
 parameter is estimated. Any β this project reports is conditional on that.
+
+### 9.6 Within-group initial wealth: carried as code, not used in generation
+
+`scripts/gate_initwealth_marginal.py`. Gate 2 killed initial wealth as a
+*justification* for regenerating. It costs no extra solve, though — it is a
+forward-pass argument — so the remaining question was whether to carry it along
+anyway. That is a different question, because **education already moves initial
+wealth between groups** as one of its four blocks:
+
+```
+MED_LIQ_WEALTH     comphs +0.0549   somehs -0.0371   compco +0.1923
+MED_TOTAL_WEALTH   comphs  1.4696   somehs  1.0999   compco  3.5894
+```
+
+so what was undecided is only the *within*-group spread on top of that shift.
+Measured by holding θ and the three education solves fixed and varying only the
+forward-pass seeding, with each group's PSID draws recentred on its own SCF
+median:
+
+```
+band     marginal widening   share of PSID household-waves
+25-30          1.13x                     8.1%
+31-34          1.03x                    12.9%
+35-44          1.02x                    46.0%
+45-55          1.00x                    30.6%
+weighted by where our data is:  1.02x
+```
+
+**No, and the reason is not just that it is small.** The one place it acts is
+illiquid at ages 25-30 (1.50x), and that is precisely where the model is
+*already* over-dispersed: education-only illiquid IQR there is 32,000 against
+PSID's 13,106, and adding initial wealth takes it to 48,000. It moves the fit
+the wrong way at the only ages where it does anything.
+
+That is the Gate 1 failure mode restated — buying width the data does not ask
+for, at the cost of information per household. `simulate(initial_wealth=...)`
+stays in the code and stays tested; it is simply not exercised during
+generation.
+
+### 9.7 The principle Gate 1 established, applied to the remaining sources
+
+Gate 1 added noise to `x` *after* simulation: pure information destruction with
+no structural content, and recovery collapsed. Education is different in kind —
+households genuinely differ in their income profile and credit access, so the
+widening is real variation rather than added noise.
+
+But the decisive difference is that **education is observed in PSID**. That lets
+the posterior be *conditioned* on it, `q(θ | x, edu)`, which recovers the
+information the extra dispersion costs — exactly as `age` is already handled.
+An unobserved nuisance can only be marginalised, and marginalising is pure
+width: the Gate 1 mechanism with a nicer justification.
+
+```
+source                     widening   observed in PSID   verdict
+education group              1.79x           yes         IN, conditioned
+income process               1.23x           no          OUT
+returns (R_gamma)            1.08x           no          OUT
+within-group initial wealth  1.02x           n/a         OUT (section 9.6)
+M = 8 households per solve    n/a            n/a         IN (see below)
+```
+
+`M = 8` is the one unambiguous free win: `dispatch.py:108` simulates one
+household per 12.4 s solve, and the forward pass is negligible against the
+solve. These are genuine independent draws from `p(x | θ, nuisance)`, unlike the
+`k` window augmentation which reuses one trajectory. It adds no dispersion the
+data has to absorb — it reduces Monte Carlo error in the training target.
+
+The income-process bootstrap is dropped on both grounds at once: it is
+unobserved, *and* it was never the right object (§9.3 — a 62% relative sd on
+`kidscoeff` is estimation precision, not household variation).
+
+---
+
+## 10. Regeneration plumbing
+
+Implemented; the long run has not been started.
+
+### 10.1 `Calibration` bundles
+
+`grids.py` read `cal.*` module globals **at call time**, so a `ModelSpec` could
+not express "solve this draw as somehs" — it would return a comphs solution and
+nothing would complain. Two thirds of a mixed dataset would have been silently
+mislabelled.
+
+`laibson_calibration.Calibration` is a frozen bundle of the blocks education
+moves, with `COMPHS` / `SOMEHS` / `COMPCO` instances and `EDUC_GROUPS` fixing
+the index order (a reordering would relabel every stored draw).
+`ModelSpec.calib` carries the selected bundle, and every `grids.py` function
+takes it as `c`, defaulting to `COMPHS`.
+
+**Five blocks, not the four the plan named.** Demographics is education-varying
+too (`a1_kids` runs 0.262 / 0.358 / 0.576 across somehs / comphs / compco) and
+is included, because excluding it would give somehs households comphs family
+structure — incoherent, since family size enters both the income profile and the
+consumption equivalence scale. That couples to `scripts/typical_household.py`,
+whose `model_kids` / `model_depadul` re-centre PSID moments on the model's own
+demographic profile; both now take the bundle, so a per-group posterior must be
+re-centred on **its own** group's profile.
+
+Verification:
+
+- `python -m hh_npe.simulator.laibson_calibration` now checks **all three**
+  bundles bit-exactly against the `.mat` files (21 values each), plus that
+  `COMPHS` agrees with the module globals. A wrong value in `SOMEHS` or `COMPCO`
+  would disturb no existing result — it would only corrupt the two thirds of the
+  new dataset nothing else checks.
+- `tests/test_calibration_bundles.py` (34 tests): defaults are bit-identical to
+  explicit comphs at every level from `grids` up to a full `solve`, the bundle
+  demonstrably reaches the solver, and an explicit `psi` still overrides it.
+
+### 10.2 M households per solve
+
+`simulate_batch_twoasset_gpu(..., n_households=M)`. The forward pass is
+negligible against the ~12.4 s solve, so M > 1 is nearly free, and unlike the
+`k` window augmentation — which reuses one trajectory — these are genuine
+independent draws from `p(x | θ)`.
+
+**The load-bearing detail.** With M > 1 a shard holds M rows per θ.
+`build_windowed` now repeats θ across them while keeping `panel_id` as the
+**draw** index, because `_use_grouped_split` keys the train/validation split on
+that id: two households of one θ on opposite sides of the split leak exactly as
+two windows of one panel would, and neither the loss nor the coverage would show
+it. M is recovered from the row count, so pre-M shards — all 256 existing ones,
+which have no such field — keep working unchanged.
+
+Education draws are grouped **before** solving, because `solve_batch` shares one
+calibration across a GPU batch; mixing groups within a batch would silently
+solve them all as the first one. Households are seeded off the draw index rather
+than a running counter, so grouping does not change what any draw produces.
+
+### 10.3 What the shard records
+
+`educ` (per draw) and `n_households` are written into every shard and into
+`solver_config.json`. The education index cannot be recovered afterwards, and
+without it the dataset supports none of marginalising, conditioning, or
+reweighting to population shares — which is the entire reason for drawing it.
+
+Two bugs the end-to-end smoke test caught that no unit test would have:
+
+1. `assemble()` assumed one row per draw and crashed on the boolean mask
+   (`size of axis is 32 but ... 128`). It now repeats θ per household using the
+   shard's own `n_households`.
+2. `--help` crashed with `TypeError: %o format` — a pre-existing latent bug,
+   since argparse `%`-formats help text and an unescaped `~99% of` parses as a
+   conversion. Unrelated to this work, surfaced by it.
+
+Smoke test (32 draws, coarse grid, `--n_households 4 --educ mixed`):
+
+```
+educ counts over 32 draws   [10 10 12]     (uniform target ~10.7)
+panel rows                  64 = 16 draws x 4 households
+windowed                    128 rows, 32 unique panel_id, exactly 4 per draw
+theta constant within draw  yes
+households within a draw    differ
+median income by group      comphs 52000   somehs 30000   compco 72000
+```
+
+### 10.4 Choosing `k`
+
+`k` is **windows per simulated panel**, not waves per window. The chain is
+`θ ~ prior`, one solve, a full lifecycle panel over ages 20-90, then `k` random
+start ages, each cutting an `n_waves`-long observation window. Total rows are
+`draws × M × k`.
+
+**`k` is not a generation decision.** Shards store the annual panel and
+`build_windowed` cuts windows at training time, so `k` can be swept afterwards
+at zero solve cost. Only `M` is fixed at generation, because it changes what the
+shard contains.
+
+Direct evidence from the earlier sweep, all at `M = 1`:
+
+```
+        beta corr   rho corr   beta mae   rho mae
+k=5        0.752      0.817     0.1040    0.4927
+k=8        0.761      0.832     0.1007    0.4694
+k=10       0.760      0.828     0.1014    0.4662
+```
+
+It plateaus at 8. But **`M` and `k` substitute for start-age coverage and not
+for independence**: each of the `M` households draws its own start ages, so
+windows per θ is `M × k` either way. At `M=8, k=1` those 8 windows come from
+**8 independent households**; at `M=1, k=8` they come from **one trajectory** --
+overlapping years, one shared income-shock realisation.
+
+So `M=8, k=1` dominates the current `M=1, k=8`: identical row count
+(57,344 × 8 = 458,752), identical start-age coverage, identical training time,
+but every row is an independent draw from `p(x | θ)` rather than a correlated
+slice of one path. That independence is exactly what the network needs in order
+to learn the dispersion the education mixture adds.
+
+**Decision: generate at `M = 8`, train at `k = 1`.** Sweep `k = 2` afterwards as
+a cheap follow-up -- re-windowing only, no re-solving -- while expecting little
+from it, since 8 windows per θ was already the plateau and these 8 carry
+strictly more information than the old 8.
+
+### 10.5 Not yet done
+- SBC's cached `sbc_sims.pt` becomes invalid — simulated under the old model.
+- The PSID tensor still has the comphs filter; the per-group work needs all
+  1,635 households.
+- `--educ mixed` has not been run at scale. The 9.5-day generation is not started.

@@ -60,6 +60,11 @@ class ModelSpec:
     R_CC: float = cal.R_CC
     alpha: float = cal.ALPHA_BEQUEST
     betahat: float = 1.0
+    #: Education-group first-stage bundle. Defaults to ``comphs``, their
+    #: benchmark and every result before Phase 4's regeneration. Frozen, so it
+    #: is safe as a dataclass default. ``grids.py`` reads these at call time, so
+    #: this field is the only way a draw can be solved as a different group.
+    calib: cal.Calibration = cal.COMPHS
     # float64 by default. The argmax must resolve utility gaps of ~1e-5 while
     # |EV| ~ 1e2; float32 cannot, and silently inflates borrowing. ``_age_step``
     # centres EV to buy back most of that headroom, but centred float32 still
@@ -241,14 +246,14 @@ def solve(
         age, spec.xjump, spec.xmax, spec.x_cells_per_step
     )
     Z = grids.illiquid_grid(spec.zjump, spec.zmax, spec.z_cells_per_step)
-    states, P = grids.tauchen(n_states=spec.n_income_states)
+    states, P = grids.tauchen(n_states=spec.n_income_states, c=spec.calib)
     nX, nZ, nS = len(X), len(Z), spec.n_income_states
 
-    hhs = grids.effective_hh_size(age)
-    ymean = grids.mean_log_income(age)
-    ylevel = grids.mean_income(age)
+    hhs = grids.effective_hh_size(age, spec.calib)
+    ymean = grids.mean_log_income(age, spec.calib)
+    ylevel = grids.mean_income(age, spec.calib)
     zliqpen = grids.liquidation_penalty(age)
-    xmin = grids.credit_limit(age, spec.xjump)
+    xmin = grids.credit_limit(age, spec.xjump, spec.calib)
     death = cal.DEATH_PROB
     mean_hhs, mean_hhy = hhs.mean(), ylevel.mean()
 
@@ -317,7 +322,7 @@ def _expectation_step(
     for s2 in range(nS):
         probs, levels = grids.discretize_transitory(
             float(ymean_t + states[s2]),
-            xjump=spec.xjump, xmax=spec.xmax, xmin=xmin_t,
+            xjump=spec.xjump, xmax=spec.xmax, xmin=xmin_t, c=spec.calib,
         )
         acc = np.zeros((nX, nZ), dtype=np.float64)
         for p, y in zip(probs, levels):
@@ -389,9 +394,9 @@ def simulate(
     T, nS = len(sol.age), spec.n_income_states
     N = n_households
 
-    ymean = grids.mean_log_income(sol.age)
-    ylevel = grids.mean_income(sol.age)
-    xmin = grids.credit_limit(sol.age, spec.xjump)
+    ymean = grids.mean_log_income(sol.age, spec.calib)
+    ylevel = grids.mean_income(sol.age, spec.calib)
+    xmin = grids.credit_limit(sol.age, spec.xjump, spec.calib)
 
     # --- persistent income state path ------------------------------------
     state_idx = np.empty((N, T), dtype=np.int64)
@@ -413,7 +418,7 @@ def simulate(
                 continue
             probs, levels = grids.discretize_transitory(
                 float(ymean[t] + sol.states[s]),
-                xjump=spec.xjump, xmax=spec.xmax, xmin=xmin[t],
+                xjump=spec.xjump, xmax=spec.xmax, xmin=xmin[t], c=spec.calib,
             )
             draw = np.searchsorted(np.cumsum(probs), u[rows])
             income[rows, t] = levels[np.clip(draw, 0, len(levels) - 1)]
@@ -444,8 +449,8 @@ def simulate(
         xind = _nearest_index(X, x0).astype(np.int64)
         zind = _nearest_index(Z, np.clip(w[:, 1] * y0, 0.0, Z[-1])).astype(np.int64)
     iz = int(_nearest_index(Z, np.array(
-        [(cal.MED_TOTAL_WEALTH - cal.MED_LIQ_WEALTH) * y0]))[0])
-    ix0 = int(_nearest_index(X, np.array([cal.MED_LIQ_WEALTH * y0]))[0])
+        [(spec.calib.med_total_wealth - spec.calib.med_liq_wealth) * y0]))[0])
+    ix0 = int(_nearest_index(X, np.array([spec.calib.med_liq_wealth * y0]))[0])
     ix0 = max(ix0, int(np.argmin(np.abs(X))))
 
     # --- decisions --------------------------------------------------------

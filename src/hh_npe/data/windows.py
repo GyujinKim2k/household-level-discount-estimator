@@ -197,7 +197,19 @@ def build_windowed(
                 f"{sf.name} stores no annual panel, so windows cannot be cut "
                 f"from it. Only runs generated after the panel change qualify."
             )
-        n_panels = hi - lo
+        n_draws = hi - lo
+        # M households per solve: the panel holds n_draws * M rows, M
+        # consecutive rows sharing one theta. Recovered from the row count
+        # rather than a stored field so pre-M shards, which have neither, keep
+        # working unchanged.
+        rows = len(next(iter(panel.values())))
+        m = rows // n_draws
+        if rows != n_draws * m:
+            raise SystemExit(
+                f"{sf.name} holds {rows} panel rows for {n_draws} draws, which "
+                f"is not a whole number of households per draw."
+            )
+        n_panels = rows
         if fixed_start is not None:
             starts = np.full((n_panels, 1), fixed_start)
         else:
@@ -206,7 +218,13 @@ def build_windowed(
             starts = sample_start_ages(n_panels, k, start_low, start_high,
                                        seed=seed + lo)
 
-        th, x, ids_ = cut_windows(panel, theta_all[lo:hi], lo + np.arange(n_panels),
+        # theta repeats per household, but the id stays the DRAW index. This is
+        # load-bearing: `_use_grouped_split` keys the train/validation split on
+        # this id, and two households sharing a theta on opposite sides of the
+        # split leak exactly as two windows of one panel would.
+        th_draw = np.repeat(theta_all[lo:hi], m, axis=0)
+        ids_draw = np.repeat(lo + np.arange(n_draws), m)
+        th, x, ids_ = cut_windows(panel, th_draw, ids_draw,
                                   starts, n_waves, wave_years, features, flow_agg)
         thetas.append(th)
         xs.append(x)

@@ -117,14 +117,14 @@ def solve_batch(
     T = len(age)
     X_np, feas_np = grids.liquid_grid(age, spec.xjump, spec.xmax, spec.x_cells_per_step)
     Z_np = grids.illiquid_grid(spec.zjump, spec.zmax, spec.z_cells_per_step)
-    states_np, P_np = grids.tauchen(n_states=spec.n_income_states)
+    states_np, P_np = grids.tauchen(n_states=spec.n_income_states, c=spec.calib)
     nX, nZ, nS = len(X_np), len(Z_np), spec.n_income_states
 
-    hhs = grids.effective_hh_size(age)
-    ymean = grids.mean_log_income(age)
-    ylevel = grids.mean_income(age)
+    hhs = grids.effective_hh_size(age, spec.calib)
+    ymean = grids.mean_log_income(age, spec.calib)
+    ylevel = grids.mean_income(age, spec.calib)
     zliqpen = grids.liquidation_penalty(age)
-    xmin = grids.credit_limit(age, spec.xjump)
+    xmin = grids.credit_limit(age, spec.xjump, spec.calib)
     death = cal.DEATH_PROB
     mean_hhs, mean_hhy = hhs.mean(), ylevel.mean()
 
@@ -146,6 +146,7 @@ def solve_batch(
             probs, levels = grids.discretize_transitory(
                 float(ymean[t] + states_np[s2]),
                 xjump=spec.xjump, xmax=spec.xmax, xmin=float(xmin[t]),
+                c=spec.calib,
             )
             idx = np.stack([_nearest_index_np(X_np, X_np + y) for y in levels])
             per_state.append((

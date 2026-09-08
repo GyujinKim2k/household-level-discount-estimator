@@ -16,6 +16,8 @@ Sources (their ``FirstStageParams.m``):
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 EDUC = "comphs"
@@ -131,6 +133,161 @@ def survival_share() -> np.ndarray:
     return np.concatenate([[1.0], np.cumprod(1.0 - DEATH_PROB[:-1])])
 
 
+# ---------------------------------------------------------------------------
+# Education-group bundles
+# ---------------------------------------------------------------------------
+# Their first stage is estimated separately for each education group, and
+# education moves FIVE blocks coherently at once: demographics, the income
+# profile, the income AR(1), the credit limit and initial wealth. Changing one
+# without the others produces a household that exists in no group.
+#
+# The module-level globals above remain the ``comphs`` values, so every existing
+# caller keeps its exact behaviour; ``COMPHS`` below is the same numbers in
+# bundle form, and ``__main__`` asserts that the two agree.
+#
+# Note the plan for this work spoke of *four* blocks. Demographics is a fifth,
+# and it is included because excluding it would give ``somehs`` households
+# ``comphs`` family structure -- incoherent, since family size enters both the
+# income profile and the consumption equivalence scale. See RESULTS.md 9.8 for
+# the coupling this creates with ``scripts/typical_household.py``.
+
+
+@dataclass(frozen=True)
+class Calibration:
+    """One education group's first-stage estimates, frozen.
+
+    Selected per Sobol draw during dataset generation and carried on
+    :class:`~hh_npe.simulator.twoasset.ModelSpec`, because ``grids.py`` reads
+    these at call time and would otherwise silently use ``comphs`` for every
+    group.
+    """
+
+    educ: str
+    a0_kids: float
+    a1_kids: float
+    a2_kids: float
+    a0_depadul: float
+    a1_depadul: float
+    a2_depadul: float
+    ywork_kidscoeff: float
+    ywork_spousecoeff: float
+    ywork_depadulcoeff: float
+    ywork_agecoeff: float
+    ywork_age2coeff: float
+    ywork_age3coeff: float
+    ywork_cons: float
+    ywork_auto: float
+    ywork_vareps: float
+    ywork_varnu: float
+    c0_credit: float
+    c1_credit: float
+    c2_credit: float
+    med_total_wealth: float
+    med_liq_wealth: float
+
+    @property
+    def ywork_sigmaeps(self) -> float:
+        """Derived, never stored: keeps sigma consistent with its variance."""
+        return float(np.sqrt(self.ywork_vareps))
+
+    @property
+    def ywork_sigmanu(self) -> float:
+        return float(np.sqrt(self.ywork_varnu))
+
+    @property
+    def hh_weight(self) -> tuple[float, float, float]:
+        """Not education-varying, but read through the bundle for uniformity."""
+        return HH_WEIGHT
+
+
+
+COMPHS = Calibration(
+    educ="comphs",
+    a0_kids=0.003410572104586154,
+    a1_kids=0.35821261723801895,
+    a2_kids=0.005081298245188375,
+    a0_depadul=4.585428728590593e-06,
+    a1_depadul=0.45178921907870556,
+    a2_depadul=0.004382787905395041,
+    ywork_kidscoeff=0.013492077455287167,
+    ywork_spousecoeff=0.31911520596187626,
+    ywork_depadulcoeff=0.23651044041995328,
+    ywork_agecoeff=0.13502511541998957,
+    ywork_age2coeff=-0.2221586353815037,
+    ywork_age3coeff=0.10646200599193933,
+    ywork_cons=7.563421249389648,
+    ywork_auto=0.8400135500431678,
+    ywork_vareps=0.05707941151455871,
+    ywork_varnu=0.04508554448217923,
+    c0_credit=0.16721227922042575,
+    c1_credit=-0.001869365470594639,
+    c2_credit=0.00013566344085291099,
+    med_total_wealth=1.4695795059204104,
+    med_liq_wealth=0.054860156774520885,
+)
+
+SOMEHS = Calibration(
+    educ="somehs",
+    a0_kids=0.024155518703213332,
+    a1_kids=0.26164753291855974,
+    a2_kids=0.0037738180548852317,
+    a0_depadul=0.00022634369133402177,
+    a1_depadul=0.31313322639280566,
+    a2_depadul=0.0030287279848345123,
+    ywork_kidscoeff=0.06424890369822132,
+    ywork_spousecoeff=0.24666779320064575,
+    ywork_depadulcoeff=0.22939700441126532,
+    ywork_agecoeff=0.07935888552454122,
+    ywork_age2coeff=-0.13075285174937756,
+    ywork_age3coeff=0.059983717141207066,
+    ywork_cons=8.209381103515625,
+    ywork_auto=0.8103632426445152,
+    ywork_vareps=0.05879097729894339,
+    ywork_varnu=0.06858134308308815,
+    c0_credit=0.0005713016795078744,
+    c1_credit=0.0003207173988604436,
+    c2_credit=0.00014744408720943427,
+    med_total_wealth=1.0999339818954468,
+    med_liq_wealth=-0.037107574939727786,
+)
+
+COMPCO = Calibration(
+    educ="compco",
+    a0_kids=1.868271709288051e-05,
+    a1_kids=0.5755466044648688,
+    a2_kids=0.007195086028678667,
+    a0_depadul=2.0411966527600334e-07,
+    a1_depadul=0.5353614844871469,
+    a2_depadul=0.0049253553181109345,
+    ywork_kidscoeff=-0.015060199432439038,
+    ywork_spousecoeff=0.2748529245104821,
+    ywork_depadulcoeff=0.1583187861103173,
+    ywork_agecoeff=0.24669308278336832,
+    ywork_age2coeff=-0.37224764208173683,
+    ywork_age3coeff=0.15859636729376456,
+    ywork_cons=5.817234039306641,
+    ywork_auto=0.7623831704307206,
+    ywork_vareps=0.04480460221277371,
+    ywork_varnu=0.030324849232566606,
+    c0_credit=0.4219486064021487,
+    c1_credit=-0.006960359652454074,
+    c2_credit=0.00019516738546471283,
+    med_total_wealth=3.5893962383270264,
+    med_liq_wealth=0.1923161268234253,
+)
+
+#: Education groups in a fixed order. The index is what gets recorded per draw
+#: during generation, so this order must never change: a reordering would
+#: silently relabel every stored nuisance draw.
+EDUC_GROUPS = ("comphs", "somehs", "compco")
+BUNDLES = {"comphs": COMPHS, "somehs": SOMEHS, "compco": COMPCO}
+
+
+def bundle(i: int) -> Calibration:
+    """The bundle for education index ``i``, in ``EDUC_GROUPS`` order."""
+    return BUNDLES[EDUC_GROUPS[i]]
+
+
 if __name__ == "__main__":  # re-extract from the replication package and verify
     from pathlib import Path
 
@@ -166,4 +323,39 @@ if __name__ == "__main__":  # re-extract from the replication package and verify
     for name, fresh, frozen in checks:
         np.testing.assert_allclose(np.ravel(fresh), np.ravel(frozen), rtol=0, atol=0)
         print(f"{name:14s} ok ({np.size(fresh)} values)")
+
+    # Every bundle, not just comphs. A wrong value in SOMEHS or COMPCO would
+    # not disturb any existing result -- it would only corrupt the two thirds
+    # of the regenerated dataset that nothing else checks.
+    blocks = [
+        ("demographics", "est_demographics",
+         ["a0_kids", "a1_kids", "a2_kids",
+          "a0_depadul", "a1_depadul", "a2_depadul"]),
+        ("income", "est_income",
+         ["ywork_kidscoeff", "ywork_spousecoeff", "ywork_depadulcoeff",
+          "ywork_agecoeff", "ywork_age2coeff", "ywork_age3coeff",
+          "ywork_cons"]),
+        ("income", "est_ar1", ["ywork_auto", "ywork_vareps", "ywork_varnu"]),
+        ("creditlim", "est_creditlim", ["c0_credit", "c1_credit", "c2_credit"]),
+        ("initwealth", "est_initwealth",
+         ["med_total_wealth", "med_liq_wealth"]),
+    ]
+    for g in EDUC_GROUPS:
+        bd = root / "LifecycleSimulation" / "input" / g
+        cb = BUNDLES[g]
+        n = 0
+        for fname, key, fields in blocks:
+            fresh = loadmat(bd / f"est_firststage_{fname}.mat")[key].squeeze()
+            np.testing.assert_allclose(
+                np.ravel(fresh), [getattr(cb, f) for f in fields],
+                rtol=0, atol=0)
+            n += len(fields)
+        print(f"bundle {g:8s} ok ({n} values)")
+
+    # The comphs bundle and the module globals are two copies of one thing.
+    for a, b in (("a0_kids", A0_KIDS), ("ywork_cons", YWORK_CONS),
+                 ("ywork_auto", YWORK_AUTO), ("c0_credit", C0_CREDIT),
+                 ("med_liq_wealth", MED_LIQ_WEALTH)):
+        assert getattr(COMPHS, a) == b, a
+    print("COMPHS bundle agrees with the module globals")
     print("all frozen calibration values match the replication package")

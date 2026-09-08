@@ -63,13 +63,20 @@ MARRIED = 1
 DOLLAR_FEATURES = (0, 1, 2, 3)     # income, consumption, liquid, illiquid
 
 
-def model_kids(age: np.ndarray) -> np.ndarray:
-    return cal.A0_KIDS * np.exp(cal.A1_KIDS * age - cal.A2_KIDS * age ** 2)
+# The moments are re-centred on the MODEL's own demographic profile, so these
+# must use the same education bundle the simulated data was generated under.
+# Demographics are group-varying (`a1_kids` runs 0.262 / 0.358 / 0.576 across
+# somehs / comphs / compco), so re-centring a somehs sample on the comphs
+# profile would compare each side to a different household.
 
 
-def model_depadul(age: np.ndarray) -> np.ndarray:
-    return (cal.A0_DEPADUL
-            * np.exp(cal.A1_DEPADUL * age - cal.A2_DEPADUL * age ** 2))
+def model_kids(age: np.ndarray, c: cal.Calibration = cal.COMPHS) -> np.ndarray:
+    return c.a0_kids * np.exp(c.a1_kids * age - c.a2_kids * age ** 2)
+
+
+def model_depadul(age: np.ndarray,
+                  c: cal.Calibration = cal.COMPHS) -> np.ndarray:
+    return c.a0_depadul * np.exp(c.a1_depadul * age - c.a2_depadul * age ** 2)
 
 
 #: National unemployment, FRED UNRATE annual means. Frozen as literals: the

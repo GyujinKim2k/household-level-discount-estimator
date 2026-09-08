@@ -33,39 +33,51 @@ def ages(age_start: int = cal.AGE_START, age_end: int = cal.AGE_END) -> np.ndarr
     return np.arange(age_start, age_end + 1, dtype=float)
 
 
-def household_composition(age: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+# Every function below takes the education bundle as ``c``, defaulting to
+# ``comphs`` so existing callers are unchanged. These used to read the module
+# globals at call time, which meant a ModelSpec could not express "solve this
+# draw as somehs" -- the solver would silently use comphs for every group.
+
+
+def household_composition(
+    age: np.ndarray, c: cal.Calibration = cal.COMPHS
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``(spouse, kids, dependent adults)`` at each age."""
     spouse = np.full_like(age, 2.0)
-    kids = cal.A0_KIDS * np.exp(cal.A1_KIDS * age - cal.A2_KIDS * age**2)
-    depadul = cal.A0_DEPADUL * np.exp(cal.A1_DEPADUL * age - cal.A2_DEPADUL * age**2)
+    kids = c.a0_kids * np.exp(c.a1_kids * age - c.a2_kids * age**2)
+    depadul = c.a0_depadul * np.exp(c.a1_depadul * age - c.a2_depadul * age**2)
     return spouse, kids, depadul
 
 
-def effective_hh_size(age: np.ndarray) -> np.ndarray:
+def effective_hh_size(
+    age: np.ndarray, c: cal.Calibration = cal.COMPHS
+) -> np.ndarray:
     """``effhhN_``: consumption-equivalent household size (baseline weights)."""
-    spouse, kids, depadul = household_composition(age)
-    w_spouse, w_depadul, w_kids = cal.HH_WEIGHT
+    spouse, kids, depadul = household_composition(age, c)
+    w_spouse, w_depadul, w_kids = c.hh_weight
     return w_spouse * spouse + w_depadul * depadul + w_kids * kids
 
 
-def mean_log_income(age: np.ndarray) -> np.ndarray:
+def mean_log_income(
+    age: np.ndarray, c: cal.Calibration = cal.COMPHS
+) -> np.ndarray:
     """``ymean_``: deterministic component of log household income."""
-    spouse, kids, depadul = household_composition(age)
+    spouse, kids, depadul = household_composition(age, c)
     return (
-        cal.YWORK_CONS
-        + cal.YWORK_AGECOEFF * age
-        + cal.YWORK_AGE2COEFF * age**2 / 100.0
-        + cal.YWORK_AGE3COEFF * age**3 / 10000.0
-        + cal.YWORK_SPOUSECOEFF * spouse
-        + cal.YWORK_KIDSCOEFF * kids
-        + cal.YWORK_DEPADULCOEFF * depadul
+        c.ywork_cons
+        + c.ywork_agecoeff * age
+        + c.ywork_age2coeff * age**2 / 100.0
+        + c.ywork_age3coeff * age**3 / 10000.0
+        + c.ywork_spousecoeff * spouse
+        + c.ywork_kidscoeff * kids
+        + c.ywork_depadulcoeff * depadul
     )
 
 
-def mean_income(age: np.ndarray) -> np.ndarray:
+def mean_income(age: np.ndarray, c: cal.Calibration = cal.COMPHS) -> np.ndarray:
     """``Ymean_``: mean income in levels (lognormal correction applied)."""
-    var_persistent = cal.YWORK_VAREPS / (1.0 - cal.YWORK_AUTO**2)
-    return np.exp(mean_log_income(age) + 0.5 * (var_persistent + cal.YWORK_VARNU))
+    var_persistent = c.ywork_vareps / (1.0 - c.ywork_auto**2)
+    return np.exp(mean_log_income(age, c) + 0.5 * (var_persistent + c.ywork_varnu))
 
 
 def liquidation_penalty(age: np.ndarray) -> np.ndarray:
@@ -77,14 +89,20 @@ def liquidation_penalty(age: np.ndarray) -> np.ndarray:
     return 0.5 / (1.0 + np.exp((age - 50.0) / 10.0))
 
 
-def credit_limit(age: np.ndarray, xjump: float) -> np.ndarray:
+def credit_limit(
+    age: np.ndarray, xjump: float, c: cal.Calibration = cal.COMPHS
+) -> np.ndarray:
     """``xmin_``: borrowing limit in dollars, rounded to the ``xjump`` lattice.
+
+    Returned as a POSITIVE magnitude: the floor on the liquid position is
+    ``-credit_limit(...)``. Reading it as a signed bound is a real bug we have
+    already made once (RESULTS.md 9.1).
 
     The limit is a quadratic in age as a *multiple of mean income*, scaled by
     ``Ymean_`` and snapped to the grid so it lands exactly on a grid point.
     """
-    creditline = cal.C0_CREDIT + cal.C1_CREDIT * age + cal.C2_CREDIT * age**2
-    return xjump * np.round(creditline * mean_income(age) / xjump)
+    creditline = c.c0_credit + c.c1_credit * age + c.c2_credit * age**2
+    return xjump * np.round(creditline * mean_income(age, c) / xjump)
 
 
 def _nonuniform_positive_grid(
@@ -154,10 +172,11 @@ def illiquid_grid(
 
 
 def tauchen(
-    psi: float = cal.YWORK_AUTO,
-    sigma_eps: float = cal.YWORK_SIGMAEPS,
+    psi: float | None = None,
+    sigma_eps: float | None = None,
     n_states: int = cal.N_INCOME_STATES,
     m: float = cal.AR1_GRID_SPAN,
+    c: cal.Calibration = cal.COMPHS,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Tauchen (1986) discretization of the persistent AR(1) log-income component.
 
@@ -170,6 +189,11 @@ def tauchen(
     """
     if n_states < 2:
         raise ValueError(f"n_states must be >= 2; got {n_states}")
+    # Defaults come from the bundle, not from module globals bound at import
+    # time, so passing ``c`` is enough to switch education group. An explicit
+    # psi/sigma_eps still wins, which the nuisance-sweep scripts rely on.
+    psi = c.ywork_auto if psi is None else psi
+    sigma_eps = c.ywork_sigmaeps if sigma_eps is None else sigma_eps
     sd = np.sqrt(sigma_eps**2 / (1.0 - psi**2))
     states = np.linspace(-m * sd, m * sd, n_states)
     step = states[1] - states[0]
@@ -193,11 +217,12 @@ def stationary(P: np.ndarray) -> np.ndarray:
 
 def discretize_transitory(
     y0: float,
-    sigma_nu: float = cal.YWORK_SIGMANU,
+    sigma_nu: float | None = None,
     xjump: float = 1000.0,
     xmax: float = 4e5,
     xmin: float = 0.0,
     purge: float = 1e5,
+    c: cal.Calibration = cal.COMPHS,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Discretize the iid transitory shock onto the income lattice.
 
@@ -209,6 +234,7 @@ def discretize_transitory(
 
     Returns ``(probs, income_levels)`` with ``probs`` summing to 1.
     """
+    sigma_nu = c.ywork_sigmanu if sigma_nu is None else sigma_nu
     lattice = np.arange(xjump, xmax + xmin + xjump / 2, xjump)
     log_y = np.log(lattice)
     pdf = norm.pdf(log_y, loc=y0, scale=sigma_nu)

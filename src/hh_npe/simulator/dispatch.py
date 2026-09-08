@@ -68,12 +68,27 @@ def simulate_one_twoasset(
 def simulate_batch_twoasset_gpu(
     thetas: np.ndarray, seed_base: int, start_age: int, n_waves: int,
     wave_years: int, grid: str = "full", theta_batch: int = 16, chunk: int = 16,
-    return_panels: bool = False,
+    return_panels: bool = False, n_households: int = 1,
+    educ: np.ndarray | None = None,
 ) -> tuple[np.ndarray, ...]:
     """Phase 3 on the GPU: many draws per backward induction, one panel each.
 
+    ``n_households`` simulates M households per solve instead of one. The
+    forward pass is negligible against the ~12.4 s solve, so this is nearly
+    free, and unlike the ``k`` window augmentation -- which reuses a single
+    trajectory -- these are genuine independent draws from ``p(x | theta)``.
+    Rows come out grouped by draw, ``M`` consecutive rows sharing one theta, so
+    the grouped train/validation split must key on the **draw** index and not
+    the row: two households of one theta on opposite sides of the split leak
+    exactly as same-panel windows would.
+
+    ``educ`` selects a per-draw education bundle by index into
+    ``cal.EDUC_GROUPS``. Draws are grouped by bundle before solving, because
+    ``solve_batch`` shares one calibration across a whole GPU batch -- mixing
+    groups within a batch would silently solve them all as the first one.
+
     ``return_panels`` additionally returns the annual panels, stacked over
-    draws, as a dict of ``(n_draws, T)`` arrays. Worth storing: the observation
+    draws, as a dict of ``(n_draws * n_households, T)`` arrays. Worth storing: the observation
     window (``start_age``, ``n_waves``, ``wave_years``) and the feature set are
     aggregation choices applied *after* the solve, which is ~99% of the cost.
     Keeping the panel makes any of them re-derivable without re-solving; keeping
@@ -90,35 +105,62 @@ def simulate_batch_twoasset_gpu(
     The forward pass and wave aggregation stay on the CPU and are shared with
     :func:`simulate_one_twoasset` verbatim; only the solver differs.
     """
+    import dataclasses
+
+    from hh_npe.simulator import laibson_calibration as cal
     from hh_npe.simulator.twoasset import GRIDS, simulate
     from hh_npe.simulator.twoasset_gpu import solve_batch
 
     if grid not in GRIDS:
         raise ValueError(f"unknown grid {grid!r}; expected one of {sorted(GRIDS)}")
+    if n_households < 1:
+        raise ValueError(f"n_households must be >= 1; got {n_households}")
+    if educ is not None and len(educ) != len(thetas):
+        raise ValueError(
+            f"educ has {len(educ)} entries for {len(thetas)} thetas")
 
     # Consume each sub-batch before solving the next: a Solution holds ~58 MB of
     # policy arrays, so accumulating a whole large block would exhaust host RAM.
     # The panels are far smaller -- ~4 KB per draw -- so holding those is fine.
-    xs, alives, panels = [], [], []
-    for s0 in range(0, len(thetas), theta_batch):
-        s1 = min(s0 + theta_batch, len(thetas))
-        sols = solve_batch(thetas[s0:s1], GRIDS[grid],
-                           theta_batch=theta_batch, chunk=chunk)
-        for i, sol in enumerate(sols):
-            panel = simulate(sol, n_households=1, seed=seed_base + s0 + i)
-            x, alive = aggregate_waves(
-                panel, age_start_sim=AGE_START_SIM, start_age=start_age,
-                n_waves=n_waves, wave_years=wave_years, features=FEATURES_TWOASSET,
-            )
-            xs.append(x[0])
-            alives.append(alive[0])
-            if return_panels:
-                panels.append(panel)
-        del sols
+    n = len(thetas)
+    # Results are written back by draw index, so grouping by education bundle
+    # for the solve does not disturb the caller's ordering.
+    xs: list[np.ndarray | None] = [None] * n
+    alives: list[np.ndarray | None] = [None] * n
+    panels: list[dict | None] = [None] * n
+    groups = ({0: np.arange(n)} if educ is None
+              else {g: np.flatnonzero(np.asarray(educ) == g)
+                    for g in np.unique(np.asarray(educ))})
+
+    for g, idx in groups.items():
+        spec = (GRIDS[grid] if educ is None else
+                dataclasses.replace(GRIDS[grid], calib=cal.bundle(int(g))))
+        for s0 in range(0, len(idx), theta_batch):
+            sel = idx[s0:s0 + theta_batch]
+            sols = solve_batch(thetas[sel], spec,
+                               theta_batch=theta_batch, chunk=chunk)
+            for j, sol in zip(sel, sols):
+                # Seed off the draw index, not a running counter: identical
+                # draws must give identical households however they are grouped.
+                panel = simulate(sol, n_households=n_households,
+                                 seed=seed_base + int(j))
+                x, alive = aggregate_waves(
+                    panel, age_start_sim=AGE_START_SIM, start_age=start_age,
+                    n_waves=n_waves, wave_years=wave_years,
+                    features=FEATURES_TWOASSET,
+                )
+                xs[j], alives[j] = x, alive
+                if return_panels:
+                    panels[j] = panel
+            del sols
+
+    x_out = np.concatenate(xs) if n_households > 1 else np.stack([v[0] for v in xs])
+    a_out = (np.concatenate(alives) if n_households > 1
+             else np.stack([v[0] for v in alives]))
     if return_panels:
         merged = {k: np.concatenate([p[k] for p in panels]) for k in panels[0]}
-        return np.stack(xs), np.stack(alives), merged
-    return np.stack(xs), np.stack(alives)
+        return x_out, a_out, merged
+    return x_out, a_out
 
 
 SIMULATORS = {"hark": simulate_one_hark, "twoasset": simulate_one_twoasset}
