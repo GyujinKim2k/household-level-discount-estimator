@@ -48,6 +48,7 @@ from hh_npe.evaluation.scoring import calibration_scores, estimation_scores
 from hh_npe.npe.embedder import TrajectoryTransformer
 from hh_npe.npe.prior import PHASE3, make_sbi_prior, sample_sobol
 from hh_npe.npe.train import save_posterior, train_npe
+from hh_npe.simulator import laibson_calibration as cal
 from hh_npe.simulator.dispatch import simulate_batch_twoasset_gpu
 from hh_npe.utils.seeding import seed_all
 
@@ -91,23 +92,35 @@ def split_shards(shard_files: list[Path], train_n: int):
 
 
 def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
-                      cache: Path | None = None):
+                      cache: Path | None = None, educ: str = "comphs"):
     """One GPU pass; the panels are re-windowed per window afterwards.
 
     Cached to disk because this is hours of GPU and everything downstream is
     seconds: a crash after the solves should cost a rerun of the seconds, not
     of the hours. It did once.
+
+    ``educ`` must match how the training set was generated. SBC asks whether the
+    posterior is calibrated for *its own* generative process; validating a
+    marginalised posterior against comphs-only simulations would measure the
+    mismatch instead of the calibration, and would look like miscalibration that
+    no amount of training could fix. It is part of the cache key for the same
+    reason -- silently reusing a comphs cache under ``mixed`` is the exact trap.
     """
     if cache is not None and cache.exists():
         d = torch.load(cache, weights_only=False)
-        if d["n_sbc"] == n_sbc and d["seed"] == seed:
+        cached_educ = d.get("educ", "comphs")
+        if d["n_sbc"] == n_sbc and d["seed"] == seed and cached_educ == educ:
             log.info(f"Reusing {n_sbc} cached SBC simulations from {cache}")
             return d["thetas"], d["panels"]
-        log.warning(f"{cache} holds n_sbc={d['n_sbc']} seed={d['seed']}; "
-                    f"need {n_sbc}/{seed}. Re-simulating.")
+        log.warning(f"{cache} holds n_sbc={d['n_sbc']} seed={d['seed']} "
+                    f"educ={cached_educ}; need {n_sbc}/{seed}/{educ}. "
+                    f"Re-simulating.")
     prior = make_sbi_prior(PHASE3)
     torch.manual_seed(seed)
     thetas = prior.sample((n_sbc,))
+    educ_idx = (None if educ == "comphs" else
+                np.random.default_rng(seed).integers(
+                    0, len(cal.EDUC_GROUPS), size=n_sbc))
     t0 = time.time()
     # n_waves here only sizes the throwaway `x`; the panels are what we keep,
     # and they get windowed per arm afterwards.
@@ -116,13 +129,14 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
         grid=solver_config.get("grid", "full"),
         theta_batch=solver_config["theta_batch"],
         chunk=solver_config["chunk"],
-        return_panels=True,
+        return_panels=True, educ=educ_idx,
     )
     log.info(f"SBC simulations done in {(time.time() - t0) / 3600:.2f} h")
     if cache is not None:
         cache.parent.mkdir(parents=True, exist_ok=True)
         torch.save({"thetas": thetas, "panels": panels, "n_sbc": n_sbc,
-                    "seed": seed, "solver_config": solver_config}, cache)
+                    "seed": seed, "solver_config": solver_config,
+                    "educ": educ, "educ_idx": educ_idx}, cache)
         log.info(f"Cached SBC simulations to {cache}")
     return thetas, panels
 
@@ -204,6 +218,11 @@ def main() -> None:
                         "seeds, so this isolates optimization noise -- use it to "
                         "tell a real calibration difference from scatter.")
     p.add_argument("--out", type=Path, default=Path("outputs/window_comparison"))
+    p.add_argument("--educ", choices=["comphs", "mixed"], default="comphs",
+                   help="How the training shards were generated. SBC "
+                        "simulations must use the same process, or calibration "
+                        "measures the mismatch rather than the posterior. Part "
+                        "of the --sbc_cache key.")
     p.add_argument("--sbc_cache", type=Path,
                    default=Path("outputs/window_comparison/sbc_sims.pt"),
                    help="Where the SBC panels are cached. Reused if it matches "
@@ -242,7 +261,8 @@ def main() -> None:
         log.info(f"Simulating {args.n_sbc} SBC draws once, shared across "
                  f"windows (solver config: {cfg})")
         sbc_thetas, sbc_panels = simulate_sbc_once(args.n_sbc, 20260822, cfg,
-                                                   cache=args.sbc_cache)
+                                                   cache=args.sbc_cache,
+                                                   educ=args.educ)
 
     theta_all = sample_sobol(args.n_total, PHASE3, seed=0)
     win = dict(start_low=args.start_low, start_high=args.start_high,

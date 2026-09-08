@@ -128,6 +128,26 @@ HAS_CCDEBT = dict(zip(WAVES, ["ER48936", "ER54686", "ER61797", "ER67851",
 SELFEMP_CODES = (2, 3)
 COMPHS_LO, COMPHS_HI = 12, 16     # SCF EDCL 2-3: HS degree or some college
 
+#: Their three education groups, from `2_buildmoments.do:69-74`:
+#:   somehs  EDCL 1    no high school degree nor equivalent
+#:   comphs  EDCL 2-3  high school degree, or some college
+#:   compco  EDCL 4    college degree
+#: PSID reports years completed rather than a category, so the cut points are
+#: the year equivalents of those categories. Order matches
+#: ``laibson_calibration.EDUC_GROUPS`` -- the index is what gets stored, so the
+#: two orderings must not drift apart.
+EDUC_GROUPS = ("comphs", "somehs", "compco")
+
+
+def educ_index(years: np.ndarray) -> np.ndarray:
+    """Group index per household; -1 where education is unusable."""
+    out = np.full(len(years), -1, dtype=np.int64)
+    ok = np.isfinite(years)
+    out[ok & (years < COMPHS_LO)] = EDUC_GROUPS.index("somehs")
+    out[ok & (years >= COMPHS_LO) & (years < COMPHS_HI)] = EDUC_GROUPS.index("comphs")
+    out[ok & (years >= COMPHS_HI)] = EDUC_GROUPS.index("compco")
+    return out
+
 
 def col(fam: pd.DataFrame, key: str, wave: int) -> pd.Series:
     v = FAM[key][wave]
@@ -149,6 +169,14 @@ def main() -> None:
                         "self-employed, no business or farm income. Cuts 2119 "
                         "to ~889. Required for the calibration to be the right "
                         "one for the sample.")
+    p.add_argument("--educ_groups", action="store_true",
+                   help="Keep all three education groups and record each "
+                        "household's group index, instead of restricting to "
+                        "comphs. Applies the rest of their sample filter (not "
+                        "self-employed, no business or farm income), which is "
+                        "group-independent. Needed for the per-group and "
+                        "conditioned posteriors; the comphs subset of this is "
+                        "exactly what --match_laibson produces.")
     p.add_argument("--require_card", action="store_true",
                    help="Additionally require card debt in at least one wave, "
                         "as a proxy for their hasVisa. PSID never asks about "
@@ -174,7 +202,7 @@ def main() -> None:
     keep = keep.to_numpy()
     print(f"head-in-all-7 cohort: {int(keep.sum())}")
 
-    if args.match_laibson or args.require_card:
+    if args.match_laibson or args.require_card or args.educ_groups:
         edu = pd.read_pickle(args.psid_dir / "edu.pkl")
         key = ["ER30001", "ER30002"]
         mm = (ind.loc[keep, key].reset_index(drop=True)
@@ -184,14 +212,20 @@ def main() -> None:
         def _col(df, c):
             return df[c].where(df[c] < MISSING_FROM, np.nan).to_numpy()
 
-        if args.match_laibson:
+        if args.match_laibson or args.educ_groups:
             v = mm[[ED_HD[y] for y in WAVES]].to_numpy()
             v = np.where((v > 0) & (v <= 17), v, np.nan)
             with np.errstate(invalid="ignore"):
                 ed = np.nanmedian(v, axis=1)     # education is time-invariant
-            sub &= (ed >= COMPHS_LO) & (ed < COMPHS_HI)
-            print(f"  + comphs education ({COMPHS_LO}-{COMPHS_HI - 1} yrs): "
-                  f"{int(sub.sum())}")
+            if args.educ_groups:
+                # Keep every group, but still require usable education: a
+                # household we cannot classify cannot be conditioned on.
+                sub &= np.isfinite(ed)
+                print(f"  + usable education: {int(sub.sum())}")
+            else:
+                sub &= (ed >= COMPHS_LO) & (ed < COMPHS_HI)
+                print(f"  + comphs education ({COMPHS_LO}-{COMPHS_HI - 1} yrs): "
+                      f"{int(sub.sum())}")
 
             se = np.column_stack([_col(fam.loc[keep], SELFEMP_HD[y])
                                   for y in WAVES])
@@ -213,6 +247,9 @@ def main() -> None:
 
         full = np.zeros(len(ind), bool)
         full[np.flatnonzero(keep)[sub]] = True
+        educ_all = np.full(len(ind), -1, dtype=np.int64)
+        if args.match_laibson or args.educ_groups:
+            educ_all[np.flatnonzero(keep)] = educ_index(ed)
         keep = full
 
     idx = np.flatnonzero(keep)
@@ -270,13 +307,22 @@ def main() -> None:
     print(f"complete on all waves and features: {int(ok.sum())}")
     x, idx = x[ok], idx[ok]
 
-    torch.save({"x": torch.from_numpy(x).float(),
-                "psid_row": torch.from_numpy(idx).long(),
-                "waves": WAVES,
-                "features": list(FEATURES_TWOASSET_AGE),
-                "units": "2010 USD (CPI-U, base 2010; simulator's units)"},
-               args.out)
+    payload = {"x": torch.from_numpy(x).float(),
+               "psid_row": torch.from_numpy(idx).long(),
+               "waves": WAVES,
+               "features": list(FEATURES_TWOASSET_AGE),
+               "units": "2010 USD (CPI-U, base 2010; simulator's units)"}
+    if args.match_laibson or args.educ_groups:
+        e = educ_all[idx]
+        payload |= {"educ": torch.from_numpy(e).long(),
+                    "educ_groups": list(EDUC_GROUPS)}
+    torch.save(payload, args.out)
     print(f"wrote {args.out}: x {tuple(x.shape)}")
+    if "educ" in payload:
+        for i, g in enumerate(EDUC_GROUPS):
+            print(f"  {g:8s} {int((e == i).sum()):5d}")
+        if (e < 0).any():
+            print(f"  unclassified {int((e < 0).sum())}")
 
     # --- the check that decides whether any of this is usable --------------
     # An amortized posterior is only valid on x inside its training support.

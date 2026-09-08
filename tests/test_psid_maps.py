@@ -108,3 +108,44 @@ def test_cpi_covers_every_year_used_and_is_based_on_2010():
 def test_unsecured_debts_present_in_all_waves(key):
     """These net out of illiquid wealth; a gap would silently inflate Z."""
     assert all(FAM[key][w] is not None for w in WAVES)
+
+
+# --- education groups ------------------------------------------------------
+# `2_buildmoments.do:69-74` defines their three groups by SCF EDCL:
+#   somehs EDCL 1, comphs EDCL 2-3, compco EDCL 4.
+# PSID reports years completed, so the mapping is by year equivalent. A wrong
+# cut point would silently assign households the wrong income process, credit
+# limit and initial wealth -- and nothing downstream would notice.
+
+def test_educ_index_matches_their_edcl_definitions():
+    import numpy as np
+
+    from scripts.build_psid_tensor import EDUC_GROUPS, educ_index
+
+    years = np.array([0.0, 8.0, 11.0, 12.0, 13.0, 15.0, 16.0, 17.0, np.nan])
+    got = educ_index(years)
+    hs, co, cc = (EDUC_GROUPS.index(g) for g in ("somehs", "comphs", "compco"))
+    assert list(got) == [hs, hs, hs, co, co, co, cc, cc, -1]
+
+
+def test_educ_group_order_matches_the_calibration_bundles():
+    """The stored index is read back through `laibson_calibration.EDUC_GROUPS`;
+    if the two orderings drift apart every household is relabelled."""
+    from hh_npe.simulator.laibson_calibration import EDUC_GROUPS as CAL_GROUPS
+    from scripts.build_psid_tensor import EDUC_GROUPS
+
+    assert EDUC_GROUPS == CAL_GROUPS
+
+
+def test_comphs_cut_points_are_the_ones_the_matched_sample_uses():
+    """--educ_groups and --match_laibson must agree on who is comphs, or the
+    comphs subset of the all-groups tensor stops reproducing the 889."""
+    import numpy as np
+
+    from scripts.build_psid_tensor import (COMPHS_HI, COMPHS_LO, EDUC_GROUPS,
+                                           educ_index)
+
+    years = np.arange(0.0, 18.0)
+    from_index = educ_index(years) == EDUC_GROUPS.index("comphs")
+    from_filter = (years >= COMPHS_LO) & (years < COMPHS_HI)
+    assert np.array_equal(from_index, from_filter)

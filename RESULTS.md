@@ -708,6 +708,101 @@ strictly more information than the old 8.
 
 ### 10.5 Not yet done
 - SBC's cached `sbc_sims.pt` becomes invalid — simulated under the old model.
-- The PSID tensor still has the comphs filter; the per-group work needs all
-  1,635 households.
-- `--educ mixed` has not been run at scale. The 9.5-day generation is not started.
+### 10.7 The generation run
+
+`scripts/run_phase4_generation.sh`. Two stages, chained so the second cannot
+start if the first fails:
+
+```
+1. SBC simulations   ~3.5 h    1000 draws, educ=mixed
+2. Generation        ~9.4 d    65536 draws, M=8, educ=mixed
+```
+
+**SBC runs first, and not only because it is short.** It exercises the new
+`educ` grouping in `solve_batch` at production settings — full grid,
+`theta_batch 16`, `chunk 16` — so a defect in that path costs 3.5 h instead of
+9.4 days.
+
+SBC must simulate under the *same* process the training set uses. A marginalised
+posterior validated against comphs-only simulations would have its calibration
+score measure the mismatch rather than the posterior, and would look like
+miscalibration no amount of training could fix. `educ` is therefore part of the
+`--sbc_cache` key: the existing cache carries no `educ` field, reads back as
+`comphs`, and is correctly rejected under `mixed` rather than silently reused.
+
+Settings, and why:
+
+| | | |
+|---|---|---|
+| grid | `full` | Laibson et al.'s exact 190×84; the 12.45 s/draw the budget is built on |
+| draws | 65,536 | unchanged — `M` sharpens the conditional at each θ, not the coverage of θ, so the draw count still sets the effective sample |
+| `M` | 8 | nearly free against a 12.4 s solve |
+| `k` | 1 at training | §10.4; free to re-sweep later |
+| shard dir | `phase4_educ_dataset_shards` | `_check_config` refuses to mix configs, correctly — the new run must not write into `phase3_dataset_shards` |
+| GPU | V100 | the same card the existing dataset used, so no cross-architecture mixing |
+
+Disk: 2.18 GB projected at M=8, measured from the smoke shard (16.6 KB/draw at
+M=4). 9.9 GB free after clearing 9.3 GB of `uv` cache.
+
+The run is resumable — `generate_dataset.py` skips existing shards — and the
+education draw is taken from the run seed, so a shard written after an
+interruption describes the same draw it would have originally.
+
+**One accepted imperfection.** With education grouped before solving, each
+group's last batch within a block is partial, and `solve_batch` is reproducible
+only at a fixed `theta_batch`. That is a tie-breaking difference, not an error:
+~99% of states hold two exactly-tied choices, so either is optimal and the
+resulting `(θ, x)` pair is still a valid draw from the joint. It matters only
+for bit-exact reproduction, and SBC and training share one config, which is the
+property that actually has to hold.
+
+### 10.6 The all-groups PSID tensor
+
+`build_psid_tensor.py --educ_groups` keeps every education group and records the
+group index per household, applying the rest of their sample filter (not
+self-employed, no business or farm income), which is group-independent.
+
+```
+head-in-all-7 cohort           2119
++ usable education             2108
++ not self-employed            1875
++ no business/farm income      1627
+
+comphs  889     somehs  211     compco  527
+```
+
+**1,627, not the 1,635 the plan estimated.** The mapping is by year equivalent of
+their `2_buildmoments.do:69-74` SCF `EDCL` categories — somehs `EDCL 1`, comphs
+`EDCL 2-3`, compco `EDCL 4` — and `EDUC_GROUPS` is asserted equal to
+`laibson_calibration.EDUC_GROUPS`, since the stored index is read back through
+the latter and a drift would relabel every household.
+
+**Cross-check: the comphs subset reproduces the existing 889 exactly** — same
+`psid_row` set, and identical on income, liquid, illiquid and age. Consumption
+differs slightly because the rental growth rate is self-calibrated on the anchor
+sample, which is now 1,627 households (2.61%/yr) rather than 889 (2.49%/yr).
+The effect is immaterial: median relative change 0.14%, p90 0.37%, and the
+sample median consumption moves +0.05% — inside the ±0.16% imputation noise §5
+already reports.
+
+**The mapping validates against the calibration.** The income ordering holds on
+both sides, which it need not have:
+
+```
+group      N     PSID income   model income   ratio    PSID cons   borrow%
+comphs   889          43353          55601     1.28        35743     21.3%
+somehs   211          28947          37028     1.28        28253     11.5%
+compco   527          79503          83723     1.05        54462     18.7%
+```
+
+**And a new observation worth following up.** The model over-predicts income by
+~28% for both non-college groups but only 5% for college graduates — consistent
+with the college wage premium widening since their 1982-91 estimation window.
+§4 tested "calibration vintage" and refuted it, but that test was comphs-only;
+the per-group view is more nuanced. *Caveat:* the model figure is a mean and
+PSID's a median, so the levels are not strictly comparable — only the pattern
+across groups is, and only to the extent skewness is similar across them.
+
+`somehs` also borrows at half the rate of the other two (11.5% against 21.3%
+and 18.7%), which is what its near-zero credit limit (`C0_CREDIT` 0.00057
+against comphs's 0.167) would predict.
