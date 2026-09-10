@@ -832,3 +832,42 @@ across groups is, and only to the extent skewness is similar across them.
 `somehs` also borrows at half the rate of the other two (11.5% against 21.3%
 and 18.7%), which is what its near-zero credit limit (`C0_CREDIT` 0.00057
 against comphs's 0.167) would predict.
+
+### 10.8 An off-by-one in the window start age, found mid-run
+
+Validating the training input path against real shards at the shard-16 milestone
+(8,192 draws — a power-of-2 Sobol prefix, so a valid partial dataset) turned up
+a **pre-existing** misalignment that affects every previous result too.
+
+`aggregate_waves` reports each wave at the *last* year of its window
+(`series[:, t1 - 1]`), so a window opened at `start_age = S` reports its first
+wave at age **S + 1**. Passing `--start_low 25 --start_high 46` therefore
+produces simulated wave-0 ages of **26–47**, while PSID's are **25–46**:
+
+```
+start_low=25 start_high=46   wave0 age 26-47   wave6 38-59
+start_low=24 start_high=45   wave0 age 25-46   wave6 37-58
+PSID all-groups              wave0 age 25-46   wave6 36-59
+```
+
+**Impact: ~5% of PSID households sit outside the training support in `age`** —
+48 of 889 comphs and 78 of 1,627 all-groups are aged 25 at wave 0, an age the
+network never saw. It has to extrapolate in a feature it otherwise anchors on.
+How much that moved those households' posteriors is **not measured**; the point
+here is the gap, not a quantified bias.
+
+**The fix is free and belongs at training time:** `--start_low 24
+--start_high 45`. Window start ages are a `compare_windows` argument, not a
+generation one — the shards store annual panels — so this costs nothing and
+needs no change to the run in progress.
+
+The residual difference at the far end (37–58 against 36–59) is **not**
+fixable by shifting. PSID interviews are 11–13 years apart across seven waves
+(§2's own filter), while the simulator's are exactly 12. Shifting the start
+cannot manufacture a variable span.
+
+The rest of the validation passed on real shards: 13,824 draws → 110,592 rows at
+`M=8, k=1`, exactly 8 rows per draw, `panel_id` contiguous and equal to the draw
+index, θ matching its Sobol draw on 2,000 spot checks, education recoverable
+through `panel_id` and near-uniform, and the group income ordering holding
+(comphs 49,000 / somehs 32,000 / compco 79,000).
