@@ -871,3 +871,70 @@ The rest of the validation passed on real shards: 13,824 draws → 110,592 rows 
 index, θ matching its Sobol draw on 2,000 spot checks, education recoverable
 through `panel_id` and near-uniform, and the group income ordering holding
 (comphs 49,000 / somehs 32,000 / compco 79,000).
+
+### 10.9 The start-age correction: hypothesis refuted, but the fix matters anyway
+
+The §10.8 fix was re-run as a paired experiment — `outputs/startage_fix`,
+identical to `outputs/flow_fix` in every argument except
+`--start_low 24 --start_high 45`, same shards, same `k`, same five seeds.
+
+**The hypothesis was that the ~5% of households aged 25 at wave 0, which were
+extrapolating outside the training support, would move and the rest would not.
+That is not what happened.**
+
+```
+change, corrected minus baseline   d beta    d delta    d crra    d in-box
+age 25 (affected, N=48)           -0.0253    +0.0033   -0.0203    -0.0017
+age >25 (control, N=841)          -0.0232    +0.0009   -0.0396    +0.0035
+all households (N=889)            -0.0232    +0.0009   -0.0322    +0.0015
+```
+
+β moved by the same −0.023 in both groups, and ρ moved **more** in the control
+(−0.040) than in the supposedly affected group (−0.020). By the criterion stated
+before the run — *"a shift in both is retraining noise; a shift confined to the
+age-25 households is the alignment"* — the support gap had **no detectable
+differential effect**. The 48 households that were extrapolating were not
+meaningfully harmed by it.
+
+**But the correction changed the population estimates anyway, and one change is
+large:**
+
+```
+                      baseline   corrected
+beta    median          0.8465      0.8234
+crra    median          4.5002      4.4680
+rho at ceiling            9.3%        4.2%      <- less than half
+delta at ceiling         43.8%       45.2%
+in-box mass p10           0.638       0.739
+```
+
+**The ρ ceiling pileup more than halved.** That is one of the two numbers the
+whole regeneration exists to move (§9.4), and part of it came free from a window
+alignment. In-box mass at p10 improved 0.638 → 0.739, so the model represents the
+hard tail of the sample better. δ pinning is unchanged, slightly worse.
+
+**This is not a worse model on a better window — it is the same model.** Held-out
+recovery is flat:
+
+```
+            corr base  corr fixed   mae base  mae fixed
+beta            0.799       0.793     0.0906     0.0917
+delta           0.817       0.816     0.0174     0.0175
+crra            0.847       0.846     0.4220     0.4238
+coverage_90    .920/.910/.909       .918/.904/.913
+```
+
+The per-seed `log q` is lower for the corrected runs (5.153–5.202 against
+5.234–5.274) and the ensemble's is 5.436 against 5.471. **That is not evidence
+of a worse fit**: each is scored on its own window, and the corrected window
+covers younger households, where less wealth has accumulated and there is less
+signal about (β, δ, ρ). It is a harder task, not a worse model, and the two
+numbers are not on a common scale.
+
+**Consequence for §1.** The headline numbers there were computed on the
+misaligned window. The corrected values are β 0.8234, δ 0.9907, ρ 4.4680, with
+the ρ pileup at 4.2%. β moves *toward* Laibson et al.'s 0.5305 but remains far
+from it. Seed-level uncertainty on these shifts has **not** been quantified —
+the ρ pileup change is the robust signal, being a large relative move; the
+β shift of −0.023 against a between-household sd of 0.10 is 0.23 sd and should
+be treated as suggestive.
