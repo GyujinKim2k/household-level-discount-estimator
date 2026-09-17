@@ -78,6 +78,47 @@ def add_obs_noise(x: torch.Tensor, sigma: float, features, seed: int):
     return out
 
 
+def educ_by_draw(shard_files: list[Path]) -> np.ndarray | None:
+    """Education index per Sobol draw, indexed by the global draw number.
+
+    ``panel_id`` from ``build_windowed`` *is* the draw index, so
+    ``educ_by_draw(shards)[panel_id]`` gives the group of every row without any
+    change to the windowing code.
+
+    Returns ``None`` for a comphs-only dataset, whose shards carry no ``educ``.
+    """
+    lo_hi = []
+    for sf in shard_files:
+        d = np.load(sf)
+        if "educ" not in d.files:
+            return None
+        lo_hi.append((int(d["lo"]), int(d["hi"]), d["educ"]))
+    n = max(hi for _, hi, _ in lo_hi)
+    out = np.full(n, -1, dtype=np.int64)
+    for lo, hi, e in lo_hi:
+        out[lo:hi] = e
+    return out
+
+
+def one_hot_educ(x: torch.Tensor, educ_rows: np.ndarray) -> torch.Tensor:
+    """Append a one-hot education block, constant across waves.
+
+    One-hot rather than a single ordinal column: the calibration blocks are not
+    monotone in education (``C0_CREDIT`` is 0.167 / 0.00057 / 0.422 across
+    comphs / somehs / compco), so an ordering would be a fiction the network
+    could not undo.
+
+    These columns are constant *within* a sequence but vary *across* households,
+    so the global per-feature normalisation the embedder uses is well defined.
+    Per-sequence normalisation would divide by a zero within-sequence spread,
+    which is why they join ``age`` in the skip list.
+    """
+    n, w, _ = x.shape
+    e = torch.from_numpy(np.asarray(educ_rows)).long().clamp(min=0)
+    oh = torch.nn.functional.one_hot(e, num_classes=3).float()   # (n, 3)
+    return torch.cat([x, oh[:, None, :].expand(n, w, 3)], dim=-1)
+
+
 def split_shards(shard_files: list[Path], train_n: int):
     """Shards below the panel cutoff train; the rest are held out."""
     train, held = [], []
@@ -223,6 +264,19 @@ def main() -> None:
                         "simulations must use the same process, or calibration "
                         "measures the mismatch rather than the posterior. Part "
                         "of the --sbc_cache key.")
+    p.add_argument("--educ_group", choices=["comphs", "somehs", "compco"],
+                   default=None,
+                   help="Train on one education group only, for the per-group "
+                        "posteriors. Requires shards generated with "
+                        "--educ mixed.")
+    p.add_argument("--condition_educ", action="store_true",
+                   help="Append a one-hot education block to x, so the "
+                        "posterior is q(theta | x, edu) rather than the "
+                        "marginalised q(theta | x). We observe education in "
+                        "PSID, so conditioning is legitimate and strictly "
+                        "sharper -- the same treatment `age` already gets. "
+                        "Marginalising an observed variable buys width by "
+                        "discarding information (RESULTS.md 10.10).")
     p.add_argument("--sbc_cache", type=Path,
                    default=Path("outputs/window_comparison/sbc_sims.pt"),
                    help="Where the SBC panels are cached. Reused if it matches "
@@ -284,13 +338,41 @@ def main() -> None:
         th_tr, x_tr, pid_tr = build_windowed(
             train_sh, theta_all, k=args.k, n_waves=k, seed=0, **win
         )
-        th_ho, x_ho, _pid = build_windowed(
+        th_ho, x_ho, pid_ho = build_windowed(
             held_sh, theta_all, k=1, n_waves=k, seed=999, **win
         )
         feats = (FEATURE_SETS[args.features] if args.features
                  else (FEATURES_TWOASSET if args.no_age else FEATURES_TWOASSET_AGE))
         x_tr = add_obs_noise(x_tr, args.obs_noise, feats, seed=11)
         x_ho = add_obs_noise(x_ho, args.obs_noise, feats, seed=22)
+
+        if args.educ_group or args.condition_educ:
+            by_draw = educ_by_draw(shard_files)
+            if by_draw is None:
+                raise SystemExit(
+                    f"{args.shards} holds no `educ` field, so it was generated "
+                    f"comphs-only. --educ_group/--condition_educ need shards "
+                    f"from a --educ mixed run."
+                )
+            e_tr = by_draw[pid_tr.numpy()]
+            e_ho = by_draw[pid_ho.numpy()]
+        if args.educ_group:
+            g = cal.EDUC_GROUPS.index(args.educ_group)
+            # Filter by draw, which keeps every household of a kept draw
+            # together -- the grouped split still sees whole panels.
+            m_tr, m_ho = e_tr == g, e_ho == g
+            th_tr, x_tr, pid_tr = th_tr[m_tr], x_tr[m_tr], pid_tr[m_tr]
+            th_ho, x_ho, pid_ho = th_ho[m_ho], x_ho[m_ho], pid_ho[m_ho]
+            e_tr, e_ho = e_tr[m_tr], e_ho[m_ho]
+            log.info(f"education filter {args.educ_group}: "
+                     f"{len(th_tr)} train rows from "
+                     f"{len(pid_tr.unique())} draws, {len(th_ho)} held out")
+        if args.condition_educ:
+            x_tr = one_hot_educ(x_tr, e_tr)
+            x_ho = one_hot_educ(x_ho, e_ho)
+            feats = tuple(feats) + ("educ_comphs", "educ_somehs", "educ_compco")
+            log.info("conditioning on education: x gains a one-hot block, "
+                     f"{x_tr.shape[-1]} features")
         th_ho, x_ho = th_ho[: args.n_heldout_eval], x_ho[: args.n_heldout_eval]
         n_panels = len(pid_tr.unique())
         log.info(f"=== {k} waves ({ages}) | train {len(th_tr)} windows from "
@@ -313,7 +395,10 @@ def main() -> None:
         feats = (FEATURE_SETS[args.features] if args.features
                  else (FEATURES_TWOASSET if args.no_age else FEATURES_TWOASSET_AGE))
         # Derived, not hardcoded: the age column moves with the feature set.
-        skip = tuple(i for i, f in enumerate(feats) if f == "age")
+        # `age` and the one-hot education block are constant within a
+        # sequence; per-sequence normalisation would divide by a zero spread.
+        skip = tuple(i for i, f in enumerate(feats)
+                     if f == "age" or f.startswith("educ_"))
         embedder = TrajectoryTransformer(
             n_features=x_tr.shape[-1], seq_len=k,
             feature_mean=x_tr.mean(dim=(0, 1)), feature_std=x_tr.std(dim=(0, 1)),
@@ -359,6 +444,8 @@ def main() -> None:
         "batch_size": args.batch_size, "learning_rate": args.learning_rate,
         "per_sequence": args.per_sequence,
         "obs_noise": args.obs_noise,
+        "educ_group": args.educ_group,
+        "condition_educ": args.condition_educ,
         "features": list(FEATURE_SETS[args.features]) if args.features else None,
         "n_sbc": args.n_sbc, "n_post": args.n_post,
         "n_heldout_eval": args.n_heldout_eval,

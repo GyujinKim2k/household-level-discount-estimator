@@ -938,3 +938,44 @@ from it. Seed-level uncertainty on these shifts has **not** been quantified —
 the ρ pileup change is the robust signal, being a large relative move; the
 β shift of −0.023 against a between-household sd of 0.10 is 0.23 sd and should
 be treated as suggestive.
+
+### 10.10 What the regeneration can and cannot deliver — a correction to §9.7
+
+§9.7 argued education in on the grounds that it is **observed**, so the posterior
+can be conditioned on it and recover the information the extra dispersion costs.
+That reasoning is right, and it has a consequence I did not draw out at the time:
+
+**A comphs household under the conditioned model gets the comphs calibration —
+which is exactly the old baseline.** Conditioning on education does not widen
+`p(x | θ)` for that household at all. So for the 889 comphs households, the
+education mixture cannot by itself move the ρ pileup or the β ratio.
+
+The widening that §9.2 measured (1.79×) is a property of the **marginalised**
+model, which deliberately discards education even though we observe it. That is
+the Gate 1 pattern in a new costume: width bought by throwing information away.
+It is worth computing as one variant, but it is not the variant to prefer, and I
+should not have implied the 1.79× would transfer to the conditioned case.
+
+**So what does move the two questions? `M = 8`, not education.** With `M = 1` the
+network sees one `x` per θ and must infer how much `x` varies at fixed θ from the
+population. With `M = 8` it sees eight, which teaches the conditional spread
+directly. That should *widen* within-household posteriors where they were
+over-confident, which is precisely the mechanism behind the inflated ρ
+between/within ratio of 7.0 — if the model cannot generate within-θ dispersion,
+the network has to attribute observed dispersion to θ.
+
+Revised expectations, recorded before the results exist so they cannot be fitted
+to them afterwards:
+
+| deliverable | source | confidence |
+|---|---|---|
+| ρ between/within ratio falls toward truth | `M = 8` | the clearest mechanism |
+| β between/within ratio rises above 1.0 | `M = 8`, only if between-household variation is real | genuinely uncertain |
+| ρ ceiling pileup falls further | already 9.3% → 4.2% from §10.9 | most of it may be spent |
+| per-group posteriors for somehs (211) and compco (527) | education bundles | new, and the clearest gain |
+| pooled conditioned posterior over all 1,627 | education bundles | sharper than marginalised |
+
+**The honest summary is that the strongest case for the nine days is the
+per-group science — 738 households that could not be analysed at all before —
+and `M = 8`'s effect on within-household calibration. The education mixture's
+1.79× widening is real but applies to the variant we have reason not to prefer.**
