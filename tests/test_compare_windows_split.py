@@ -109,10 +109,43 @@ def test_sbc_cache_round_trips(tmp_path, monkeypatch):
         raise AssertionError("solver ran despite a valid cache")
 
     monkeypatch.setattr(cw, "simulate_batch_twoasset_gpu", boom)
-    th, pn = cw.simulate_sbc_once(4, 7, {"theta_batch": 16, "chunk": 16},
-                                  cache=cache)
+    th, pn, ed = cw.simulate_sbc_once(4, 7, {"theta_batch": 16, "chunk": 16},
+                                      cache=cache)
     torch.testing.assert_close(th, thetas)
     assert pn.keys() == panels.keys()
+    # A pre-education cache has no `educ_idx`; it must read back as absent
+    # rather than as an array of zeros, which would mean "all comphs".
+    assert ed is None
+
+
+def test_sbc_cache_from_a_different_education_mode_is_not_reused(
+        tmp_path, monkeypatch):
+    """The trap this guards: a comphs-only cache silently reused under `mixed`.
+
+    SBC asks whether a posterior is calibrated for its OWN generative process.
+    Scoring a marginalised posterior against comphs-only simulations measures
+    the mismatch instead, and looks like miscalibration no training could fix.
+    A cache written before education existed reads back as comphs, so it must
+    be rejected -- not reused -- when `mixed` is asked for.
+    """
+    import torch
+
+    from scripts import compare_windows as cw
+
+    cache = tmp_path / "sbc.pt"
+    torch.save({"thetas": torch.randn(4, 3), "panels": {"income": np.zeros((4, 71))},
+                "n_sbc": 4, "seed": 7, "solver_config": {}}, cache)
+
+    calls = []
+
+    def fake(*a, **k):
+        calls.append(k.get("educ"))
+        return np.zeros((4, 7, 4)), np.ones((4, 7)), {"income": np.zeros((4, 71))}
+
+    monkeypatch.setattr(cw, "simulate_batch_twoasset_gpu", fake)
+    cw.simulate_sbc_once(4, 7, {"theta_batch": 16, "chunk": 16},
+                         cache=cache, educ="mixed")
+    assert calls, "comphs cache was reused under educ=mixed"
 
 
 def test_sbc_cache_for_a_different_n_is_not_reused(tmp_path, monkeypatch):

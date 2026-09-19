@@ -93,6 +93,17 @@ def main() -> None:
                         "A different feature *count* aborts on shape; the same "
                         "count cut differently would not, so pass it "
                         "explicitly rather than relying on the default.")
+    p.add_argument("--educ_group", choices=["comphs", "somehs", "compco"],
+                   default=None,
+                   help="Must match what the members were TRAINED on, for the "
+                        "same reason as --features. A per-group model scored "
+                        "against a three-group evaluation set is being tested "
+                        "on households it was never built for, and unlike a "
+                        "feature-count mismatch that does NOT abort on shape.")
+    p.add_argument("--condition_educ", action="store_true",
+                   help="Must match training. A feature-count mismatch does "
+                        "abort here, which is how the first phase 4 run was "
+                        "caught.")
     p.add_argument("--out", type=Path, default=Path("outputs/ensemble"))
     args = p.parse_args()
 
@@ -123,13 +134,40 @@ def main() -> None:
                wave_years=WAVE_YEARS, with_age=True,
                features=FEATURE_SETS[args.features] if args.features else None)
 
-    th_ho, x_ho, _ = build_windowed(held, theta_all, k=1, n_waves=w, seed=999,
-                                    **win)
-    th_ho, x_ho = th_ho[: args.n_heldout_eval], x_ho[: args.n_heldout_eval]
-
+    th_ho, x_ho, pid_ho = build_windowed(held, theta_all, k=1, n_waves=w,
+                                         seed=999, **win)
     cache = torch.load(args.sbc_cache, weights_only=False)
-    th_sbc, x_sbc, _ = window_panel(cache["panels"], cache["thetas"].numpy(),
-                                    k=1, n_waves=w, seed=4242, **win)
+    th_sbc, x_sbc, ids = window_panel(cache["panels"], cache["thetas"].numpy(),
+                                      k=1, n_waves=w, seed=4242, **win)
+
+    # The evaluation windows are rebuilt here, so every transformation the
+    # members saw in training has to be reapplied. Omitting them does not
+    # abort -- it silently scores each posterior on a distribution it was not
+    # built for.
+    if args.educ_group or args.condition_educ:
+        from scripts.compare_windows import educ_by_draw, one_hot_educ
+        by_draw = educ_by_draw(shard_files)
+        sbc_educ = cache.get("educ_idx")
+        if by_draw is None or sbc_educ is None:
+            raise SystemExit(
+                f"--educ_group/--condition_educ need shards and an SBC cache "
+                f"from a --educ mixed run; {args.shards} or {args.sbc_cache} "
+                f"carries no per-draw education."
+            )
+        e_ho = by_draw[pid_ho.numpy()]
+        e_sbc = np.asarray(sbc_educ)[ids.numpy()]
+        if args.educ_group:
+            from hh_npe.simulator.laibson_calibration import EDUC_GROUPS
+            g = EDUC_GROUPS.index(args.educ_group)
+            m_ho, m_sbc = e_ho == g, e_sbc == g
+            th_ho, x_ho, e_ho = th_ho[m_ho], x_ho[m_ho], e_ho[m_ho]
+            th_sbc, x_sbc, e_sbc = th_sbc[m_sbc], x_sbc[m_sbc], e_sbc[m_sbc]
+            log.info(f"education filter {args.educ_group}: {len(th_ho)} "
+                     f"held-out, {len(th_sbc)} SBC")
+        if args.condition_educ:
+            x_ho, x_sbc = one_hot_educ(x_ho, e_ho), one_hot_educ(x_sbc, e_sbc)
+            log.info(f"conditioning on education: {x_ho.shape[-1]} features")
+    th_ho, x_ho = th_ho[: args.n_heldout_eval], x_ho[: args.n_heldout_eval]
     log.info(f"Scoring on {len(th_ho)} held-out and {len(th_sbc)} SBC draws")
 
     ens = _ensemble(posts)
@@ -143,8 +181,17 @@ def main() -> None:
     # member? Beating the average is expected; beating the best is the claim.
     members = {}
     for s, d_ in zip(args.seeds, run_dirs):
-        j = json.load(open(Path(d_) / "results.json"))
-        d = np.load(Path(d_) / f"sbc_ranks_{w}w.npz")
+        # A member may have trained and saved its posterior but died before
+        # writing its own scores. The ensemble is still perfectly scoreable
+        # from the saved posteriors -- only the ensemble-vs-members comparison
+        # is lost -- so skip rather than discard the whole run.
+        rj, rn = Path(d_) / "results.json", Path(d_) / f"sbc_ranks_{w}w.npz"
+        if not (rj.exists() and rn.exists()):
+            log.warning(f"{d_} has no member scores; excluded from the "
+                        f"ensemble-vs-members comparison")
+            continue
+        j = json.load(open(rj))
+        d = np.load(rn)
         ks = [stats.kstest((d["ranks"][:, i] + 0.5) / (args.n_post + 1),
                            "uniform").pvalue for i in range(3)]
         members[s] = {"log_q": j[str(w)]["held_out_log_q"],
@@ -157,12 +204,21 @@ def main() -> None:
     (out / "results.json").write_text(json.dumps(res, indent=2))
 
     names = PHASE3.names
-    cov_m = np.array([members[s]["coverage_90"] for s in args.seeds])
+    seeds_ok = [s for s in args.seeds if s in members]
+    if not seeds_ok:
+        print(f"\n=== {w} waves: ensemble of {len(posts)} "
+              f"(no member scores available) ===")
+        print(f"log q {log_q:.3f}")
+        for i, n in enumerate(names):
+            print(f"{n:8s} coverage_90 {cal[n]['coverage_90']:.3f}  "
+                  f"ks_p {cal[n]['ks_p']:.4f}")
+        return
+    cov_m = np.array([members[s]["coverage_90"] for s in seeds_ok])
     print(f"\n=== {w} waves: ensemble of {len(posts)} vs its members ===")
     print(f"{'':8s}{'members mean':>15s}{'members best':>15s}{'ensemble':>12s}")
     print(f"{'log q':8s}"
-          f"{np.mean([members[s]['log_q'] for s in args.seeds]):15.3f}"
-          f"{max(members[s]['log_q'] for s in args.seeds):15.3f}"
+          f"{np.mean([members[s]['log_q'] for s in seeds_ok]):15.3f}"
+          f"{max(members[s]['log_q'] for s in seeds_ok):15.3f}"
           f"{log_q:12.3f}")
     print("-- coverage_90 (target 0.900) --")
     for i, nm in enumerate(names):
@@ -171,7 +227,7 @@ def main() -> None:
               f"{cal[nm]['coverage_90']:12.3f}")
     print("-- ks_p --")
     for i, nm in enumerate(names):
-        ks_m = np.array([members[s]["ks_p"][i] for s in args.seeds])
+        ks_m = np.array([members[s]["ks_p"][i] for s in seeds_ok])
         print(f"{nm:8s}{ks_m.mean():15.4f}{ks_m.max():15.4f}"
               f"{cal[nm]['ks_p']:12.4f}")
     print("\nEnsembling reduces approximation variance; it does not add "

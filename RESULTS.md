@@ -979,3 +979,145 @@ to them afterwards:
 per-group science — 738 households that could not be analysed at all before —
 and `M = 8`'s effect on within-household calibration. The education mixture's
 1.79× widening is real but applies to the variant we have reason not to prefer.**
+
+### 10.11 A confound in the per-group comparison, found at launch
+
+The per-group models train on **one third of the θ draws**. Uniform education
+sampling gives ~21,845 draws per group, and after the train/held-out split the
+comphs model sees **19,049 draws** against the baseline's **57,344**:
+
+```
+                        draws    rows      windows per draw
+baseline (comphs-only)  57344  412880      k=8 x M=1
+phase4 comphs           19049  152392      k=1 x M=8
+phase4 conditioned      57344  458752      k=1 x M=8
+```
+
+Rows are comparable; **independent θ draws are not**. The effective sample for
+learning `p(θ | x)` is the draw count, so the per-group comphs model is
+θ-starved by 3× relative to the baseline it would naturally be compared against.
+Any degradation it shows could be that alone, with nothing to do with `M = 8` or
+education.
+
+**So the comphs-vs-baseline comparison should lead with the *conditioned* model,
+not the per-group one.** The conditioned model keeps all 57,344 draws and still
+gives a comphs household the comphs calibration, which is the like-for-like
+contrast. The per-group models remain the right vehicle for somehs and compco —
+there is no baseline for those at all — but for comphs they answer a different
+question than they appear to.
+
+This was foreseeable from the plan's own arithmetic ("uniform gives ~21,845
+draws per group") and I did not draw the consequence until the filter printed
+its row count. Recorded here so the comparison is not read the wrong way later.
+
+### 10.12 Conditioned vs marginalised: right on simulated data, mixed on PSID
+
+Same 1,627 households, same rows, differing only in whether the observed
+education group is supplied to the network.
+
+**On held-out simulated data, conditioning wins on everything**, as §10.10
+predicted:
+
+```
+                  beta corr  beta mae   crra corr  crra mae    log q
+cond (uses educ)      0.763    0.0983       0.838    0.4615    5.090
+marg (withholds)      0.735    0.1051       0.822    0.4953    4.759
+```
+
+**On PSID it is mixed, and that is the interesting part:**
+
+```
+                        beta     delta      crra
+median (cond)         0.8220    0.9942    4.4437
+median (marg)         0.8000    0.9846    4.5305
+
+median posterior sd, cond    0.1561    0.0102    0.1236
+median posterior sd, marg    0.1556    0.0185    0.1030
+marg / cond width             0.997     1.820     0.833
+
+at ceiling, cond               0.0%     54.0%      8.2%
+at ceiling, marg               0.1%     32.8%     16.8%
+in-box median, cond           0.962  (p10 0.643)
+in-box median, marg           0.981  (p10 0.632)
+```
+
+Conditioning makes δ **1.82× sharper**, leaves β unchanged, and makes ρ
+**0.83× — that is, wider**. It also pins far more households at the δ ceiling
+(54.0% against 32.8%) while pinning fewer at the ρ ceiling (8.2% against 16.8%),
+and the marginalised model represents the data slightly better (in-box 0.981
+against 0.962).
+
+**Why the two disagree.** "Conditioning is strictly sharper" holds for the
+*true* posterior and for a correctly specified model. On simulated data the
+education-specific calibration is correct by construction, so supplying it adds
+real information and every metric improves. On PSID the model is misspecified in
+ways we have already documented — the credit-card margin is wrong by 1.5-3.6×
+at every θ (§9.5), and compco households sit outside the wealth range the model
+can represent (§10.9's per-group in-box p10 of 0.434). Conditioning forces the
+network to commit to a particular group's calibration; marginalising hedges
+across all three. **Under misspecification, hedging can be the more robust
+choice, and that is what the ρ and in-box numbers show.**
+
+So §10.10's argument was right about the mechanism and too confident about the
+conclusion. The correct statement is: conditioning is preferable when the model
+is right, and we have independent evidence this model is wrong in specific,
+identified ways. Neither variant should be reported as *the* answer — the
+disagreement between them is itself a measure of how much the education
+calibration is doing, and how much of it the data will not support.
+
+### 10.13 Phase 4 headline results
+
+Figure: `figures/05_phase4_per_group.png`. **Laibson et al.'s estimate sits
+outside all three groups' 68% contours but inside their 95% contours** — in the
+β–ρ panel especially, the dashed contours extend down toward it. Their point is
+not excluded by these posteriors; it sits in the tail.
+
+```
+group      N     beta     delta     crra    d@ceil   r@ceil   in-box p10
+comphs   889   0.8100    0.9922   4.4625     49.3%     2.5%        0.687
+somehs   211   0.7881    0.9760   4.7155     30.3%    31.8%        0.714
+compco   527   0.7888    0.9973   4.2254     76.7%     0.0%        0.434
+
+Laibson et al. MSM (comphs only)
+               0.5305    0.9891   1.9355
+```
+
+**The two questions the regeneration existed to answer:**
+
+```
+                              rho@ceiling    beta between/within
+baseline (misaligned window)         9.3%                   0.80
++ start-age fix                      4.2%                   0.64
++ Phase 4 (M=8)                      2.5%                   0.62
+```
+
+- **ρ ceiling pileup: answered, yes.** 9.3% → 2.5%, and most of the first step
+  came free from the §10.8 window fix rather than from the nine days.
+- **β between/within: answered, no — and it moved the wrong way.** `M = 8`
+  taught the network how much `x` varies at fixed θ, and the honest consequence
+  is *wider* within-household posteriors (0.129 → 0.153) against a flat
+  between-household spread (~0.095). **β heterogeneity is not demonstrated**,
+  and the regeneration made the evidence against it stronger. That is a finding
+  about the project's premise, not a shortfall to be explained away.
+
+The result holds in all three education groups independently (ratios 0.62 /
+0.83 / 0.74), so it is not an artifact of the comphs sample.
+
+**A statistic that nearly misled us.** Computing within-household sd from a
+single representative household gave ρ ratios of 7.38 → 17.67 → 13.96, which
+reads as "ρ heterogeneity tripled". The denominator had swung 2.3× because it
+rested on one household. Using the median posterior sd across all households
+gives 7.28 → 7.07 → **5.41**, a modest decline. The fragility was flagged before
+the run and the robust statistic is what §1 and this section report.
+
+**Known gaps, recorded rather than hidden:**
+
+- The five `cond` seeds saved their posteriors but died before writing their own
+  scores (the SBC-conditioning bug of §10.12's run). The **ensemble** is fully
+  scored; only the ensemble-vs-members comparison is missing for that variant,
+  and recovering it would cost a full retrain for a diagnostic.
+- `somehs`'s 31.8% ρ pinning and `compco`'s in-box p10 of 0.434 mean those two
+  groups' estimates carry structural caveats the comphs one does not.
+- δ pinning at the 1.0 ceiling **worsened** across the whole programme (43.8% →
+  49.3% for comphs, 76.7% for compco). Nothing here addressed it, and it is the
+  clearest remaining defect.

@@ -152,7 +152,7 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
         cached_educ = d.get("educ", "comphs")
         if d["n_sbc"] == n_sbc and d["seed"] == seed and cached_educ == educ:
             log.info(f"Reusing {n_sbc} cached SBC simulations from {cache}")
-            return d["thetas"], d["panels"]
+            return d["thetas"], d["panels"], d.get("educ_idx")
         log.warning(f"{cache} holds n_sbc={d['n_sbc']} seed={d['seed']} "
                     f"educ={cached_educ}; need {n_sbc}/{seed}/{educ}. "
                     f"Re-simulating.")
@@ -179,7 +179,7 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
                     "seed": seed, "solver_config": solver_config,
                     "educ": educ, "educ_idx": educ_idx}, cache)
         log.info(f"Cached SBC simulations to {cache}")
-    return thetas, panels
+    return thetas, panels, educ_idx
 
 
 def main() -> None:
@@ -304,7 +304,7 @@ def main() -> None:
     log.info(f"{len(train_sh)} shards train (< panel {args.train_n}), "
              f"{len(held_sh)} held out")
 
-    sbc_thetas = sbc_panels = None
+    sbc_thetas = sbc_panels = sbc_educ = None
     if not args.skip_sbc:
         cfg = read_solver_config(args.dataset)
         if not cfg or cfg.get("device") != "cuda":
@@ -314,9 +314,8 @@ def main() -> None:
             )
         log.info(f"Simulating {args.n_sbc} SBC draws once, shared across "
                  f"windows (solver config: {cfg})")
-        sbc_thetas, sbc_panels = simulate_sbc_once(args.n_sbc, 20260822, cfg,
-                                                   cache=args.sbc_cache,
-                                                   educ=args.educ)
+        sbc_thetas, sbc_panels, sbc_educ = simulate_sbc_once(
+            args.n_sbc, 20260822, cfg, cache=args.sbc_cache, educ=args.educ)
 
     theta_all = sample_sobol(args.n_total, PHASE3, seed=0)
     win = dict(start_low=args.start_low, start_high=args.start_high,
@@ -343,6 +342,7 @@ def main() -> None:
         )
         feats = (FEATURE_SETS[args.features] if args.features
                  else (FEATURES_TWOASSET if args.no_age else FEATURES_TWOASSET_AGE))
+        base_feats = feats
         x_tr = add_obs_noise(x_tr, args.obs_noise, feats, seed=11)
         x_ho = add_obs_noise(x_ho, args.obs_noise, feats, seed=22)
 
@@ -425,7 +425,23 @@ def main() -> None:
             th_sbc, x_sbc, ids = window_panel(
                 sbc_panels, sbc_thetas.numpy(), k=1, n_waves=k, seed=4242, **win
             )
-            x_sbc = add_obs_noise(x_sbc, args.obs_noise, feats, seed=33)
+            x_sbc = add_obs_noise(x_sbc, args.obs_noise, base_feats, seed=33)
+            # SBC x must go through exactly the transformations training x did,
+            # or the posterior is handed a different feature count than it was
+            # built for. One SBC draw is one household, so `ids` is the draw
+            # index and indexes `sbc_educ` directly.
+            if (args.educ_group or args.condition_educ) and sbc_educ is None:
+                raise SystemExit(
+                    f"{args.sbc_cache} carries no per-draw education, so SBC "
+                    f"cannot be filtered or conditioned to match training. "
+                    f"Re-simulate it with --educ mixed."
+                )
+            if args.educ_group:
+                m = np.asarray(sbc_educ)[ids.numpy()] == cal.EDUC_GROUPS.index(
+                    args.educ_group)
+                th_sbc, x_sbc, ids = th_sbc[m], x_sbc[m], ids[m]
+            if args.condition_educ:
+                x_sbc = one_hot_educ(x_sbc, np.asarray(sbc_educ)[ids.numpy()])
             entry["calibration"] = calibration_scores(
                 post, PHASE3, th_sbc, x_sbc,
                 n_post=args.n_post, out_dir=args.out, tag=f"{k}w",

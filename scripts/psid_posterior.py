@@ -120,6 +120,23 @@ def main() -> None:
     ap.add_argument("--waves", type=int, default=7)
     ap.add_argument("--x", type=Path, default=Path("data/processed/psid_x.pt"))
     ap.add_argument("--n_post", type=int, default=500)
+    ap.add_argument("--condition_educ", action="store_true",
+                   help="Append the one-hot education block, for a posterior "
+                        "trained with --condition_educ. Education comes from "
+                        "the x file's own `educ` field, which is PSID's "
+                        "observed value -- the whole point of conditioning is "
+                        "that we do observe it.")
+    ap.add_argument("--educ_group", choices=["comphs", "somehs", "compco"],
+                   default=None,
+                   help="Restrict to one education group, for a per-group "
+                        "posterior. Scoring a per-group model on households "
+                        "from other groups asks it about people it was never "
+                        "trained on.")
+    ap.add_argument("--figure_only", action="store_true",
+                   help="Reuse the saved posterior_*.npz and regenerate only "
+                        "the contour figure. For a run whose sampling "
+                        "succeeded but whose figure did not -- redoing ~50 min "
+                        "of sampling to redraw a plot is pure waste.")
     ap.add_argument("--out", type=Path, default=Path("outputs/psid"))
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -134,17 +151,45 @@ def main() -> None:
     x_raw = d["x"].numpy()
     print(f"empirical x: {x_raw.shape}  features {d['features']}")
 
+    educ = d["educ"].numpy() if "educ" in d else None
+    if (args.condition_educ or args.educ_group) and educ is None:
+        raise SystemExit(
+            f"{args.x} carries no `educ` field. Rebuild it with "
+            f"build_psid_tensor.py --educ_groups."
+        )
+    keep = np.arange(len(x_raw))
+    if args.educ_group:
+        from hh_npe.simulator.laibson_calibration import EDUC_GROUPS
+        keep = np.flatnonzero(educ == EDUC_GROUPS.index(args.educ_group))
+        x_raw, educ = x_raw[keep], educ[keep]
+        print(f"education filter {args.educ_group}: {len(keep)} households")
+    np.save(args.out / "household_index.npy", keep)
+
     arms = {"uncorrected": x_raw, "corrected": graded_correction(x_raw)}
     cf = arms["corrected"][:, :, 1] / np.maximum(arms["uncorrected"][:, :, 1], 1)
     print(f"correction factor: median {np.median(cf):.3f}, "
           f"p10 {np.percentile(cf, 10):.3f}, p90 {np.percentile(cf, 90):.3f}")
 
     res = {}
+    if args.figure_only:
+        for name in arms:
+            z = np.load(args.out / f"posterior_{name}.npz")
+            res[name] = {"mean": z["mean"], "sd": z["sd"], "lo": z["lo"],
+                         "hi": z["hi"], "frac": z["in_box_frac"]}
+        print(f"reusing saved posteriors from {args.out}")
+        _figure(args, post, arms, x_raw, educ)
+        return
     for name, xa in arms.items():
         print(f"\n--- {name} ---", flush=True)
         torch.manual_seed(0)
-        m, sdv, lo, hi, fr = sample_all(post, torch.from_numpy(xa).float(),
-                                        args.n_post)
+        xt = torch.from_numpy(xa).float()
+        if args.condition_educ:
+            from scripts.compare_windows import one_hot_educ
+            # The correction only touches consumption, so the education block
+            # is appended after it -- appending first would leave the one-hot
+            # columns to be rescaled as if they were dollars.
+            xt = one_hot_educ(xt, educ)
+        m, sdv, lo, hi, fr = sample_all(post, xt, args.n_post)
         res[name] = {"mean": m, "sd": sdv, "lo": lo, "hi": hi, "frac": fr}
         np.savez(args.out / f"posterior_{name}.npz", mean=m, sd=sdv, lo=lo,
                  hi=hi, in_box_frac=fr)
@@ -208,19 +253,39 @@ def main() -> None:
                                          for a in arms}},
               open(args.out / "summary.json", "w"), indent=2)
 
-    # Standing requirement: a contour figure with every estimation result.
+    _figure(args, post, arms, x_raw, educ)
+
+
+def _figure(args, post, arms, x_raw, educ):
+    """Standing requirement: a contour figure with every estimation result."""
     rng = np.random.default_rng(0)
     pick = rng.choice(len(x_raw), size=3, replace=False)
     series = {}
     dev = posterior_device(post)
     for r, i in enumerate(pick):
-        xt = torch.from_numpy(arms["uncorrected"][i]).float().to(dev)
-        s = post.sample((4000,), x=xt, show_progress_bars=False)
+        xt = torch.from_numpy(arms["uncorrected"][i : i + 1]).float()
+        if args.condition_educ:
+            # The figure re-derives x from the raw array, so it needs the same
+            # education block the scored path got. Forgetting it here is how
+            # the first conditioned run died *after* writing its posteriors.
+            from scripts.compare_windows import one_hot_educ
+            xt = one_hot_educ(xt, educ[i : i + 1])
+        s = post.sample((4000,), x=xt[0].to(dev), show_progress_bars=False)
         series[f"PSID household {r + 1}"] = s.detach().cpu().numpy()
+    # Title from what actually ran. It previously read "Phase 3 posterior ...
+    # 2,119-household panel" on every figure regardless of the variant or the
+    # sample, which is wrong on both counts for anything after Phase 3.
+    what = []
+    if args.educ_group:
+        what.append(args.educ_group)
+    if args.condition_educ:
+        what.append("education-conditioned")
+    label = ", ".join(what) if what else "pooled"
     contour_corner(series, PHASE3, path=args.out / "psid_households.png",
-                   title=("PSID households — Phase 3 posterior, 7 waves, "
-                          "5-member ensemble\nthree households drawn at random "
-                          "from the 2,119-household panel"))
+                   title=(f"PSID households — {label}, {args.waves} waves, "
+                          f"{len(args.run_dirs)}-member ensemble\nthree "
+                          f"households drawn at random from "
+                          f"{len(x_raw):,}"))
     print(f"\nwrote {args.out}/psid_households.png")
 
 
