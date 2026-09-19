@@ -63,6 +63,45 @@ def _ensemble(posteriors: list):
     return ens
 
 
+def _check_provenance(args, run_dirs, w) -> None:
+    """Refuse to score an ensemble on data its members were not trained on.
+
+    ``ensemble_eval`` rebuilds the evaluation windows from ``--shards`` rather
+    than reusing the members', so every argument that shaped training has to be
+    repeated here. The defaults point at the Phase 3 dataset, which is right for
+    Phase 3 and silently wrong for anything after it: a Phase 4 ensemble was
+    scored on Phase 3 shards with the wrong window and the numbers looked
+    entirely plausible.
+
+    Members record their own settings in ``results.json['_config']``. Where that
+    exists, it is the truth and a disagreement is an error rather than a
+    warning. Older runs predate some fields and are skipped field by field.
+    """
+    checks = {"start_low": args.start_low, "shards": str(args.shards),
+              "sbc_cache": str(args.sbc_cache),
+              "educ_group": args.educ_group,
+              "condition_educ": args.condition_educ}
+    bad = []
+    for d_ in run_dirs:
+        rj = Path(d_) / "results.json"
+        if not rj.exists():
+            continue
+        cfg = json.load(open(rj)).get("_config", {})
+        for k, mine in checks.items():
+            if k not in cfg:
+                continue            # older run; nothing to compare against
+            if cfg[k] != mine:
+                bad.append(f"  {d_}: trained with {k}={cfg[k]!r}, "
+                           f"scoring with {k}={mine!r}")
+    if bad:
+        raise SystemExit(
+            "Members were trained on different data than this scoring run "
+            "rebuilds:\n" + "\n".join(sorted(set(bad))) +
+            "\nPass the matching --shards/--sbc_cache/--start_low and the same "
+            "--educ_group/--condition_educ the members used."
+        )
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--waves", type=int, required=True)
@@ -127,6 +166,7 @@ def main() -> None:
     # Rebuild the *same* evaluation sets the individual runs were scored on.
     # These seeds are fixed in compare_windows.py; changing one here would make
     # the ensemble incomparable to the members it is built from.
+    _check_provenance(args, run_dirs, w)
     shard_files = sorted(args.shards.glob("shard_*.npz"))
     held = [f for f in shard_files if int(np.load(f)["lo"]) >= args.train_n]
     theta_all = sample_sobol(args.n_total, PHASE3, seed=0)

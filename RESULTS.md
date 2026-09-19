@@ -1,9 +1,9 @@
 # Phase 4 — PSID empirical results
 
-**Status:** in progress. Estimates below are conditional on a simulator whose
-training set has a known limitation (§7.1), so they are reported as the current
-state, not as final.
-**Last updated:** 2026-09-07.
+**Status:** Phase 4 complete. The §7.1 limitation that motivated the
+regeneration has been addressed; §10.13 reports what that bought and §11 the
+corrections an audit turned up afterwards.
+**Last updated:** 2026-09-19.
 
 Per-household posteriors over (β, δ, ρ) for 889 PSID households observed in
 seven biennial waves, 2011–2023, against Laibson, Lee, Maxted, Repetto &
@@ -13,44 +13,77 @@ Tobacman's single population MSM estimate.
 
 ## 1. Headline
 
+**Current** (Phase 4, `M=8`, corrected window, 889 comphs households). The
+numbers this section carried before were computed on the misaligned window of
+§10.8 and are superseded; see §10.9 and §11 for what changed and why.
+
 ```
                           beta       delta        crra
-median of means         0.8465      0.9898      4.5002
-mean of means           0.8158      0.9802      4.2455
-sd across households    0.1029      0.0231      0.8077
-median posterior sd     0.1288      0.0130      0.1109
+median of means         0.8100      0.9922      4.4625
+mean of means           0.7854      0.9811      4.0986
+sd across households    0.0948      0.0241      0.9560
+median posterior sd     0.1530      0.0108      0.1766
+between/within ratio      0.62        2.23        5.41
 
 Laibson et al. MSM      0.5305      0.9891      1.9355
   their std error       0.1140      0.0051      0.4350
 
 share of households whose 90% CI covers their estimate:
-  beta 0.397    delta 0.735    crra 0.199
+  beta 0.557    delta 0.664    crra 0.238
 ```
 
-**δ replicates almost exactly** — 0.9898 against their 0.9891, with 73.5% of
-households covering their point. **β and ρ are both substantially higher.**
+**δ replicates** — 0.9922 against their 0.9891. **β and ρ are both
+substantially higher**, and β's gap is not explained by education composition:
+it is 0.81 / 0.79 / 0.79 across comphs / somehs / compco (§10.13).
+
+Their estimate is not *excluded*: 55.7% of households' 90% intervals cover their
+β and 23.8% cover their ρ, and in `figures/05_phase4_per_group.png` their point
+sits outside every group's 68% contour but inside the 95% ones.
 
 ### Is the heterogeneity real?
 
 ```
             between-hh sd   within-hh sd   ratio
-beta               0.1029         0.1294    0.79
-delta              0.0231         0.0198    1.17
-crra               0.8077         0.1154    7.00
+beta               0.0948         0.1530    0.62
+delta              0.0241         0.0108    2.23
+crra               0.9560         0.1766    5.41
 ```
 
 A ratio below 1 means households differ by *less* than any one of them is
 uncertain — the apparent spread is estimation noise, and a single population
 estimate would serve as well.
 
-- **ρ heterogeneity is real** (7.0×).
-- **δ is marginal** (1.2×).
-- **β heterogeneity is not demonstrated** (0.79). This is a caution about the
-  project's own premise and belongs in any writeup.
+- **ρ heterogeneity is real** (5.4×).
+- **δ heterogeneity is real** (2.2×).
+- **β heterogeneity is not demonstrated** (0.62), and Phase 4 made the evidence
+  against it *stronger*, not weaker — §10.13. It replicates in all three
+  education groups independently (0.62 / 0.83 / 0.74), and survives correcting
+  for β's known over-coverage, which would move it only to 0.68 (§11.2).
 
-Within households the parameters are close to orthogonal: median
-`corr(β,ρ) = +0.017`, `corr(β,δ) = −0.166`, `corr(δ,ρ) = −0.076`. There is no
-strong β–ρ ridge, so the estimates are not trading off against each other.
+**The sharper statement (§11.3).** Decomposing
+`Var(means) = Var(true θ) + Var(estimation error)` gives a **negative** estimate
+of `Var(true β)` in every run and every education group, including the Phase 3
+baseline: the posterior means are *less* spread than the posteriors are wide.
+So the finding is not merely "the ratio is below 1" but **no evidence of
+between-household variation in β at all** — and it predates the regeneration
+rather than being caused by it. Implied between-household sds are ρ 0.27–0.65,
+δ 0.014–0.019, β none detectable. **This is a finding about the project's own
+premise and belongs in any writeup.**
+
+`within-hh sd` is the **median posterior sd across all households**, not one
+representative household's. The representative-household version is unstable —
+it swung 2.3× across runs and would have reported ρ heterogeneity tripling when
+it in fact declined (§10.13).
+
+Within households the parameters are close to orthogonal — re-measured on the
+Phase 4 posteriors (60 households, 1,500 draws each): median
+`corr(β,ρ) = −0.012`, `corr(β,δ) = −0.164`, `corr(δ,ρ) = −0.010`. Essentially
+unchanged from the baseline's `+0.017 / −0.166 / −0.076`. There is no strong
+β–ρ ridge, so the estimates are not trading off against each other.
+
+The *median* hides real spread, though: `corr(δ,ρ)` runs from −0.35 at p10 to
++0.61 at p90. Orthogonality is a statement about the typical household, not
+about every one of them.
 
 Figures in `figures/`.
 
@@ -209,7 +242,14 @@ Implemented from their code:
 
 ---
 
-## 7. Open issues
+## 7. Open issues *(as of Phase 3 — superseded; see §10–§11)*
+
+> **This section records the state that motivated the regeneration.** §7.1 was
+> the case for spending nine GPU-days; §10.13 reports what that bought and §11
+> corrects two claims made here and in §10. Read §1 for current numbers.
+> Specifically: the ρ figure below is a mean-proximity statistic that §11.1
+> retires in favour of credible-interval truncation, and §7.1's "ρ ratio of 7.0"
+> is a single-household estimate that §10.13 shows to be unstable.
 
 ### 7.1 The simulator has almost no heterogeneity
 
@@ -241,13 +281,28 @@ rather than in risk aversion.
 
 ### 7.2 Other
 
-- Consumption slope still 0.554 against 0.807 simulated.
+- Consumption slope still 0.554 against 0.807 simulated. **Still open.**
 - 9.3% of households have posterior-mean ρ within 5% of the 5.0 ceiling. Down
   sharply from before the rental fix; widening the prior is **no longer the
   obvious next step**, and would move along a ridge the data do not resolve.
-- β heterogeneity remains within estimation noise (§1).
+  **Now 2.5% on this metric, and 0.1% by the truncation measure §11.1 argues
+  for. Effectively closed.**
+- β heterogeneity remains within estimation noise (§1). **Still true, and Phase
+  4 strengthened it: the ratio fell 0.80 → 0.62 and replicates in all three
+  education groups.**
 - `SIMULATOR_SPEC` §7's Phase 1 gate — reproducing HARK/Carroll buffer-stock
-  profiles — still has no test.
+  profiles — still has no test. **Still open.**
+
+**Added since, and now the largest open items:**
+
+- **The credit-card margin is misfit 1.5–3.6× at every θ, including Laibson et
+  al.'s own** (§9.5). This is the margin β is identified off, and it is a
+  location error that no heterogeneity source addresses. It caps what any β
+  estimate here can mean.
+- **δ's upper bound truncates ~24% of comphs and 52% of compco posteriors**
+  (§11.1). Not the "pinning" §10.13 claimed, and improving, but real.
+- **compco's wealth range exceeds what the model can represent** — 17.1% of its
+  households have under half their posterior mass inside the prior box.
 
 ---
 
@@ -706,9 +761,7 @@ a cheap follow-up -- re-windowing only, no re-solving -- while expecting little
 from it, since 8 windows per θ was already the plateau and these 8 carry
 strictly more information than the old 8.
 
-### 10.5 Not yet done
-- SBC's cached `sbc_sims.pt` becomes invalid — simulated under the old model.
-### 10.7 The generation run
+### 10.5 The generation run
 
 `scripts/run_phase4_generation.sh`. Two stages, chained so the second cannot
 start if the first fails:
@@ -1121,3 +1174,285 @@ the run and the robust statistic is what §1 and this section report.
 - δ pinning at the 1.0 ceiling **worsened** across the whole programme (43.8% →
   49.3% for comphs, 76.7% for compco). Nothing here addressed it, and it is the
   clearest remaining defect.
+
+---
+
+## 11. Audit corrections
+
+### 11.1 The δ "ceiling pinning" claim was wrong
+
+§10.13 reported δ pinning at 43.8% → 49.3% and called it "the clearest remaining
+defect", worsening across the programme. **That is an artifact of the metric, and
+the direction is backwards.**
+
+The metric was "posterior *mean* within 5% of the prior span of the upper bound".
+For δ, whose span is 0.15, that band starts at 0.9925 — and Laibson et al.'s own
+estimate is 0.9891, only 0.003 below it. The band flags ordinary patience as
+"pinned". It also conflates *concentrated near the top* with *truncated by the
+prior*, which are different things.
+
+δ is not against the wall at all:
+
+```
+run          p50      p90      p99      max   >0.999  >0.9999
+comphs    0.9922   0.9982   0.9993   0.9997     3.1%     0.0%
+somehs    0.9760   0.9971   0.9983   0.9986     0.0%     0.0%
+compco    0.9973   0.9993   0.9996   0.9998    16.1%     0.0%
+```
+
+**No household reaches 0.9999, let alone 1.0.**
+
+The correct diagnostic is whether the prior *truncates* the posterior — whether
+a household's 95th percentile sits at the bound:
+
+```
+run           beta p95@hi   delta p95@hi   crra p95@hi
+baseline            0.0%          29.9%          0.6%
+startage            0.0%          25.8%          0.1%
+ph4 comphs          0.0%          24.3%          0.1%
+ph4 somehs          0.0%          15.6%          0.0%
+ph4 compco          0.0%          52.0%          0.0%
+```
+
+By that measure:
+
+- **δ truncation *improved*, 29.9% → 24.3%** — the opposite of what §10.13 said.
+- **ρ truncation was already negligible (0.6%) and is now 0.1%.** The headline
+  "ρ pileup 9.3% → 2.5%" is a mean-proximity number, not a truncation number;
+  the improvement is real but the magnitude was overstated by the metric.
+- **β is never truncated, at either bound, in any run.** Its bounds are not
+  binding, so the β result of §10.13 does not depend on the prior.
+
+**§10.13's "δ pinning worsened" sentence is retracted.** The real residual is
+that ~24% of comphs and 52% of compco households have posteriors the δ ≤ 1
+bound cuts into. That is worth reporting as a limitation — δ > 1 is not
+economically meaningful, so this is the model saying "at least as patient as the
+data can express" — but it is a modest and *improving* issue, not the clearest
+remaining defect.
+
+**Lesson for the metric, not just the number.** "Within 5% of the span" behaves
+completely differently across parameters with different spans and different
+posterior widths. Truncation of the credible interval is the parameter-free
+question and should be the reported statistic.
+
+### 11.2 β over-coverage does not rescue the heterogeneity result
+
+β's 90% coverage is 0.913–0.950 against a 0.900 target, i.e. the posteriors are
+slightly *too wide*. That inflates the within-household sd and biases the
+between/within ratio **downward — against the heterogeneity hypothesis** — so it
+had to be checked rather than assumed harmless.
+
+Removing it generously (treating all the over-coverage as spurious width, a
+1.098× inflation at coverage 0.929) moves the comphs ratio from **0.62 to 0.68**.
+Still far below 1.0. The conclusion does not depend on it.
+
+### 11.3 The variance decomposition, which is sharper than any ratio
+
+`Var(posterior means) = Var(true θ) + Var(estimation error)`. With calibrated
+posteriors the second term is the mean posterior variance, so
+
+```
+Var(true θ)  =  Var(means)  −  mean posterior variance
+```
+
+A **negative** estimate means the posterior means are less spread out than the
+posteriors are wide: there is no between-household variation left after
+accounting for estimation error.
+
+```
+                 Var(means)   mean post var    Var(true)   implied sd
+ph4 comphs
+  beta             0.008992        0.024484    -0.015492    none detectable
+  delta            0.000581        0.000384    +0.000198        0.0141
+  crra             0.913917        0.497606    +0.416311        0.6452
+ph4 somehs
+  beta             0.017026        0.024816    -0.007791    none detectable
+  delta            0.001003        0.000630    +0.000374        0.0193
+  crra             0.594133        0.520034    +0.074099        0.2722
+ph4 compco
+  beta             0.016512        0.029710    -0.013198    none detectable
+  delta            0.000140        0.000165    -0.000025    none detectable
+  crra             0.985424        0.771142    +0.214282        0.4629
+baseline
+  beta             0.010586        0.019107    -0.008520    none detectable
+  crra             0.652451        0.510289    +0.142162        0.3770
+```
+
+**β's variance estimate is negative in every run and every education group,
+including the Phase 3 baseline.** So this was never a Phase 4 artifact — β
+heterogeneity was not detectable before the regeneration either, and the
+regeneration only made that clearer. The honest statement is stronger than
+"the ratio is below 1": **there is no evidence of between-household variation in
+β at all.**
+
+#### With bootstrap uncertainty, which the point estimates above hide
+
+2,000 resamples over households. `P` is the probability that `Var(true θ) > 0`,
+i.e. that between-household variation survives estimation error.
+
+```
+run             N   beta P   delta P   crra P    crra implied sd [95% CI]
+ph4 comphs    889    0.000     1.000    1.000    0.643 [0.522, 0.745]
+ph4 somehs    211    0.000     1.000    0.752    0.264 [0.000, 0.540]
+ph4 compco    527    0.000     0.060    0.997    0.458 [0.265, 0.583]
+ph4 cond     1627    0.000     1.000    0.597    0.096 [0.000, 0.298]
+baseline      889    0.000     1.000    0.996    0.375 [0.210, 0.500]
+```
+
+- **β: `P = 0.000` in every run without exception.** The strongest statement in
+  this document. Not a thin-sample artifact either — somehs's β ratio bootstraps
+  to 0.83 with a 95% interval of [0.76, 0.90], entirely below 1.
+- **δ heterogeneity is real** (`P = 1.000`) everywhere **except compco**
+  (`P = 0.060`).
+- **ρ heterogeneity is *not* uniformly established, which the point estimates
+  above obscured.** It is solid for comphs (`P = 1.000`) and compco (0.997), but
+  only 0.752 for somehs and **0.597 for the pooled conditioned model**, whose
+  implied sd interval includes zero.
+
+That last one deserves care rather than a headline. The conditioned model has
+*wider* ρ posteriors than the marginalised one (§10.12), so more of the observed
+spread is attributable to estimation error and less to real variation — a
+mechanical effect, not necessarily an economic one. But there is also a
+substantive reading available: conditioning on education absorbs between-group
+differences in the income process into the calibration, leaving less residual
+variation to attribute to risk aversion. **These two explanations are not
+separated by anything we have run**, and the ρ heterogeneity claim should be
+stated as "clear within comphs, not established pooled" rather than as a single
+number.
+
+The earlier sentence here — "ρ heterogeneity is real in all three groups,
+implied sd 0.27–0.65" — was a point estimate reported without uncertainty and is
+**superseded by this table**.
+
+This should lead any writeup of the heterogeneity question, in place of the
+between/within ratio — the ratio compresses a two-term decomposition into one
+number and hides that one term exceeds the other.
+
+### 11.4 Robustness to the consumption correction — and δ brackets Laibson
+
+Every number reported anywhere in this document uses the **uncorrected** arm.
+The corrected arm — which applies the Engel upper bound on differential
+under-reporting, `φ' = 0.130`, so richer households are assumed to under-report
+more (Aguiar & Bils) — has been computed throughout and never reported. It is a
+free robustness check and it had not been run.
+
+```
+ph4 comphs      uncorrected   corrected     shift   as frac of between-sd
+beta                 0.8100      0.8150   +0.0051                    0.05
+delta                0.9922      0.9835   -0.0087                   -0.36
+crra                 4.4625      4.4950   +0.0325                    0.03
+```
+
+**β and ρ are essentially unmoved** (≤0.20 of a between-household sd in the
+worst group), and `Var(true β)` stays **negative in every group under both
+arms**. The §11.3 conclusion does not depend on the correction.
+
+**δ is the interesting one.** The correction moves it *down* past Laibson et
+al.'s 0.9891, from 0.9922 to 0.9835. The two arms therefore **bracket their
+estimate**: with no under-reporting correction we are slightly more patient than
+them, with the maximum defensible correction slightly less. δ replicates their
+value to within the width of the measurement-error assumption — a stronger
+statement than the point comparison §1 makes, and one that cost nothing to
+establish.
+
+### 11.5 The illiquid floor biases β upward for indebted households
+
+The illiquid feature is floored at zero because the model requires `Z ≥ 0`. The
+code already flags this as real rather than an artifact, but its consequence for
+the estimates had not been measured.
+
+```
+household-waves with net illiquid < 0 before flooring     17.9%
+  median shortfall                                      -14,042
+  p10 shortfall                                         -53,866
+households floored in at least one wave                   45.4%
+households floored in every wave                           1.9%
+```
+
+Comparing households floored in at least half their waves (N=122) against the
+rest:
+
+```
+param      floored      rest      diff   in between-sd
+beta        0.8419    0.8048   +0.0371            0.39
+delta       0.9862    0.9928   -0.0066           -0.28
+crra        4.5694    4.4492   +0.1203            0.13
+```
+
+**Flooring makes indebted households look wealthier than they are, and they are
+assigned a higher β — less present bias — by 0.39 of a between-household sd.**
+The direction is exactly what the mechanism predicts: a household whose net
+illiquid position is −$50,000 but recorded as 0 does not look like it is
+behaving impatiently.
+
+This is a **candidate contributor to the β gap** against Laibson et al., and a
+new one — it sits alongside §9.5's credit-card margin rather than replacing it.
+Its size bounds the contribution: +0.037 on the 13.7% of households heavily
+affected, against a total gap of 0.28, so it explains a modest fraction at most.
+
+There is **no fix inside this model** — it cannot represent negative illiquid
+wealth — so this belongs in the limitations rather than the to-do list.
+
+### 11.6 The port still reproduces Laibson et al. after the Calibration refactor
+
+§10.1 rewrote every `cal.*` read site in `grids.py` and `twoasset.py` to take an
+education bundle. Unit tests confirmed the comphs bundle is bit-identical to the
+old globals, but the end-to-end check — does the port still reproduce their
+published table-3 moments — had not been re-run.
+
+`scripts/validate_twoasset.py`, at their own estimates
+(β=0.5305, δ=0.9891, ρ=1.9355):
+
+```
+grid 107x56 ("mid")        MSM objective q = 75.3   (theirs 77.2)
+port fidelity               mean |log(ours/theirs)| = 0.0327
+grid 81x46 ("coarse")      MSM objective q = 83.6
+port fidelity               mean |log(ours/theirs)| = 0.0685
+```
+
+Moment-by-moment, `ours/theirs` runs 0.96–1.11 at the mid grid. **3.3% mean
+deviation, against the "within 4%" recorded when the port was first validated
+(commit `149206b`).** The refactor is clean.
+
+The MSM objective itself moves between runs — 75.3 here against 85.3 recorded
+earlier — because the forward simulation is stochastic and `q` is a sum of 16
+squared standardised deviations, so it amplifies Monte Carlo noise. **Port
+fidelity, not `q`, is the statistic to track**: it is a direct per-moment
+comparison and is stable.
+
+---
+
+## 12. What the audit changed
+
+Run after Phase 4 was declared complete. Two reported conclusions were wrong,
+one was materially understated, and one recurring bug class was closed.
+
+| | finding |
+|---|---|
+| **Retracted** | δ "ceiling pinning worsened, the clearest remaining defect" (§10.13). Metric artifact; by credible-interval truncation it *improved*, 29.9% → 24.3% (§11.1) |
+| **Overstated** | ρ pileup "9.3% → 2.5%" is mean-proximity; by truncation it was 0.6% → 0.1%, already negligible before Phase 4 (§11.1) |
+| **Understated** | β heterogeneity: not "ratio 0.62" but `Var(true β) < 0` with bootstrap `P = 0.000` in every run and group, *including the Phase 3 baseline* (§11.3) |
+| **Overstated** | "ρ heterogeneity is real in all three groups" — `P = 0.752` for somehs and 0.597 for the pooled conditioned model (§11.3) |
+| **New** | The illiquid floor biases β *upward* by 0.39 sd for indebted households — a previously unidentified contributor to the β gap (§11.5) |
+| **New** | The two consumption-correction arms **bracket** Laibson's δ, a stronger replication claim than the point comparison (§11.4) |
+| **Fixed** | `ensemble_eval` now refuses to score an ensemble on data its members were not trained on — the bug that produced an invalid Phase 4 comparison (§12.1) |
+| **Verified** | Port fidelity 3.3% after the Calibration refactor (§11.6); headline numbers robust to dropping households the model cannot represent; orthogonality claim re-measured |
+
+### 12.1 The recurring bug, and the guard
+
+Three separate times a transformation was added at one site and missed at
+another that consumed it: SBC not conditioned, SBC not filtered by group, and
+`ensemble_eval` inheriting neither. The first aborted loudly on a feature-count
+mismatch. **The second and third did not** — they produced plausible numbers
+from the wrong data, and one of them was reported before being caught.
+
+`compare_windows` now records `shards`, `sbc_cache`, `start_low`, `educ_group`
+and `condition_educ` in each run's `_config`, and `ensemble_eval` refuses to
+proceed when its own arguments disagree with what the members recorded. Verified
+against the original failure: it catches both the `start_low` and `educ_group`
+mismatches, and passes the correct invocation.
+
+The general lesson is that `ensemble_eval` *rebuilds* its evaluation data rather
+than reusing the members', which makes every training argument a silent
+correctness dependency. Defaults that are right for one phase are wrong for the
+next, and nothing in the type system notices.

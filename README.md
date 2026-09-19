@@ -120,19 +120,25 @@ uv run python scripts/train_npe.py npe/…=phase2 npe.training.max_num_epochs=50
 
 ## Observation model
 
-NPE inputs are **10 biennial waves covering ages 30–49** for Phase 3 (Phases
-1–2 used 5 waves, ages 30–39) — biennial to match PSID's post-1997 observation
-schedule, which is the Phase 4 empirical target. Flows (`income`,
-`consumption`) are summed over each 2-year window; stocks are read at the end
-of it. Annual waves (`wave_years=1`) are implemented and tested but are **not**
-the pre-registered choice.
+NPE inputs are **7 biennial waves** — biennial to match PSID's post-1997
+observation schedule. Flows (`income`, `consumption`) are summed over each
+2-year window; stocks are read at the end of it. Annual waves (`wave_years=1`)
+are implemented and tested but are **not** the pre-registered choice.
 
-The window widened because `beta` is the hardest parameter to identify and the
-only one still gaining at 10 waves — contraction 0.412 → 0.465, while `delta`
-and `crra` saturate. Shards store the annual panel, so the window is a
-post-hoc aggregation choice: changing it re-derives from disk in seconds and
-never re-solves. See SIMULATOR_SPEC §6.1, including the unresolved question of
-whether PSID can supply a balanced 10-wave ages-30–49 panel of usable size.
+**This was 10 waves at ages 30–49 in the Phase 3 pre-registration.** It is 7
+because that is what PSID can actually supply with a clean credit-card measure
+— card debt is separable only from 2011, giving 2011–2023 — and the
+SIMULATOR_SPEC §6.1 question of "whether PSID can supply a balanced 10-wave
+panel of usable size" resolved to *no*. See `PSID_DATA.md`.
+
+Window start ages are **24–45**, which is not the same as the wave-0 ages they
+produce: `aggregate_waves` reports each wave at the *last* year of its window,
+so a window opened at 24 first reports at age 25. Passing 25–46 — as every
+pre-Phase-4 run did — yields simulated wave-0 ages of 26–47 against PSID's
+25–46. See `RESULTS.md` §10.8.
+
+Shards store the annual panel, so the window is a post-hoc aggregation choice:
+changing it re-derives from disk in seconds and never re-solves.
 
 Feature order is positional and load-bearing:
 

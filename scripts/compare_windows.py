@@ -462,6 +462,11 @@ def main() -> None:
         "obs_noise": args.obs_noise,
         "educ_group": args.educ_group,
         "condition_educ": args.condition_educ,
+        # Provenance, so a later scorer can verify it is rebuilding the
+        # evaluation windows from the data the members actually saw. Omitting
+        # this is how a Phase 4 ensemble came to be scored on Phase 3 shards.
+        "shards": str(args.shards),
+        "sbc_cache": str(args.sbc_cache),
         "features": list(FEATURE_SETS[args.features]) if args.features else None,
         "n_sbc": args.n_sbc, "n_post": args.n_post,
         "n_heldout_eval": args.n_heldout_eval,
