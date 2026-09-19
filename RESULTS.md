@@ -1525,3 +1525,209 @@ as a limitation on β, but it is not the disqualifying defect §9.5 described.
 This does not disturb §11.3: β heterogeneity is undetectable on internal
 evidence — the variance decomposition — which does not depend on this
 comparison at all.
+
+### 12.3 "compco's wealth range exceeds the model" — wrong direction, wrong cause
+
+§11 listed compco's in-box p10 of 0.434 as the model being unable to represent
+its **wealthiest** households. Setting out to fix it showed the opposite.
+
+`in_box_frac` is the fraction of posterior draws inside the **θ** box — it is a
+statement about parameters, not about the wealth grid, and I read it as the
+latter. The 90 compco households with in-box mass below 0.5 are the **poorest**
+in the group:
+
+```
+                  low in-box (90)     rest (437)   ratio
+median income               36,474         81,168    0.45
+median consumption          27,925         56,277    0.50
+median illiquid              9,458         90,174    0.10
+```
+
+In-box mass correlates **+0.57 with consumption** and +0.38 with income. Poor
+college-educated households, not rich ones.
+
+**The cause is the per-group model, not the model's wealth range.** The compco
+calibration has the steepest income profile of the three (`agecoeff` 0.247,
+mean income ~83,700 at ages 35–44). A per-group model trained only on compco
+draws has **never seen a household earning 36,000**, because the compco
+calibration does not generate one. Those households fall outside its training
+support entirely.
+
+The same 527 households under all three models:
+
+```
+                     per-group     cond     marg
+all compco (527)         0.825    0.883    0.979
+low in-box (90)          0.416    0.676    0.940
+households < 0.5          17.1%     2.1%     3.2%
+```
+
+**Sharing one network across education groups fixes it** — the conditioned model
+can borrow support from the comphs and somehs calibrations for a household its
+own group's calibration cannot produce. Marginalising fixes it further still,
+which is §10.12's hedging-under-misspecification result showing up concretely
+rather than in the abstract.
+
+**What this changes, and what it does not.** Switching compco to the conditioned
+model barely moves the estimates — β +0.020, δ −0.0001, ρ +0.044 — so the
+reported per-group numbers were not far wrong. But two things do change:
+
+- **compco's ρ heterogeneity does not survive the switch.** Per-group implies a
+  between-household sd of 0.463; conditioned implies none detectable. That
+  finding was model-dependent and should not have been reported as a property
+  of the group. Consistent with §11.3's `P = 0.597` for pooled-conditioned ρ.
+- **δ truncation is unaffected** — 52.0% per-group against 51.8% conditioned.
+  That is a genuinely separate problem and remains open.
+
+**Recommendation: the conditioned model should be the default for all three
+groups**, not the per-group models. The per-group models are θ-starved by 3×
+(§10.11) *and* lack support for atypical members of their own group. Their only
+advantage — that they cannot leak calibration across groups — is not worth
+either cost.
+
+**That prediction was wrong.** `somehs` should, on the group-calibration story,
+have *rich* misfits — its calibration generates the least wealth. It does not:
+its low-in-box households are also the poorest (income 10,801 against 33,219),
+and comphs shows the same sign (`corr(in-box, income) = +0.38`,
+`corr(in-box, consumption) = +0.57`). The pattern is universal, so the
+explanation cannot be group-specific. §12.4 has the real one.
+
+### 12.4 The real constraint: the income process cannot generate poor households
+
+```
+           model p1   model p5      PSID p1   PSID p5
+comphs       15,000     19,000            0     6,819
+somehs       10,000     13,000        1,516     1,516
+compco       22,000     32,000        2,386    20,234
+```
+
+The simulated income floor is a 3-state Tauchen AR(1) times a lognormal
+transitory shock — bounded support with thin tails. PSID has households at or
+near **zero** income in every group. **Nothing the model can produce at any θ
+reaches them.**
+
+Households with at least one wave below the model's 1st-percentile income:
+
+```
+           floor     waves below    households with any wave below
+comphs    15,000           14.5%                             33.3%
+somehs    10,000           17.0%                             40.8%
+compco    22,000            5.7%                             16.1%
+```
+
+and their in-box mass is much lower — median 0.855 vs 0.988 (comphs), 0.871 vs
+0.992 (somehs), **0.498 vs 0.895 (compco)**, with correlations −0.34 to −0.50.
+compco's apparent severity is not that its households are unusual but that its
+floor is the highest (22,000), so more of its members fall under it.
+
+**This is §7.1's diagnosis localised.** §7.1 observed the model lacks tail
+events — "the excess is tail events the model has no mechanism for". This is
+specifically the *left* tail: unemployment spells, disability, zero-income
+years. A 3-state AR(1) cannot produce them, and no preference parameter
+substitutes.
+
+**Excluding the affected households changes nothing material:**
+
+```
+comphs  889 -> 720 (81% kept):  beta +0.0009  delta +0.0005  crra +0.0024
+somehs  211 -> 125 (59% kept):  beta -0.0005  delta -0.0188  crra -0.0305
+compco  527 -> 442 (84% kept):  beta -0.0100  delta +0.0002  crra +0.0120
+```
+
+`Var(true β)` remains **none detectable in every group on the clean subsample**,
+so §11.3's central result does not rest on households the model cannot
+represent. (`somehs`'s ρ heterogeneity does not survive the restriction —
+0.272 → none — consistent with its borderline `P = 0.752`.)
+
+**There is no fix within the current simulator**, and adding one means an
+unemployment/disability process, which §"Not in scope" excluded for needing
+external data. The actionable steps are the two already available: prefer the
+conditioned model, which mitigates the symptom (compco in-box below 0.5 falls
+17.1% → 2.1%), and report the below-floor share alongside any per-group
+estimate so readers know what fraction of the sample the model is extrapolating
+over.
+
+### 12.5 Why income differs, and what could calibrate it
+
+§12.4 established that the model cannot generate poor households. This is the
+diagnosis of *why*, and an assessment of the fixes.
+
+**It is not a level problem.** Medians match within 2–14%; the failure is
+entirely in the shape of the residual distribution. Removing each source's own
+age profile from log income, ages 25–59:
+
+```
+group    src       sd   IQR-sd   skew    kurt      p1      p5     p95     p99
+comphs   model  0.510    0.536   0.00   -0.67   -1.03   -0.84    0.84    1.03
+         PSID   0.901    0.774  -1.83    6.88   -3.53   -1.79    0.77    1.10
+somehs   model  0.505    0.527  -0.00   -0.51   -1.08   -0.84    0.83    1.07
+         PSID   0.961    0.798  -1.42    3.45   -3.68   -2.01    0.96    1.28
+compco   model  0.381    0.390  -0.00   -0.57   -0.79   -0.63    0.63    0.79
+         PSID   0.720    0.573  -1.70    7.80   -2.49   -1.21    0.85    1.31
+```
+
+Three things, and the third is the one that matters:
+
+1. **The model is symmetric; PSID is strongly left-skewed** (0.00 vs −1.4 to
+   −1.8). Tauchen discretises a Gaussian AR(1) and the transitory shock is
+   lognormal, so nothing in the process *can* generate skew.
+2. **The model is platykurtic; PSID is leptokurtic** (−0.5 to −0.7 vs +3.5 to
+   +7.8). Negative excess kurtosis is the signature of a 3-state
+   discretisation — mass on three points is flat-topped, not bell-shaped.
+3. **The upside roughly matches; only the downside is missing.** Model p99
+   +0.79 to +1.07 against PSID's +1.10 to +1.31 — comparable. Model p1 −0.79 to
+   −1.08 against PSID's **−2.49 to −3.68** — three times deeper. Plus 1.1–3.3%
+   of PSID waves at *exactly zero* income.
+
+**The characters are opposite, not merely different in degree.** Defining a
+disruption as a wave below half that household's *own* median:
+
+```
+group     P(disrupt)   median drop   P(recover next wave)
+comphs          6.8%          0.27                  76.9%
+somehs         10.0%          0.19                  77.6%
+compco          5.0%          0.36                  71.8%
+
+model's lowest Tauchen state   0.52–0.61x mean, P(stay) 0.73–0.83
+```
+
+PSID has **occasional, deep, transitory** collapses — to a fifth or a quarter of
+usual income, with ~77% recovering by the next wave. The model has **permanent-
+ish, moderate** variation — a worst state at 0.52× mean that households stay in
+80% of the time. No amount of re-tuning a symmetric AR(1) turns one into the
+other.
+
+#### Calibration options, in order of what they would actually buy
+
+| option | effect | cost |
+|---|---|---|
+| More Tauchen states | fixes kurtosis (flat-top → bell) but adds **no** skew and does not widen support | cheap, regeneration |
+| Widen `AR1_GRID_SPAN` | deepens the left tail but **symmetrically**, overshooting an upside that already matches | cheap, regeneration |
+| Re-estimate AR(1) on PSID | our own data, but a Gaussian AR(1) still cannot produce skew | moderate |
+| **Add a disruption state** | **the mechanism the data show**; targets above are directly estimable | regeneration + revalidation |
+| Restrict the sample | already validated: §12.4 shows β shifts ≤0.010 | **free** |
+
+**The disruption state is the right fix and it is fully specified by the table
+above**: probability ~5–10% per wave, income multiplier 0.19–0.36, persistence
+~23%. That is a standard unemployment state in the lifecycle literature, and
+PSID identifies all three parameters directly. Implementation touches
+`discretize_transitory` and the solver's expectation step — the policy must
+*anticipate* the risk or precautionary saving is wrong, which is the whole point.
+
+**Two objections that have to be stated.**
+
+1. **It deviates from the paper being replicated.** Laibson et al. deliberately
+   remove unemployment — `unemprate` is a control stripped by the
+   typical-household adjustment (§6). Adding it estimates a different model.
+2. **It would break port fidelity.** The port currently reproduces their
+   table-3 moments to 3.3% (§11.6), which is the evidence the implementation is
+   correct. Changing the income process forfeits that check, and the model would
+   need revalidating against a target it no longer shares with them.
+
+**Recommendation: do not add it to replicate Laibson et al.** The honest framing
+is that their model, faithfully ported, cannot represent a third of PSID
+households because its income process has no left tail — and that this is a
+finding about the model rather than a defect in the port. The cheap mitigation
+(restricting to households the model can generate) is already validated and
+moves nothing. A disruption state is the right next study, not a patch to this
+one.
