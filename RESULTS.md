@@ -295,10 +295,11 @@ rather than in risk aversion.
 
 **Added since, and now the largest open items:**
 
-- **The credit-card margin is misfit 1.5–3.6× at every θ, including Laibson et
-  al.'s own** (§9.5). This is the margin β is identified off, and it is a
-  location error that no heterogeneity source addresses. It caps what any β
-  estimate here can mean.
+- **The credit-card margin over-predicts by ~1.3× at ages 31–40** (§12.2,
+  retracting §9.5's 1.5–3.6×). The model reproduces its own SCF `%Visa` target
+  within 5% and is exact at ages 41–50; what remains is that SCF and PSID
+  disagree on the *age gradient* of card debt and the model inherits SCF's.
+  No fix exists inside the model — PSID records balances, not limits.
 - **δ's upper bound truncates ~24% of comphs and 52% of compco posteriors**
   (§11.1). Not the "pinning" §10.13 claimed, and improving, but real.
 - **compco's wealth range exceeds what the model can represent** — 17.1% of its
@@ -519,6 +520,12 @@ justifying source, with the sources that cost no extra solve carried along.
 The four-source design in the original plan is not what survived.
 
 ### 9.5 The credit-card margin is wrong at every θ, including theirs
+
+> **Largely retracted — see §12.2.** This section compares a *cardholder-
+> conditional* model against an *unconditional* PSID sample, which guarantees
+> an apparent over-prediction. Corrected, the ratio is 1.14× sample-weighted
+> rather than 1.5–3.6×, and the model reproduces its own `%Visa` calibration
+> target within 5%. The text below is kept as the record of what was believed.
 
 `scripts/borrowing_margin.py`. Share of households in net credit-card debt:
 
@@ -1456,3 +1463,65 @@ The general lesson is that `ensemble_eval` *rebuilds* its evaluation data rather
 than reusing the members', which makes every training argument a silent
 correctness dependency. Defaults that are right for one phase are wrong for the
 next, and nothing in the type system notices.
+
+### 12.2 §9.5's credit-card misfit is largely a denominator error — retracted
+
+§9.5 reported the model over-generating card borrowers by **1.5–3.6× at every θ
+including Laibson et al.'s own**, called it a location error no heterogeneity
+could fix, and said it "caps what any β estimate here can mean". Setting out to
+fix it showed there is much less to fix.
+
+**The model matches its own calibration target.** Their `%Visa` moment is the
+share holding card debt **conditional on holding a card** — `4_initialwealth.do`
+drops `hasVisa != 1`. The port reproduces it within 5%:
+
+```
+ages        SCF target   our sim   ours/theirs
+21-30           0.6395    0.6249          1.03
+31-40           0.6292    0.6089          1.04
+41-50           0.5884    0.5468          1.05
+51-60           0.5027    0.4802          1.01
+```
+
+§9.5 compared that cardholder-conditional model against an **unconditional**
+PSID sample. Non-cardholders sit in the denominator and can never enter the
+numerator, so the comparison was guaranteed to show the model over-borrowing.
+This is §6's deviation 1 — "`hasVisa` is not in PSID" — which was documented and
+then not applied to the one comparison it governs.
+
+PSID does not observe possession, so the conditional share is the unconditional
+share divided by the holding rate. That rate is **at least 65.8%** (the share
+ever reporting debt across seven waves) and ~70–76% for US families:
+
+```
+ages      uncond   /0.66   /0.70   /0.76     SCF   model   model/PSID@0.70
+25-30      31.5%   47.7%   45.0%   41.4%   63.9%   62.5%              1.39
+31-40      33.5%   50.8%   47.9%   44.1%   62.9%   60.9%              1.27
+41-50      37.2%   56.4%   53.2%   49.0%   58.8%   54.7%              1.03
+51-59      36.3%   55.0%   51.9%   47.8%   50.3%   48.0%              0.93
+```
+
+**Sample-weighted across our households' actual age distribution: 57.1% model
+against 50.2% PSID-implied — 1.14×, not 1.5–3.6×.** At ages 41–50 the model is
+exact (1.03) and by 51–59 it slightly *under*-predicts (0.93).
+
+**What survives is smaller and more specific: an age-gradient disagreement
+between SCF and PSID.** SCF has card-debt incidence *falling* with age
+(63.9% → 50.3%); PSID has it *rising* (45.0% → 51.9%). The model is calibrated
+to SCF and inherits SCF's gradient. Because our sample is concentrated at ages
+31–50, it sits where the two sources disagree most, and the model over-predicts
+by ~1.3× at the younger end.
+
+**There is no fix inside the model.** The gradient comes from the credit-limit
+function and income profile, both estimated on SCF. Re-estimating them against
+PSID would be calibrating to the data we are testing against — and PSID records
+balances, not limits, so it cannot identify the limit function anyway.
+
+**Consequence for §9.5's strongest claim.** "β rides on a margin misfit by 3×,
+capping what any β estimate here can mean" is **retracted**. The margin is
+matched at ages 41+ and over-predicted by ~1.3× at 31–40. That is worth stating
+as a limitation on β, but it is not the disqualifying defect §9.5 described.
+
+This does not disturb §11.3: β heterogeneity is undetectable on internal
+evidence — the variance decomposition — which does not depend on this
+comparison at all.
