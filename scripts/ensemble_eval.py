@@ -80,7 +80,8 @@ def _check_provenance(args, run_dirs, w) -> None:
     checks = {"start_low": args.start_low, "shards": str(args.shards),
               "sbc_cache": str(args.sbc_cache),
               "educ_group": args.educ_group,
-              "condition_educ": args.condition_educ}
+              "condition_educ": args.condition_educ,
+              "log_features": args.log_features}
     bad = []
     for d_ in run_dirs:
         rj = Path(d_) / "results.json"
@@ -139,6 +140,10 @@ def main() -> None:
                         "against a three-group evaluation set is being tested "
                         "on households it was never built for, and unlike a "
                         "feature-count mismatch that does NOT abort on shape.")
+    p.add_argument("--log_features", action="store_true",
+                   help="Must match training. Like --educ_group this does NOT "
+                        "abort on shape when omitted -- it silently scores the "
+                        "posterior on differently-scaled x.")
     p.add_argument("--condition_educ", action="store_true",
                    help="Must match training. A feature-count mismatch does "
                         "abort here, which is how the first phase 4 run was "
@@ -179,6 +184,13 @@ def main() -> None:
     cache = torch.load(args.sbc_cache, weights_only=False)
     th_sbc, x_sbc, ids = window_panel(cache["panels"], cache["thetas"].numpy(),
                                       k=1, n_waves=w, seed=4242, **win)
+
+    if args.log_features:
+        from scripts.compare_windows import log_features
+        from hh_npe.data.waves import FEATURES_TWOASSET_AGE
+        feats = FEATURE_SETS[args.features] if args.features else FEATURES_TWOASSET_AGE
+        x_ho, x_sbc = log_features(x_ho, feats), log_features(x_sbc, feats)
+        log.info("log features applied to the evaluation windows")
 
     # The evaluation windows are rebuilt here, so every transformation the
     # members saw in training has to be reapplied. Omitting them does not

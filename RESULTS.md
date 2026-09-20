@@ -54,7 +54,10 @@ uncertain — the apparent spread is estimation noise, and a single population
 estimate would serve as well.
 
 - **ρ heterogeneity is real** (5.4×).
-- **δ heterogeneity is real** (2.2×).
+- **δ heterogeneity is real** (2.2×), but δ is **censored at 1.0 for 24% of
+  comphs households** (52% of compco) — they are at the patience constraint and
+  their δ should be read as a bound, not a point estimate (§12.6). β and ρ are
+  unaffected by it.
 - **β heterogeneity is not demonstrated** (0.62), and Phase 4 made the evidence
   against it *stronger*, not weaker — §10.13. It replicates in all three
   education groups independently (0.62 / 0.83 / 0.74), and survives correcting
@@ -300,10 +303,14 @@ rather than in risk aversion.
   within 5% and is exact at ages 41–50; what remains is that SCF and PSID
   disagree on the *age gradient* of card debt and the model inherits SCF's.
   No fix exists inside the model — PSID records balances, not limits.
-- **δ's upper bound truncates ~24% of comphs and 52% of compco posteriors**
-  (§11.1). Not the "pinning" §10.13 claimed, and improving, but real.
-- **compco's wealth range exceeds what the model can represent** — 17.1% of its
-  households have under half their posterior mass inside the prior box.
+- **δ is censored at 1.0 for ~24% of comphs and 52% of compco households**
+  (§11.1, §12.6). **Resolved as a reporting question, not a defect**: δ ≤ 1 is
+  an economic restriction, the induced bias is 0.0015, and β and ρ are
+  uncontaminated. Report those households as at the constraint.
+- ~~compco's wealth range exceeds what the model can represent~~ —
+  **retracted (§12.3)**. The affected households are compco's *poorest*, and
+  the cause is the income process having no left tail (§12.4), which affects
+  every group.
 
 ---
 
@@ -1731,3 +1738,176 @@ finding about the model rather than a defect in the port. The cheap mitigation
 (restricting to households the model can generate) is already validated and
 moves nothing. A disruption state is the right next study, not a patch to this
 one.
+
+### 12.6 δ truncation: the bound binds, and it should
+
+~24% of comphs and 52% of compco households have their δ 95th percentile at the
+1.0 bound (§11.1). This is the diagnosis and the decision not to widen it.
+
+**It is not diffuse posteriors brushing the edge — it is the opposite.**
+Truncated households have *tighter* δ posteriors than the rest:
+
+```
+comphs                truncated      not
+delta posterior mean     0.9979   0.9859
+delta posterior sd       0.0043   0.0162
+90% CI width             0.0076   0.0432
+```
+
+They are confidently estimated at δ ≈ 0.998, and the interval clips because the
+bound is 0.002 away from a posterior that is 0.004 wide.
+
+**The bound does bind.** Sampling the flow *without* the box restriction, 40
+truncated households against 40 others:
+
+```
+                median P(delta > 1)   p90    median raw delta draw
+truncated                     0.236  0.400                 0.9994
+not truncated                 0.008  0.091                 0.9928
+```
+
+Nearly a quarter of the posterior mass for these households lies above 1.0, so
+the truncation is real rather than an artifact of where the interval falls.
+
+**What makes them look patient is the saving rate, not the wealth level.**
+Truncated households are *poorer* — median income 29,653 against 46,040,
+illiquid 8,425 against 15,914 — and accumulate *less* (1.51× against 2.14×
+over the seven waves). But they consume a smaller share of income, **c/y 0.79
+against 0.87**, and c/y is what identifies δ. The model reads a 21% saving rate
+as patience regardless of the base it is saving from.
+
+#### Why widening the prior is the wrong fix
+
+**δ ≤ 1 is an economic restriction, not an arbitrary prior edge.** δ > 1 means
+valuing future utility more than present utility. The model already carries
+mortality (`DEATH_PROB`), so effective discounting is `δ × survival` and δ = 1
+means "no pure time preference beyond mortality" — a coherent boundary, and the
+one the literature imposes.
+
+**And the bias it induces is negligible.** The raw (unclipped) median for
+truncated households is 0.9994 against the clipped mean of 0.9979 — **0.0015**.
+Widening `delta_high` to, say, 1.02 would require a full regeneration (~9.7 GPU
+days, since the prior box is sampled at generation) to move δ by about one part
+in seven hundred, into a region that is economically meaningless.
+
+**The constraint does not contaminate the other parameters**, which was the real
+risk. Truncated against non-truncated households: β 0.8091 vs 0.8118, ρ 4.4309
+vs 4.4646. Essentially identical, so δ hitting its boundary is not being
+absorbed by β or ρ.
+
+**Resolution: report rather than re-estimate.** For the affected households δ is
+**censored at 1.0**, and should be reported as "at the patience constraint"
+rather than as a point estimate with a symmetric interval. The population
+figures in §1 are unaffected at the reported precision, and β — the parameter
+this project exists to estimate — is untouched.
+
+This closes the last of the issues §11 listed as open. What remains are the two
+structural limits neither fixable nor in scope here: the income process has no
+left tail (§12.4–12.5) and the credit-limit age gradient follows SCF rather than
+PSID (§12.2).
+
+---
+
+## 13. Two reparameterisation tests
+
+Both proposed after the audit, both retraining-only (no regeneration), both run
+as single seeds against matched controls.
+
+### 13.1 `log(1 − δ)` as the estimation target — works, adopt it
+
+δ = 1 is a hard wall that a normalising flow must press a spike against; under
+`d' = log(1 − δ)` it moves to −∞ and **truncation becomes structurally
+impossible** (`δ = 1 − exp(d') < 1` for every finite `d'`). The flow is trained
+on transformed θ and draws are inverted back, so all metrics stay in δ space.
+
+**On held-out simulated data: a clean null.** Against a control run by identical
+code on the same held-out set, differing only in parameterisation:
+
+```
+param    corr none  corr log1m   mae none  mae log1m  cov none  cov log1m
+beta         0.786       0.784     0.0960     0.0967     0.887      0.882
+delta        0.784       0.787     0.0203     0.0202     0.877      0.866
+crra         0.836       0.838     0.4404     0.4457     0.879      0.887
+```
+
+β and ρ unmoved is the control signal that matters: the transform rescales one
+axis without disturbing the joint fit.
+
+**That test could not detect what the transform is for.** Held-out θ is uniform
+on [0.85, 1.0], so only ~1.3% of it sits where truncation happens. The
+pathology lives on PSID, where posteriors concentrate at δ ≈ 0.998.
+
+**On PSID it works.** The 216 comphs households whose δ interval was clipped:
+
+```
+                        baseline     log1m
+delta posterior mean      0.9979    0.9989
+delta p95                 0.9999    0.9997
+90% CI width              0.0076    0.0022
+max p95 across them     0.999982  0.999853
+
+controls (673 unclipped)
+delta posterior mean      0.9859    0.9867
+90% CI width              0.0432    0.0376
+
+whole sample: p95 at 1.0   24.3%      0.0%
+              delta median 0.9922    0.9930
+              in-box       0.972     0.981
+```
+
+Every prediction that mattered came out the right way. Truncation eliminated;
+the affected households move **+0.001**, not to 1; **no runaway** — the feared
+unanchored tail did not appear, max δ is 0.9999; controls barely touched;
+`Var(true β)` still negative, so §11.3's headline is untouched.
+
+**Caveats.** Single seed against a 5-seed ensemble baseline, so small
+differences in β (0.8100 → 0.8001) and ρ (4.4625 → 4.4828) are within
+seed-to-seed noise and should not be read. And the clipped households' intervals
+become **3.5× tighter**, which is the predicted resolution gain but cannot be
+calibration-checked on PSID — the simulated test barely samples that region.
+
+**Recommendation: adopt.** It costs nothing on simulated data, removes a real
+reporting defect affecting a quarter of households, and does not disturb the
+headline. It should be the parameterisation whenever the models are next
+retrained.
+
+### 13.2 Signed-log features — a real calibration gain
+
+Signed `log1p` on the four dollar features (signed because `liquid_assets` is
+negative whenever a household borrows). Against the matched comphs baseline:
+
+```
+                baseline (5 seeds)   log features (1 seed)   target
+beta coverage                0.751                   0.842    0.900
+delta coverage               0.715                   0.827    0.900
+crra coverage                0.655                   0.827    0.900
+log q                        4.879                   4.614        —
+beta corr                    0.773                   0.771        —
+crra corr                    0.817                   0.833        —
+```
+
+**The baseline members badly under-cover** — 0.655–0.751 against 0.900, i.e.
+over-confident posteriors, which is the dangerous direction. Log features move
+all three substantially toward nominal, well outside the baseline's
+seed-to-seed range (β spans just [0.738, 0.765]). Recovery is flat, ρ slightly
+better; the cost is ~0.27 of log q.
+
+**The motivation, and why the sign of the effect is the opposite of intuition.**
+The embedder normalises globally, so in levels a PSID household at the 1st
+percentile of income sits 1.6 sd below the simulated mean — unremarkable — and
+the network answers confidently on an input far outside its support. In logs the
+same household is several sd out. Logs do not *lessen* the left-tail problem
+(§12.4); they make it **visible**, which is what produces honest posteriors
+instead of confident wrong ones. Independently, the simulator generates income
+as lognormal, so logs are the scale on which it is actually Gaussian
+(simulated log skew −0.11 against +1.24 in levels).
+
+**Caveats.** Single seed, and ensembling already supplies much of this gain —
+baseline members at 0.751 become 0.929 ensembled. A 5-seed log-features ensemble
+could overshoot into over-coverage, so the single-model gain may not survive to
+the level actually reported. And the original motivation — better behaviour on
+out-of-support PSID households — is **still untested**; it needs a full ensemble
+plus a PSID run (~4 h).
+
+**Recommendation: promising, not yet proven.** Worth the 4 h to test properly
+before adopting, unlike §13.1 which is already established.

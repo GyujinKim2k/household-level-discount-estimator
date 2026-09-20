@@ -80,6 +80,16 @@ def sample_all(post, x: torch.Tensor, n_post: int, batch: int = 512):
     what rejection sampling returns. For an off-support household it returns a
     diagnostic rather than hanging, and the fraction is itself a result -- it
     says what share of real households the model can represent at all.
+
+    **``in_box_frac`` is about the PRIOR BOX over (beta, delta, rho), not about
+    the feature grids.** A low value means the network places posterior mass on
+    parameters outside ``PHASE3``, not that the household's income or wealth
+    exceeds ``xmax``/``zmax``. This has been misread once already: compco's low
+    in-box mass was reported as the model failing on its *wealthiest*
+    households, when the affected households are its *poorest* and the cause is
+    the income process having no left tail (RESULTS.md 12.3-12.5). If you want
+    to know whether a household's features are representable, compare them
+    against the simulated support directly -- this number will not tell you.
     """
     dev = posterior_device(post)
     x = x.to(dev)
@@ -120,6 +130,10 @@ def main() -> None:
     ap.add_argument("--waves", type=int, default=7)
     ap.add_argument("--x", type=Path, default=Path("data/processed/psid_x.pt"))
     ap.add_argument("--n_post", type=int, default=500)
+    ap.add_argument("--log_features", action="store_true",
+                   help="Signed log1p the dollar features, matching a model "
+                        "trained with --log_features. Applied AFTER the "
+                        "consumption correction, which operates in levels.")
     ap.add_argument("--condition_educ", action="store_true",
                    help="Append the one-hot education block, for a posterior "
                         "trained with --condition_educ. Education comes from "
@@ -183,6 +197,12 @@ def main() -> None:
         print(f"\n--- {name} ---", flush=True)
         torch.manual_seed(0)
         xt = torch.from_numpy(xa).float()
+        if args.log_features:
+            # After the correction, which scales consumption in levels, and
+            # before the education block, which must not be logged.
+            from scripts.compare_windows import log_features
+            from hh_npe.data.waves import FEATURES_TWOASSET_AGE
+            xt = log_features(xt, FEATURES_TWOASSET_AGE)
         if args.condition_educ:
             from scripts.compare_windows import one_hot_educ
             # The correction only touches consumption, so the education block
@@ -264,6 +284,10 @@ def _figure(args, post, arms, x_raw, educ):
     dev = posterior_device(post)
     for r, i in enumerate(pick):
         xt = torch.from_numpy(arms["uncorrected"][i : i + 1]).float()
+        if args.log_features:
+            from scripts.compare_windows import log_features
+            from hh_npe.data.waves import FEATURES_TWOASSET_AGE
+            xt = log_features(xt, FEATURES_TWOASSET_AGE)
         if args.condition_educ:
             # The figure re-derives x from the raw array, so it needs the same
             # education block the scored path got. Forgetting it here is how

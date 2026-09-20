@@ -31,14 +31,15 @@ def _run(tmp_path, cfg, **args):
     d.mkdir()
     (d / "results.json").write_text(json.dumps({"7": {}, "_config": cfg}))
     ns = types.SimpleNamespace(start_low=25, shards="phase3", sbc_cache="old",
-                               educ_group=None, condition_educ=False)
+                               educ_group=None, condition_educ=False,
+                               log_features=False)
     for k, v in args.items():
         setattr(ns, k, v)
     _check_provenance(ns, [d], 7)
 
 
 BASE = {"start_low": 25, "shards": "phase3", "sbc_cache": "old",
-        "educ_group": None, "condition_educ": False}
+        "educ_group": None, "condition_educ": False, "log_features": False}
 
 
 def test_matching_provenance_passes(tmp_path):
@@ -51,6 +52,7 @@ def test_matching_provenance_passes(tmp_path):
     ("sbc_cache", "phase4_sbc", "old"),
     ("educ_group", "comphs", None),        # per-group model, pooled evaluation
     ("condition_educ", True, False),       # conditioned model, unconditioned x
+    ("log_features", True, False),         # log-trained model, level-scaled x
 ])
 def test_mismatched_provenance_aborts(tmp_path, field, trained, scoring):
     cfg = {**BASE, field: trained}

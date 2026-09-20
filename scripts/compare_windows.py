@@ -119,6 +119,32 @@ def one_hot_educ(x: torch.Tensor, educ_rows: np.ndarray) -> torch.Tensor:
     return torch.cat([x, oh[:, None, :].expand(n, w, 3)], dim=-1)
 
 
+def log_features(x: torch.Tensor, features) -> torch.Tensor:
+    """Signed log1p on the dollar features; ``age`` and one-hots untouched.
+
+    Two independent reasons, and the first is the one that matters for PSID:
+
+    1. **It makes extrapolation visible.** The embedder normalises each feature
+       globally. In levels, a PSID household at the 1st percentile of income
+       sits 1.6 sd below the simulated mean -- unremarkable -- so the network
+       answers confidently on an input far outside its training support. In
+       logs the same household is several sd out, which is what it actually is.
+    2. **It is the scale the simulator is Gaussian on.** Income is generated
+       lognormal, so simulated log income has skew -0.11 against +1.24 in
+       levels.
+
+    Signed rather than plain log1p because ``liquid_assets`` is negative
+    whenever a household is borrowing on the card, which is the margin beta
+    rides on.
+    """
+    idx = [i for i, f in enumerate(features)
+           if f != "age" and not f.startswith("educ_")]
+    out = x.clone()
+    v = x[..., idx]
+    out[..., idx] = torch.sign(v) * torch.log1p(v.abs())
+    return out
+
+
 def split_shards(shard_files: list[Path], train_n: int):
     """Shards below the panel cutoff train; the rest are held out."""
     train, held = [], []
@@ -264,6 +290,11 @@ def main() -> None:
                         "simulations must use the same process, or calibration "
                         "measures the mismatch rather than the posterior. Part "
                         "of the --sbc_cache key.")
+    p.add_argument("--log_features", action="store_true",
+                   help="Signed log1p the dollar features. Changes only how x "
+                        "is presented to the network -- theta, the shards and "
+                        "the simulator are untouched -- so recovery metrics "
+                        "stay directly comparable to a levels run.")
     p.add_argument("--educ_group", choices=["comphs", "somehs", "compco"],
                    default=None,
                    help="Train on one education group only, for the per-group "
@@ -345,6 +376,8 @@ def main() -> None:
         base_feats = feats
         x_tr = add_obs_noise(x_tr, args.obs_noise, feats, seed=11)
         x_ho = add_obs_noise(x_ho, args.obs_noise, feats, seed=22)
+        if args.log_features:
+            x_tr, x_ho = log_features(x_tr, feats), log_features(x_ho, feats)
 
         if args.educ_group or args.condition_educ:
             by_draw = educ_by_draw(shard_files)
@@ -426,6 +459,8 @@ def main() -> None:
                 sbc_panels, sbc_thetas.numpy(), k=1, n_waves=k, seed=4242, **win
             )
             x_sbc = add_obs_noise(x_sbc, args.obs_noise, base_feats, seed=33)
+            if args.log_features:
+                x_sbc = log_features(x_sbc, base_feats)
             # SBC x must go through exactly the transformations training x did,
             # or the posterior is handed a different feature count than it was
             # built for. One SBC draw is one household, so `ids` is the draw
@@ -462,6 +497,7 @@ def main() -> None:
         "obs_noise": args.obs_noise,
         "educ_group": args.educ_group,
         "condition_educ": args.condition_educ,
+        "log_features": args.log_features,
         # Provenance, so a later scorer can verify it is rebuilding the
         # evaluation windows from the data the members actually saw. Omitting
         # this is how a Phase 4 ensemble came to be scored on Phase 3 shards.
