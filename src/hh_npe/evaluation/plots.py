@@ -54,10 +54,15 @@ def _kde_grid(x: np.ndarray, y: np.ndarray, lo, hi, n: int = 140):
     return X, Y, k(np.vstack([X.ravel(), Y.ravel()])).reshape(X.shape)
 
 
+#: Muted hues for external ranges, chosen to sit behind the series palette.
+BAND_COLORS = ("0.45", "#8c6d31", "#7b4173")
+
+
 def contour_corner(
     series: dict[str, np.ndarray],
     box,
     truth: dict[str, np.ndarray] | None = None,
+    bands: dict[str, tuple] | None = None,
     path: str | Path | None = None,
     title: str | None = None,
     probs=(0.68, 0.95),
@@ -75,6 +80,11 @@ def contour_corner(
         different runs are visually comparable.
     truth
         Optional ``{label: theta_true}`` markers, for simulated data.
+    bands
+        Optional ``{label: (low, high)}`` shaded rectangles, each a length-``d``
+        array pair. For plotting an external plausible range -- a literature
+        interval, a published confidence region -- behind the posteriors.
+        Drawn first and unfilled at the edges so they never obscure a contour.
     probs
         Enclosed-mass levels. Default 68% (filled) and 95% (dashed).
     """
@@ -102,6 +112,12 @@ def contour_corner(
     for (i, j) in pairs:
         ax = axes[j - 1][i]
         ax.set_visible(True)
+        if bands:
+            for bc, (blab, (blo, bhi)) in zip(BAND_COLORS, bands.items()):
+                ax.add_patch(plt.Rectangle(
+                    (blo[i], blo[j]), bhi[i] - blo[i], bhi[j] - blo[j],
+                    facecolor=bc, alpha=0.13, edgecolor=bc, lw=1.2,
+                    ls=(0, (4, 3)), zorder=0))
         for c, (label, s) in zip(PALETTE, series.items()):
             s = np.asarray(s)
             X, Y, Z = _kde_grid(s[:, i], s[:, j], (lo[i], lo[j]), (hi[i], hi[j]))
@@ -134,6 +150,9 @@ def contour_corner(
 
     handles = [plt.Line2D([], [], color=c, lw=2.0, label=k)
                for c, k in zip(PALETTE, series)]
+    if bands:
+        handles += [plt.Line2D([], [], color=bc, lw=6, alpha=0.35, label=k)
+                    for bc, k in zip(BAND_COLORS, bands)]
     handles += [
         plt.Line2D([], [], color="0.35", lw=2.0, ls="solid", label="68%"),
         plt.Line2D([], [], color="0.35", lw=1.6, ls="dashed", label="95%"),
@@ -151,7 +170,9 @@ def contour_corner(
     fig.tight_layout()
     if title:
         fig.suptitle(title, fontsize=13)
-        fig.subplots_adjust(top=0.93)
+        # Reserve room per title line. A fixed 0.93 fits one line and lets a
+        # two-line title sit on top of the first row's axis.
+        fig.subplots_adjust(top=1.0 - 0.045 * (title.count("\n") + 1.5))
     if path:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(path, dpi=160, bbox_inches="tight")

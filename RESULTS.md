@@ -40,6 +40,34 @@ Their estimate is not *excluded*: 55.7% of households' 90% intervals cover their
 β and 23.8% cover their ρ, and in `figures/05_phase4_per_group.png` their point
 sits outside every group's 68% contour but inside the 95% ones.
 
+### β agrees with the experimental literature; their estimate is the outlier
+
+Laibson et al.'s number is a **representative-agent fit to population moments**,
+which is a different object from a distribution over households. Benchmarked
+instead against published ranges (§14, `figures/07_literature_comparison.png`):
+
+```
+param   our median    meta-analytic band   inside    Laibson 95% CI   inside
+beta        0.8100          [0.66, 0.94]    88.9%    [0.307, 0.754]    30.3%
+delta       0.9922          [0.95, 1.00]    88.1%    [0.979, 0.999]    68.8%
+crra        4.4625             [1, 7]       99.0%    [1.083, 2.788]     9.3%
+
+all three jointly inside the meta-analytic band: 79.2%
+```
+
+**Our β of 0.810 sits essentially on Imai, Rutter & Camerer's pooled estimate of
+0.82** (95% CI [0.74, 0.90]; 220 estimates from 28 convex-time-budget studies).
+The project's recurring finding — "β is 0.81 against their 0.53" — has been read
+throughout as a discrepancy needing explanation. Against the wider literature it
+reads the other way: **our estimate matches the experimental consensus, and
+0.5305 is the outlier**, below even the non-monetary lower bound of both CTB
+meta-analyses.
+
+**ρ is now the parameter that needs explaining.** At 4.46 it is far above the
+consumption-Euler consensus of roughly 1 and only inside the band because
+finance-context estimates reach 7. §7.1's account — high ρ as the only channel
+this model has for precautionary saving — remains the live hypothesis.
+
 ### Is the heterogeneity real?
 
 ```
@@ -1911,3 +1939,122 @@ plus a PSID run (~4 h).
 
 **Recommendation: promising, not yet proven.** Worth the 4 h to test properly
 before adopting, unlike §13.1 which is already established.
+
+### 13.3 Log features at full ensemble: calibration yes, the motivation no
+
+Five seeds, matched to `outputs/phase4/comphs_*` in every argument except
+`--log_features`, then ensembled and run on PSID.
+
+**Question 1 — does the single-seed calibration gain survive ensembling?
+Yes, and it does not overshoot.** The concern was that ensembling already adds
+~0.18 to coverage, so starting from 0.842 could land near 1.0.
+
+```
+                  levels   logfeat   target
+beta coverage      0.934     0.925    0.900
+delta coverage     0.887     0.899    0.900
+crra coverage      0.916     0.904    0.900
+mean |deviation|   0.021     0.010        —
+
+members mean       0.751/0.715/0.655   0.864/0.838/0.861
+ensemble log q     5.096     4.960
+beta corr / mae    0.794 / 0.0938      0.793 / 0.0955
+crra corr / mae    0.841 / 0.4468      0.850 / 0.4400
+```
+
+All three move toward nominal and the mean absolute deviation **halves**.
+Ensembling contributed *less* on top of log features (+0.061 against +0.183),
+which is coherent: ensembling corrects approximation variance, and
+better-calibrated members have less of it to correct. Recovery is flat on β and
+slightly better on ρ, at a cost of 0.14 log q.
+
+**Question 2 — does it help the households the model cannot generate? No.**
+This was the motivation (§13.2), and it is not supported. Ratio of 90% CI width,
+below-income-floor households against the rest — above 1 means appropriately
+*less* confident where the model is extrapolating:
+
+```
+          levels   logfeat
+beta        1.00      0.79
+delta       0.48      0.64
+crra        1.67      1.76
+in-box     0.855     0.816   (below-floor households, median)
+```
+
+**β gets worse** (1.00 → 0.79) and δ improves but stays pathological — under
+both parameterisations the network is *more* confident about δ for households it
+cannot represent than for those it can. Only ρ behaves sensibly. In-box mass for
+the affected households slips slightly.
+
+So logs make the extrapolation visible to a *reader* (§12.5's diagnostic) but do
+not make the *network* humble about it. Those are different things, and I
+conflated them when proposing the test.
+
+**Effect on the PSID headline** (both 5-seed, N=889):
+
+```
+param      levels   logfeat    shift   Var(true) levels -> logfeat
+beta       0.8100    0.8350   +0.0250        none -> none
+delta      0.9922    0.9916   -0.0005       0.014 -> 0.012
+crra       4.4625    4.4823   +0.0199       0.645 -> none
+delta p95 at 1.0      24.3%     19.7%
+```
+
+β moves +0.025 — a quarter of a between-household sd, not nothing — and **ρ's
+between-household heterogeneity does not survive** (0.645 → none detectable).
+That echoes §11.3's finding that ρ heterogeneity is the fragile one: it was
+already only `P = 0.597` in the pooled conditioned model. **`Var(true β)` stays
+negative under both**, so the headline is unaffected.
+
+**Verdict: adopt for calibration, not for the stated reason.** The calibration
+gain is real, survives ensembling, and costs nothing in recovery. The
+out-of-support argument that motivated it is refuted and should not be repeated.
+Note that adopting it makes ρ heterogeneity **not** demonstrable, which is a
+substantive change to a reported result — it should be adopted together with a
+restatement of §1's ρ claim, not quietly.
+
+---
+
+## 14. Benchmarking against the published literature
+
+`scripts/literature_ranges.py`, `figures/07_literature_comparison.png`.
+
+**Why this replaces the single-point comparison.** Laibson et al.'s MSM estimate
+is a representative-agent fit to population moments; this project estimates a
+distribution over households. Those are different objects, and §6's deviation 3
+already noted that "same information set" is never literally true. Asking
+whether per-household posteriors fall within what the literature finds plausible
+is a fairer question than whether they reproduce one number — particularly since
+§12.2 and §12.5 establish that their model cannot represent a third of our
+sample.
+
+Sources are meta-analyses or distributional estimates rather than single
+studies, so the band reflects the spread of the field:
+
+| parameter | source | value |
+|---|---|---|
+| β | [Imai, Rutter & Camerer, *EJ* 2021](https://academic.oup.com/ej/article/131/636/1788/5912830) — 220 estimates, 28 CTB studies | 0.82 [0.74, 0.90] monetary; 0.66 [0.51, 0.85] non-monetary |
+| β | [Cheung, Tymula & Wang, *Mgmt Sci* 2023](https://docs.iza.org/dp14625.pdf) | 0.94 [0.90, 0.97] monetary; 0.68 [0.57, 0.82] non-monetary |
+| δ | [Carroll, Slacalek, Tokuoka & White, *QE* 2017](https://onlinelibrary.wiley.com/doi/abs/10.3982/QE694) | heterogeneous annual δ, agents spread ≈ 0.02 about the mean |
+| ρ | [Elminejad, Havranek & Irsova, *JES* 2025](https://onlinelibrary.wiley.com/doi/full/10.1111/joes.12689) — 1021 estimates, 92 studies | ≈ 1 in economics, 2–7 in finance, after publication-bias correction |
+
+Carroll et al. deserves particular weight: it estimates a **distribution** of
+discount factors, which is the closest published object to what this project
+produces, and finds the spread across households *modest* — about 0.02 — which
+is the same order as our δ between-household sd of 0.024 (§1).
+
+**Results.** 88.9% of households' β and 79.2% of all three parameters jointly
+fall inside the band. Our β median of 0.810 lands inside Imai et al.'s
+confidence interval. Laibson et al.'s 0.5305 lies below the non-monetary lower
+bound of both CTB meta-analyses.
+
+**What this does and does not establish.** It does not vindicate the model —
+§12.4's income-process limitation and §12.6's δ censoring are untouched by it,
+and agreement with an experimental literature estimated on entirely different
+data is suggestive rather than confirmatory. What it does establish is that the
+β gap against Laibson et al. is **not evidence that these estimates are wrong**,
+which is how it has been treated since §1 was first written.
+
+**And it does not rescue β heterogeneity.** §11.3's result stands unchanged:
+`Var(true β)` is negative in every run and group. The *level* of β agrees with
+the literature; the *spread* across households remains undetectable.
