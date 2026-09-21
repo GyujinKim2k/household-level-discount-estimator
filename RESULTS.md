@@ -2118,3 +2118,65 @@ households needing still less wealth have nowhere to go.
 the crossing point is indicative rather than an estimate. The qualitative
 finding — monotone decline, opposite to §7.1 — is robust across the whole
 range and is what the retraction rests on.
+
+---
+
+## 16. Fixing the income left tail: implemented, and it makes ρ worse
+
+§12.5 identified a disruption state as the right fix and treated it as
+expensive. **It is structurally free.** `grids.discretize_transitory` returns a
+`(probs, levels)` pair consumed in exactly three places — the CPU and GPU
+solvers' expectation steps and the forward pass — all of which only integrate
+or sample it. Adding a low-income mass point adds no state and changes no
+solver. It is now a `ModelSpec` option, `disrupt_p` / `disrupt_mult`, **off by
+default** so the faithful port and every existing result are untouched.
+
+Parameters come from §12.5's PSID measurement: probability 0.05–0.10 per wave,
+multiplier 0.19–0.36. It belongs in the *transitory* shock because 77% of
+disrupted households recover by the next wave.
+
+**It works on what it was meant to fix.** Residual log income, ages 25–59:
+
+```
+arm                  sd    skew   kurt      p1      p5    min income
+off               0.509   -0.00  -0.64   -1.03   -0.83         8,000
+p=0.068 m=0.27    0.605   -0.52  +0.40   -1.98   -1.27         4,000
+p=0.10  m=0.20    0.701   -0.85  +0.86   -2.33   -1.62         3,000
+PSID              0.901   -1.83  +6.88   -3.53   -1.79            37
+```
+
+Skew and excess kurtosis both flip to the correct sign — the distribution stops
+being symmetric and platykurtic — and **the share of households the model
+cannot generate falls from 33.3% to 15.7%**. It does not close the gap: a
+single mass point produces a spike, where PSID has a continuum of bad outcomes
+reaching essentially zero income.
+
+**But it moves the wealth moment the wrong way.** Holding θ fixed at our
+estimates, ages 35–44:
+
+```
+arm                med income   c/y   med illiquid   borrow%
+off                    49,000  0.990        68,000     63.8%
+p=0.068 m=0.27         47,000  0.985        68,000     55.9%
+p=0.10  m=0.20         46,000  0.976       132,000     46.6%
+PSID                   43,353  0.822        12,882     21.3%
+```
+
+Income, c/y and the borrowing share all move **toward** PSID. Median illiquid
+wealth moves **away**, nearly doubling at the stronger setting — which is
+precautionary saving behaving exactly as theory says: more income risk, more
+buffer. PSID households hold *less* wealth than the model already generates, so
+the correct mechanism pushes the wrong direction.
+
+**This compounds §15 rather than relieving it.** ρ is identified by the wealth
+moment and is already pushed to 4.46 to suppress over-saving. Adding income
+risk raises wealth further, so a re-estimated ρ would likely go **higher**, not
+toward the Euler-equation consensus of ~1. The two problems are coupled: the
+model cannot simultaneously generate poor households and low wealth.
+
+**Status: implemented, tested, not adopted.** Using it requires regeneration
+(~9.7 GPU-days) and forfeits the table-3 port-fidelity check (§11.6), and on
+present evidence it would trade a better income distribution for a worse wealth
+fit and a higher ρ. The honest recommendation is unchanged from §12.5: this is
+the right next *study*, not a patch to this one. The code is in place so that
+study does not have to start from scratch.

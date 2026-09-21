@@ -223,6 +223,8 @@ def discretize_transitory(
     xmin: float = 0.0,
     purge: float = 1e5,
     c: cal.Calibration = cal.COMPHS,
+    disrupt_p: float = 0.0,
+    disrupt_mult: float = 0.27,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Discretize the iid transitory shock onto the income lattice.
 
@@ -231,6 +233,28 @@ def discretize_transitory(
     lands on a representable cash-on-hand shift. Probabilities come from the
     lognormal density with a middle-Riemann-sum width weighting, after
     discarding points below ``sum(pdf) / purge``.
+
+    ``disrupt_p`` adds a low-income mass point: with that probability income is
+    ``disrupt_mult`` times its usual level. **Off by default**, so the faithful
+    port and every existing result are untouched.
+
+    This is the fix RESULTS.md §12.5 identified and §12.4 motivated. The model's
+    income residual is symmetric and thin-tailed (skew 0.00, excess kurtosis
+    -0.6) where PSID's is left-skewed and fat-tailed (skew -1.8, kurtosis +6.9),
+    so a third of households have at least one wave the model cannot generate.
+
+    It belongs in the *transitory* shock rather than the persistent AR(1)
+    because PSID's disruptions are overwhelmingly transitory: 77% of households
+    below half their own median income recover by the next wave. Defaults come
+    from that measurement -- ``disrupt_p`` 0.05-0.10 per wave and
+    ``disrupt_mult`` 0.19-0.36 across education groups (§12.5).
+
+    Structurally this is free. The three call sites -- the CPU and GPU solvers'
+    expectation steps and the forward pass -- consume only the returned
+    ``(probs, levels)`` pair, so no state is added and the solver is unchanged.
+    It does change the solution, so it needs regeneration to use, and it
+    forfeits the table-3 port-fidelity check (§11.6) since Laibson et al.
+    deliberately strip unemployment.
 
     Returns ``(probs, income_levels)`` with ``probs`` summing to 1.
     """
@@ -251,7 +275,26 @@ def discretize_transitory(
         np.concatenate([[dist[0]], dist]) + np.concatenate([dist, [dist[-1]]])
     ) / 2.0
     weighted = p * width
-    return weighted / weighted.sum(), np.exp(nu_log)
+    probs, levels = weighted / weighted.sum(), np.exp(nu_log)
+    if disrupt_p == 0.0:
+        return probs, levels          # exactly off: bit-identical to the port
+    if not 0.0 < disrupt_p < 1.0:
+        # Negative must raise rather than fall through to the early return: a
+        # silently ignored -0.1 would run the whole study undisrupted while the
+        # config recorded that it was not.
+        raise ValueError(f"disrupt_p must be in [0, 1); got {disrupt_p}")
+    # Snap the disrupted level to the same lattice the rest of the support
+    # lives on, so realized income stays a representable cash-on-hand shift.
+    target = np.exp(y0) * disrupt_mult
+    lo = max(float(lattice[0]), xjump * round(target / xjump))
+    if np.isclose(lo, levels).any():          # already a support point
+        probs = probs * (1.0 - disrupt_p)
+        probs[np.argmin(np.abs(levels - lo))] += disrupt_p
+        return probs, levels
+    probs = np.concatenate([[disrupt_p], probs * (1.0 - disrupt_p)])
+    levels = np.concatenate([[lo], levels])
+    order = np.argsort(levels)
+    return probs[order], levels[order]
 
 
 if __name__ == "__main__":

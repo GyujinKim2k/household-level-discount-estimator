@@ -65,6 +65,12 @@ class ModelSpec:
     #: is safe as a dataclass default. ``grids.py`` reads these at call time, so
     #: this field is the only way a draw can be solved as a different group.
     calib: cal.Calibration = cal.COMPHS
+    #: Transitory income-disruption probability per period and the multiplier
+    #: applied when it fires. Zero reproduces Laibson et al. exactly; see
+    #: `grids.discretize_transitory` and RESULTS.md 12.4-12.5 for why the
+    #: unmodified income process cannot generate a third of PSID households.
+    disrupt_p: float = 0.0
+    disrupt_mult: float = 0.27
     # float64 by default. The argmax must resolve utility gaps of ~1e-5 while
     # |EV| ~ 1e2; float32 cannot, and silently inflates borrowing. ``_age_step``
     # centres EV to buy back most of that headroom, but centred float32 still
@@ -323,6 +329,7 @@ def _expectation_step(
         probs, levels = grids.discretize_transitory(
             float(ymean_t + states[s2]),
             xjump=spec.xjump, xmax=spec.xmax, xmin=xmin_t, c=spec.calib,
+            disrupt_p=spec.disrupt_p, disrupt_mult=spec.disrupt_mult,
         )
         acc = np.zeros((nX, nZ), dtype=np.float64)
         for p, y in zip(probs, levels):
@@ -419,6 +426,7 @@ def simulate(
             probs, levels = grids.discretize_transitory(
                 float(ymean[t] + sol.states[s]),
                 xjump=spec.xjump, xmax=spec.xmax, xmin=xmin[t], c=spec.calib,
+                disrupt_p=spec.disrupt_p, disrupt_mult=spec.disrupt_mult,
             )
             draw = np.searchsorted(np.cumsum(probs), u[rows])
             income[rows, t] = levels[np.clip(draw, 0, len(levels) - 1)]

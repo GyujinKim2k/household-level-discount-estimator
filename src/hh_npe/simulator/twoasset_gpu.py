@@ -179,7 +179,8 @@ def solve_batch(
             probs, levels = grids.discretize_transitory(
                 float(ymean[t] + states_np[s2]),
                 xjump=spec.xjump, xmax=spec.xmax, xmin=float(xmin[t]),
-                c=spec.calib,
+                c=spec.calib, disrupt_p=spec.disrupt_p,
+                disrupt_mult=spec.disrupt_mult,
             )
             idx = np.stack([_nearest_index_np(X_np, X_np + y) for y in levels])
             per_state.append((
