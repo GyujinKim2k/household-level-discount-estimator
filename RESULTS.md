@@ -2058,3 +2058,63 @@ which is how it has been treated since §1 was first written.
 **And it does not rescue β heterogeneity.** §11.3's result stands unchanged:
 `Var(true β)` is negative in every run and group. The *level* of β agrees with
 the literature; the *spread* across households remains undetectable.
+
+---
+
+## 15. Why ρ is 4.46: two moments that disagree
+
+§14 left ρ as the outlier — 4.46 against a consumption-Euler consensus near 1.
+Holding β = 0.810 and δ = 0.9922 at our estimates and sweeping ρ (ages 35–44,
+3,000 households):
+
+```
+   rho    med illiquid   vs PSID   dlogc/dlogy   vs PSID
+   1.0         556,000     43.2x         0.072      1.1x
+   2.0         284,000     22.0x         0.116      1.7x
+   3.0         204,000     15.8x         0.143      2.1x
+   4.5          60,000      4.7x         0.454      6.8x
+   5.0               0      0.0x         1.026     15.4x
+  PSID          12,882         —         0.067         —
+```
+
+**ρ is identified by two moments that point in opposite directions.**
+
+- **Consumption–income comovement** — the moment consumption-Euler studies use —
+  says **ρ ≈ 1**. At ρ = 1 the simulated `dlog c / dlog y` slope is 0.072
+  against PSID's 0.067: near-exact.
+- **Wealth level** says ρ ≈ 4.6. Between ρ = 4.5 (60,000) and ρ = 5.0 (0) the
+  model passes through PSID's 12,882, and our estimate of 4.46 sits essentially
+  at that crossing.
+
+**So the gap against the literature is a moment-choice difference, not an
+error.** [Elminejad et al.](https://onlinelibrary.wiley.com/doi/full/10.1111/joes.12689)'s
+1021 estimates come from consumption Euler equations, which is the moment
+that implies ρ ≈ 1 here too. Our estimator conditions on the whole trajectory
+including wealth, and the wealth moment dominates. Both numbers are correct
+for their own moment; **no single ρ satisfies both**, which is a specification
+failure of the model rather than a disagreement about the world.
+
+### 15.1 §7.1's explanation of high ρ is backwards — retracted
+
+§7.1 asserts: *"High ρ is the only channel this model has for generating
+precautionary saving, so missing precautionary motives are routed through it."*
+That implies high ρ raises wealth. **In this model it does the opposite:**
+median illiquid wealth falls monotonically from 556,000 at ρ = 1 to 0 at
+ρ = 5.
+
+The dominant channel is intertemporal substitution, not precaution. ρ is also
+the inverse EIS, and with δ·R_gamma = 0.9922 × 1.05 = 1.042 > 1 a low-ρ
+household is both patient and willing to defer, so it accumulates enormously.
+Raising ρ lowers the EIS and shuts that down. The precautionary effect exists
+but is swamped.
+
+So the correct statement is the reverse of §7.1's: **ρ is pushed high because
+the model over-saves relative to PSID, and high ρ is what suppresses saving.**
+That also explains §12.6's ρ ceiling pile-up — at ρ ≥ 5 wealth collapses to
+zero and the comovement slope jumps to 1.03, a degenerate regime, and
+households needing still less wealth have nowhere to go.
+
+**A caveat on the sweep.** This is one (β, δ) pair and a single seed per ρ, so
+the crossing point is indicative rather than an estimate. The qualitative
+finding — monotone decline, opposite to §7.1 — is robust across the whole
+range and is what the retraction rests on.

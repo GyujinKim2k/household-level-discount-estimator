@@ -87,6 +87,39 @@ def _plan_batching(nX: int, nZ: int, theta_batch: int, chunk: int,
     return theta_batch, chunk
 
 
+#: Below this, ``(x**(1-rho) - 1) / (1-rho)`` is replaced by its limit,
+#: ``log x``. The CPU path (``twoasset._crra``) has always had this branch; the
+#: GPU path did not, so ``solve_batch`` at rho == 1 -- log utility, the
+#: canonical case -- divided by zero and died with a device-side assert. No
+#: Sobol draw lands that close (the nearest is |rho-1| = 5e-5, where the
+#: relative error is ~1e-5 in float64), so no generated dataset is affected.
+RHO_LOG_EPS = 1e-6
+
+
+def _safe_omr(omr: torch.Tensor) -> torch.Tensor:
+    """``1 - rho`` with zeros replaced by one, for use as a denominator only.
+
+    The numerator keeps the ORIGINAL ``omr``, so for ``|1 - rho| >= eps`` the
+    arithmetic is bit-for-bit what it was before this guard existed. That
+    matters: rewriting ``x ** omr`` as ``exp(omr * log x)`` is algebraically
+    identical but differs in the last ulp at non-integer exponents, and with
+    ~99% of states holding exactly-tied choices, last-ulp differences flip
+    argmax ties and change the solution. An earlier version of this fix did
+    exactly that and stopped reproducing the dataset at rho = 4.5, while
+    rho = 2, 3, 5 -- where ``1 - rho`` is an integer and ``pow`` is exact --
+    were unaffected.
+    """
+    return torch.where(omr.abs() < RHO_LOG_EPS, torch.ones_like(omr), omr)
+
+
+# Both call sites below keep the ORIGINAL operation order, `a * num / den`
+# rather than `a * (num / den)`. Floating-point multiplication and division do
+# not associate, so the regrouped form differs in the last ulp -- which, with
+# ~99% of states holding exactly-tied choices, flips argmax ties and changes
+# the solution. That is how the first two attempts at this guard each stopped
+# reproducing the dataset at rho = 4.5.
+
+
 @torch.no_grad()
 def solve_batch(
     thetas: np.ndarray,
@@ -170,7 +203,6 @@ def solve_batch(
         naive = (spec.betahat - beta).abs() > 1e-12
         bd = (beta * delta).view(B, 1, 1, 1)
         bhat_d = (spec.betahat * delta).view(B, 1, 1, 1)
-        one_minus_rho = (1.0 - rho).view(B, 1, 1, 1)
         # ``u`` is built 5-D (B, chunk, nZ, nX, nZ) before being flattened to
         # 4-D for the argmax, so the per-draw exponent needs a 5-D view too.
         omr5 = (1.0 - rho).view(B, 1, 1, 1, 1)
@@ -186,10 +218,18 @@ def solve_batch(
             estate = X[:, None] + Z[None, :] * (1.0 - float(zliqpen[t]))
             annuity = max(spec.R - 1.0, 0.0) * torch.clamp(estate, min=0.0)
             r = rho.view(B, 1, 1)
-            base = mean_hhs * ((mean_hhy / mean_hhs) ** (1.0 - r) - 1.0) / (1.0 - r)
-            beq = mean_hhs * (
-                ((mean_hhy + annuity[None]) / mean_hhs) ** (1.0 - r) - 1.0
-            ) / (1.0 - r)
+            omr3, log3 = 1.0 - r, _safe_omr(1.0 - r)
+            small3 = omr3.abs() < RHO_LOG_EPS
+            base_num = torch.where(
+                small3,
+                torch.log(torch.as_tensor(mean_hhy / mean_hhs, dtype=f64,
+                                          device=dev)) * log3,
+                (mean_hhy / mean_hhs) ** omr3 - 1.0)
+            base = mean_hhs * base_num / log3
+            ratio = (mean_hhy + annuity[None]) / mean_hhs
+            beq_num = torch.where(small3, torch.log(ratio) * log3,
+                                  ratio ** omr3 - 1.0)
+            beq = mean_hhs * beq_num / log3
             beq = (spec.alpha / (1.0 - delta.view(B, 1, 1))) * (beq - base)
 
             if t == T - 1:
@@ -226,7 +266,11 @@ def solve_batch(
                 bad = C < 0.0
 
                 for s in range(nS):
-                    u = h * (torch.exp(omr5 * logc[None]) - 1.0) / omr5
+                    safe5 = _safe_omr(omr5)
+                    u_num = torch.where(omr5.abs() < RHO_LOG_EPS,
+                                        logc[None] * safe5,
+                                        torch.exp(omr5 * logc[None]) - 1.0)
+                    u = h * u_num / safe5
                     u.masked_fill_(bad[None], NEG)
                     u_flat = u.reshape(B, hi - lo, nZ, nX * nZ)
 
