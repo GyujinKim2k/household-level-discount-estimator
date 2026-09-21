@@ -2180,3 +2180,152 @@ present evidence it would trade a better income distribution for a worse wealth
 fit and a higher ρ. The honest recommendation is unchanged from §12.5: this is
 the right next *study*, not a patch to this one. The code is in place so that
 study does not have to start from scratch.
+
+---
+
+## 17. Strategy review: what is left to try
+
+Prompted by "check all the strategies we can take". Three new findings came out
+of the check itself, two of which change earlier conclusions.
+
+### 17.1 The wealth gap is 2–3×, not 5–13× — another statistic mismatch
+
+Their wealth moment is a **winsorised weighted mean** of the wealth-to-income
+ratio (`regress wy_ratiohat aged*, noc`, `3_scfanalysis:195`). §15 compared it
+against our **median**, and wealth is heavily right-skewed.
+
+```
+band      SCF w/debt   SCF nodebt   PSID mean   PSID median
+21-30           1.22         1.66        0.41          0.09
+31-40           1.87         2.80        0.83          0.24
+41-50           3.38         4.61        1.49          0.64
+51-60           4.65         8.07        2.63          1.47
+```
+
+Like-for-like the gap is **2–3×**, not the 5–13× a median comparison implies.
+This is the third time in this audit that a moment was compared against a
+differently-constructed statistic (§12.2's cardholder denominator, §11.1's
+proximity-vs-truncation, now mean-vs-median).
+
+A residual 2–3× remains. [Pfeffer et al. (2016)](https://dx.doi.org/10.3233/JEM-160421)
+find SCF and PSID median net worth differ by only **6%**, so it is not a survey
+artifact. Two candidates: PSID's summary wealth **excludes defined-contribution
+pensions** — our `ira` variable is W22 "ANNUITY/IRA", which does not capture
+employer 401(k) — and their sample is conditioned on holding a credit card,
+which selects wealthier households.
+
+### 17.2 The illiquid return is a powerful, unexamined lever
+
+`R_gamma = 1.05` is their benchmark, and `δ·R_gamma = 1.042 > 1` is what drives
+the over-accumulation §15 attributes to low ρ. Median illiquid wealth at ages
+35–44, holding β and δ at our estimates:
+
+```
+  rho     R=1.02    R=1.03    R=1.04     PSID
+  1.5     40,000   220,000   300,000   12,882
+  2.0     40,000   156,000   236,000   12,882
+  3.0     40,000   100,000   172,000   12,882
+```
+
+**At `R_gamma = 1.02` wealth becomes insensitive to ρ.** That is the important
+part: the wealth moment stops dominating identification, so ρ would be pinned
+by consumption comovement instead — the moment that implies ρ ≈ 1 and matches
+the Euler-equation literature. The comovement itself also improves, 0.13–0.14
+against PSID's 0.067, versus 0.454 at the current ρ = 4.46.
+
+A 2% real return is defensible as net of tax, fees and idiosyncratic risk,
+where 5% is a gross long-run equity figure. **This has not been tested in
+estimation**, only in simulation at fixed θ, and it is a deviation from their
+calibration.
+
+### 17.3 The strategies, with cost and evidence
+
+| # | strategy | cost | evidence | verdict |
+|---|---|---|---|---|
+| 1 | `log(1−δ)` target | retrain | §13.1 — truncation 24.3% → 0%, estimates unmoved | **adopt** |
+| 2 | Signed-log features | retrain | §13.3 — calibration deviation halves; out-of-support claim refuted | adopt for calibration |
+| 3 | Lower `R_gamma` | **regenerate** | §17.2 — decouples wealth from ρ, both moments improve | **most promising untested** |
+| 4 | Income disruption | **regenerate** | §16 — fixes income tail, worsens wealth and ρ | not alone; pair with 3 |
+| 5 | Add DC pensions to the PSID wealth measure | new PSID pull | §17.1, Pfeffer et al. | cheap, addresses the residual 2–3× |
+| 6 | Condition PSID on cardholding | rebuild tensor | §12.2 — their sample is cardholders | cheap, partially closes 17.1 |
+| 7 | Widen the ρ prior | regenerate | §15 — wealth collapses to 0 at ρ ≥ 5 | **pointless** |
+| 8 | Widen the δ prior | regenerate | §12.6 — bias is 0.0015 | **pointless** |
+| 9 | Denser δ sampling near 1 | regenerate | §13.1 — only 1.3% of draws above 0.998 | only alongside 1 |
+| 10 | More Tauchen states | regenerate | §12.5 — adds no skew | **pointless alone** |
+| 11 | Re-estimate the income AR(1) on PSID | moderate | §12.5 — Gaussian cannot produce skew | pointless alone |
+| 12 | Drop illiquid wealth from the features | retrain | §15 — removes the moment that forces ρ high | diagnostic, not a fix |
+
+**If a regeneration is to happen, 3 + 4 together is the case for it.** They
+address opposite sides of the same coupling §16 identified — the model cannot
+currently generate poor households *and* low wealth. A lower return lowers
+wealth; a disruption supplies the poor households; each alone makes the other
+worse. Neither has been tested in estimation.
+
+**Everything above 3 in the table is free or nearly so**, and 5 and 6 attack
+the remaining data-side gap without touching the simulator. Those are worth
+doing regardless of the regeneration decision.
+
+### 17.4 Strategy 6 (cardholder conditioning) — refuted
+
+Their sample is conditional on holding a credit card, so conditioning ours the
+same way should have closed part of §17.1's residual gap. It does the opposite:
+
+```
+band      SCF w/debt   SCF nodebt   all 889   cardholders 585
+21-30           1.22         1.66      0.41              0.44
+31-40           1.87         2.80      0.83              0.79
+41-50           3.38         4.61      1.49              1.40
+51-60           4.65         8.07      2.63              2.44
+```
+
+The reason is the proxy. PSID has no possession variable, so `--require_card`
+uses "ever reported card debt across seven waves" — a **borrowing** indicator.
+Borrowers are less wealthy than non-borrowers, so conditioning on it selects
+*down* the wealth distribution. §6's deviation 1 warned this proxy selects on
+the outcome; this is that warning appearing on a moment it was not raised for.
+
+Cheap test, clear answer, and it leaves DC pensions as the only remaining
+candidate for the residual.
+
+### 17.5 Strategy 5 (DC pensions) — well-founded, needs a new PSID pull
+
+The extracts hold the standard wealth module only: W2 other real estate, W6
+vehicles, W11 farm/business, W16 stocks, W22 annuity/IRA, W28
+checking/saving and CD/bonds, W34 other assets, W39A card debt. **No
+employer-pension variables.**
+
+That is the documented gap, not an oversight in our extract. Per the
+[Boston Fed study](https://www.bostonfed.org/publications/research-department-working-paper/2019/measuring-household-wealth-in-the-panel-study-of-income-dynamics-the-role-of-retirement-assets.aspx),
+PSID's standard wealth summary *"does not include the value of
+defined-contribution (DC) pensions"*; that information sits in a separate
+**pension module**, and augmenting with it *"substantially raises the estimate
+of household wealth for the typical household"* and *"brings the PSID measure
+much closer to the SCF summary wealth measure."*
+[Pfeffer et al. (2016)](https://dx.doi.org/10.3233/JEM-160421) reach the same
+conclusion — SCF and PSID medians differ by only 6% once DC pensions are added.
+
+**This matters more here than in a generic wealth study.** The model's illiquid
+asset `Z` carries a *liquidation penalty* — `grids.liquidation_penalty`, falling
+from 0.5 in youth toward 0 in retirement, explicitly a stand-in for
+early-withdrawal penalties on retirement accounts. Employer DC balances are the
+single largest such asset for a typical household, and our `Z` excludes them.
+We are omitting the asset the model's illiquid state was designed to represent.
+
+**Expected magnitude.** Our mean wealth-to-income at ages 31–40 is 0.83 against
+an SCF target of 1.87–2.80. If DC pensions roughly double the measure for the
+typical household, as the Boston Fed result implies, that lands near 1.66 —
+inside the SCF range. **Strategy 5 could close most of the residual 2–3× on its
+own**, which would in turn relieve the wealth moment that §15 shows is forcing
+ρ to 4.46.
+
+**What to request from the PSID Data Center**: the pension-module variables
+giving the *current value of employer-provided defined-contribution accounts*
+for head and spouse, for waves 2011–2023, matched to the same family-interview
+IDs as the existing extracts. Those values then enter `illiquid` in
+`build_psid_tensor.py` alongside `ira` (W22).
+
+**Caveat to check on arrival.** The pension module is not fielded identically in
+every wave, so coverage may be uneven across 2011–2023. If it is, the choice is
+between a shorter balanced panel and imputing the gaps — and §5's rental-value
+work is the precedent for how to do the latter without letting the imputation
+become a function of the features being estimated on.
