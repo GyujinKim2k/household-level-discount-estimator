@@ -125,6 +125,32 @@ BUS_ASSET = dict(zip(WAVES, ["ER52217", "ER58018", "ER65198", "ER71275",
 #: --require_card, which is off by default for that reason.
 HAS_CCDEBT = dict(zip(WAVES, ["ER48936", "ER54686", "ER61797", "ER67851",
                               "ER73879", "ER80001", "ER83971"]))
+#: Section P pension variables: the *stock* in defined-contribution accounts,
+#: which the Section W wealth module does not carry. P20 is the current job's
+#: balance, P49 the balance still held at up to two previous employers, each
+#: asked of head and spouse. PSID's standard wealth summary excludes all of
+#: this, which is the documented reason its wealth sits below the SCF's
+#: (RESULTS.md 17.5); the model's illiquid state carries a liquidation penalty
+#: precisely to represent such accounts, so omitting them is a mis-measurement
+#: of exactly the quantity being estimated on.
+#:
+#: DK/refused sentinels. The field width is not constant across waves: 2011-13
+#: use the 9-digit 999999998/9, while 2015 onward also carry the 8-digit
+#: 99999998/9. A 9-digit-only threshold lets the 8-digit ones through, where
+#: they survive as ~1e8 and, once summed with a real balance, as values like
+#: 100,011,998 that no longer look like sentinels at all. The p99 of genuine
+#: balances is 843,200, so 99,999,997 is far above any real account.
+PENSION_DK = 99_999_997
+PENSION = {
+    2011: ['ER49080', 'ER49299', 'ER49122', 'ER49202', 'ER49341', 'ER49421'],
+    2013: ['ER54836', 'ER55052', 'ER54876', 'ER54956', 'ER55092', 'ER55172'],
+    2015: ['ER61956', 'ER62173', 'ER61997', 'ER62077', 'ER62214', 'ER62294'],
+    2017: ['ER68010', 'ER68227', 'ER68051', 'ER68131', 'ER68268', 'ER68348'],
+    2019: ['ER74036', 'ER74243', 'ER74073', 'ER74151', 'ER74280', 'ER74358'],
+    2021: ['ER80159', 'ER80365', 'ER80195', 'ER80273', 'ER80401', 'ER80479'],
+    2023: ['ER84129', 'ER84335', 'ER84165', 'ER84243', 'ER84371', 'ER84449'],
+}
+
 SELFEMP_CODES = (2, 3)
 COMPHS_LO, COMPHS_HI = 12, 16     # SCF EDCL 2-3: HS degree or some college
 
@@ -169,6 +195,11 @@ def main() -> None:
                         "self-employed, no business or farm income. Cuts 2119 "
                         "to ~889. Required for the calibration to be the right "
                         "one for the sample.")
+    p.add_argument("--with_pension", action="store_true",
+                   help="Add defined-contribution pension balances (Section P) "
+                        "to illiquid wealth. Needs PSID-data/pension.pkl from "
+                        "the J365419 extract. Off by default so existing "
+                        "tensors stay reproducible.")
     p.add_argument("--educ_groups", action="store_true",
                    help="Keep all three education groups and record each "
                         "household's group index, instead of restricting to "
@@ -193,6 +224,13 @@ def main() -> None:
 
     ind = pd.read_pickle(args.psid_dir / "extract.pkl")
     fam = pd.read_pickle(args.psid_dir / "tax.pkl")
+    pen = (pd.read_pickle(args.psid_dir / "pension.pkl")
+           if args.with_pension else None)
+    if args.with_pension:
+        missing = [c for y in WAVES for c in PENSION[y] if c not in pen.columns]
+        if missing:
+            raise SystemExit(f"pension.pkl lacks {len(missing)} codes, e.g. "
+                             f"{missing[:3]}; rebuild it from J365419")
     at = pd.read_csv(args.atincome)
 
     keep = np.logical_and.reduce([(ind[IV[y]] > 0) & (ind[REL[y]] == HEAD_CODE)
@@ -291,6 +329,18 @@ def main() -> None:
         # the floor, which is a real feature of the data -- those households
         # have more non-housing debt than illiquid assets -- not a clipping
         # artifact to hide.
+        if args.with_pension:
+            # Added BEFORE the floor: DC balances are strictly non-negative, so
+            # they legitimately offset other debt rather than being clipped
+            # away. DK/refused is treated as zero, which understates slightly --
+            # 469 of 37,338 cells on the matched sample.
+            pens = sum(
+                np.where(
+                    np.isfinite(pen[c].to_numpy(dtype=float)[idx])
+                    & (pen[c].to_numpy(dtype=float)[idx] < PENSION_DK),
+                    pen[c].to_numpy(dtype=float)[idx], 0.0)
+                for c in PENSION[y])
+            ill = ill + pens * d_stock
         n_floor = int((ill < 0).sum())
         ill = np.maximum(ill, 0.0)
         if w == 0:

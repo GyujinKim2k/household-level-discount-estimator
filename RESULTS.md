@@ -2329,3 +2329,98 @@ every wave, so coverage may be uneven across 2011–2023. If it is, the choice i
 between a shorter balanced panel and imputing the gaps — and §5's rental-value
 work is the precedent for how to do the latter without letting the imputation
 become a function of the features being estimated on.
+
+### 17.6 The J365411 extract is pension *income*, not pension wealth
+
+A new extract `J365411` was supplied for §17.5. It does not contain what that
+strategy needs, and the distinction is the whole point of the strategy.
+
+```
+53 variables, all of the form:
+  VA PENSION OF HEAD AMT            AMOUNT NONVA RETIREMENT
+  OTHER PENSION OF HEAD             AMOUNT OTR PENSION INCOME
+  PENSION/ANNUITY WF AMT            AMOUNT RETIREMENT INCOME
+variables matching value|balance|worth|equity|asset|accumulated:   0
+```
+
+These are **annual income flows received** from pensions, not **account
+balances**. §17.5 needs the stock of defined-contribution wealth — what sits in
+a 401(k) today — because that is what enters the model's illiquid state `Z`.
+
+It also adds nothing on the income side, for three independent reasons:
+
+- 26 of the 53 codes are **already in `tax.pkl`**.
+- Our sample is aged 25–46 in 2011, so pension income is near-absent: **1.1% of
+  households report any**, median 3,500 against a median household income of
+  35,061.
+- Pension income is inside PSID's total family income, so it is already inside
+  `nasry` and therefore already inside our after-tax non-asset income feature.
+  Adding it would double-count.
+
+**What to request instead.** DC balances live in the family file's **Section P**
+(pensions), not Section W (wealth) — which is why the wealth-module extract
+never had them. PSID revised Section P in 2015 and streamlined it again in 2019,
+so variable names differ by wave and must be looked up per year rather than
+guessed. In the PSID Data Center variable search, the target is the
+current-job pension question asking **how much is currently in the account**,
+for head and spouse, waves 2011–2023.
+
+Two practical notes for that pull:
+
+1. **Check wave coverage before building.** The pension section is not fielded
+   identically every wave. If 2011–2023 is unbalanced, the choice is a shorter
+   balanced panel or imputation, and §5's rental-value work is the precedent for
+   imputing without making the imputed value a function of the features being
+   estimated on.
+2. **It belongs in `illiquid`, beside `ira` (W22)** in `build_psid_tensor.py`,
+   not in income — it is a stock, and the model's `Z` carries a liquidation
+   penalty precisely to represent early-withdrawal penalties on such accounts.
+
+### 17.7 Strategy 5 implemented: DC pensions narrow the gap by ~20%, not away
+
+The `J365419` extract supplies what §17.6 asked for — **Section P**, all seven
+waves, head and spouse:
+
+```
+P20  AMT IN PENSION ACCT NOW          current job's DC balance
+P49  AMT NOW PREV PNSN ACCT (x2)      balances left at up to two former employers
+P16  HOW BENEFIT FIGURED              plan type, which gates whether P20 applies
+```
+
+Row alignment with `tax.pkl` was verified on all seven family-interview IDs
+before use rather than assumed, and the wave code map is generated from the
+extract rather than hand-written — a first attempt that guessed the P49 codes by
+offsetting from P20 was wrong in all seven waves and the check caught it.
+
+**Coverage on our 889 comphs households**: 59.1% hold a DC balance in at least
+one wave, 25.2% of household-waves are positive, median 18,403 among those.
+
+**Result** (winsorised mean wealth-to-income, their moment definition):
+
+```
+band   SCF w/debt  SCF nodebt   ours    +DC   gap before   gap after
+21-30        1.22        1.66   0.41   0.45         3.0x        2.7x
+31-40        1.87        2.80   0.83   0.99         2.2x        1.9x
+41-50        3.38        4.61   1.49   1.86         2.3x        1.8x
+51-60        4.65        8.07   2.63   3.30         1.8x        1.4x
+```
+
+**§17.5 predicted DC pensions might "close most of the residual 2–3×". They do
+not — they close about a fifth of it.** The prediction extrapolated the Boston
+Fed finding for the typical PSID household to a sample that is comphs-only,
+younger, and lower-participation. The gain grows with age (1.11× at 21–30 to
+1.32× at 51–60), as balances accumulate, which is the right shape but not
+enough magnitude.
+
+It is worth keeping regardless: these are genuinely part of the illiquid state
+the model represents, the floor now binds on 175 rather than 197 households in
+2011 because DC balances legitimately offset other debt, and the remaining gap
+is now 1.4–2.7× rather than 1.8–3.0×.
+
+**A sentinel bug worth recording.** The DK/refused code is not constant across
+waves: 2011–13 use the 9-digit 999999998/9, 2015 onward also carry the 8-digit
+99999998/9. A 9-digit-only threshold let the latter through, where they
+survived as ~1e8 and, once summed with a real balance, as values like
+100,011,998 that no longer resemble sentinels. Caught by checking the magnitude
+of the change rather than only that it ran: max added wealth was 92,014,408.
+Genuine balances have a p99 of 843,200.
