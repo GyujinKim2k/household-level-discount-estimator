@@ -2227,11 +2227,13 @@ the over-accumulation §15 attributes to low ρ. Median illiquid wealth at ages
   3.0     40,000   100,000   172,000   12,882
 ```
 
-**At `R_gamma = 1.02` wealth becomes insensitive to ρ.** That is the important
-part: the wealth moment stops dominating identification, so ρ would be pinned
-by consumption comovement instead — the moment that implies ρ ≈ 1 and matches
-the Euler-equation literature. The comovement itself also improves, 0.13–0.14
-against PSID's 0.067, versus 0.454 at the current ρ = 4.46.
+**At `R_gamma = 1.02` wealth appears insensitive to ρ. That reading was wrong —
+see §18.** `R_free` is 1.0203, so `R_gamma = 1.02` makes the illiquid asset pay
+*less* than liquid while still carrying a liquidation penalty. It is dominated,
+nobody trades into it, and the flat 40,000 is simply the age-20 endowment of
+`(1.4696 − 0.0549) × y0 = 39,124` sitting frozen. Insensitivity to ρ there is
+the asset being economically dead, not identification passing to another
+moment. Any usable `R_gamma` must exceed `R_free`.
 
 A 2% real return is defensible as net of tax, fees and idiosyncratic risk,
 where 5% is a gross long-run equity figure. **This has not been tested in
@@ -2424,3 +2426,81 @@ survived as ~1e8 and, once summed with a real balance, as values like
 100,011,998 that no longer resemble sentinels. Caught by checking the magnitude
 of the change rather than only that it ran: max added wealth was 92,014,408.
 Genuine balances have a p99 of 843,200.
+
+---
+
+## 18. The R_gamma strategy: tested and not worth a regeneration
+
+### 18.1 §17.2's reading was wrong
+
+§17.2 reported that at `R_gamma = 1.02` wealth becomes insensitive to ρ, and
+treated that as identification usefully passing to the consumption moment. It
+is not. `R_free` is **1.0203**, so at 1.02 the illiquid asset pays *less than
+liquid* while still carrying a liquidation penalty. It is dominated. Nobody
+trades into it, and the flat 40,000 is the age-20 endowment,
+`(1.4696 − 0.0549) × y0 = 39,124`, sitting frozen:
+
+```
+median illiquid by age, R_gamma = 1.02      age 25   age 35   age 45
+  rho 1.5                                   40,000   40,000   40,000
+  rho 3.0                                   40,000   36,000   40,000
+for contrast, R_gamma = 1.04
+  rho 1.5                                   68,000  204,000  428,000
+```
+
+Insensitivity there is the asset being economically dead. This was checkable
+from the calibration constants without any GPU time, and it was the main
+argument §17.3 gave for regenerating.
+
+### 18.2 No defensible (R_gamma, ρ) pair matches both moments
+
+Re-run with `R_gamma > R_free` only. PSID targets: median illiquid 17,014
+(DC-augmented, §17.7) and comovement 0.067.
+
+```
+median illiquid, ages 35-44        comovement
+ rho   R=1.025   R=1.035   R=1.04    R=1.025  R=1.035  R=1.04
+ 1.5   156,000   268,000  300,000      0.129    0.120   0.106
+ 2.5    52,000   172,000  204,000      0.140    0.141   0.140
+ 3.5    40,000   132,000  156,000      0.136    0.142   0.141
+ 4.5    56,000    56,000   60,000      0.420    0.459   0.486
+```
+
+The best wealth cell is 40,000 — still **2.4×** the target. The best comovement
+cell is 0.106 — still **1.6×**. They sit in opposite corners. **§15's
+specification failure is robust to the return calibration**, which is a stronger
+statement than §15 could make on its own.
+
+**What it does buy.** Moving from the baseline (`R = 1.05`, ρ = 4.46: wealth
+~60,000, comovement 0.454) to `R = 1.025` with ρ ≈ 3 gives wealth 40,000 and
+comovement 0.136 — the comovement error falls from **6.8× to 2.0×** and wealth
+from 3.5× to 2.4×, with ρ landing near 3 rather than 4.46. Real, but not a
+resolution, and it costs the port-fidelity check.
+
+**An identification warning found along the way.** Between ρ = 3.5 and ρ = 4.5
+the model changes regime: wealth stops falling and turns back up, and the
+comovement jumps from ~0.14 to ~0.45. §15 saw the same discontinuity near
+ρ = 5 at `R = 1.05`; a lower return moves it down. **Our estimate of 4.46 sits
+essentially on that boundary**, which is a poor place for a posterior to
+concentrate and may explain why ρ's between-household heterogeneity is the
+fragile one (§11.3's `P = 0.597` pooled).
+
+### 18.3 Recommendation: do not regenerate for this
+
+§17.3 made the case for regeneration rest on `R_gamma` plus the income
+disruption together. That case is now weaker on both halves:
+
+- `R_gamma` cannot reconcile the two moments at any defensible value (§18.2).
+- The disruption improves the income tail but raises wealth (§16), and wealth is
+  the moment already missed by 2.4× at best.
+
+Both interventions would forfeit the table-3 port-fidelity check that is our
+evidence the implementation is correct, in exchange for a model that still
+misses both target moments by ~2×. **The honest reading is that this
+specification cannot represent our PSID sample, and that is the finding** —
+not a defect to be tuned away with nine GPU-days.
+
+What a regeneration *would* legitimately deliver is the §13.1 `log(1−δ)`
+reparameterisation and the §13.3 log features, both of which are free, both
+validated, and neither of which needs new simulations — they only need
+retraining on the existing dataset.
