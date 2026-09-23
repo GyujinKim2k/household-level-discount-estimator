@@ -2261,8 +2261,11 @@ calibration.
 | # | strategy | cost | evidence | verdict |
 |---|---|---|---|---|
 | 1 | `log(1−δ)` target | retrain | §13.1 — truncation 24.3% → 0%, estimates unmoved | **adopt** |
-| 2 | Signed-log features | retrain | §19.1 — the calibration gain was a scoring artefact; costs 0.14–0.20 log q | **refuted** |
-| 3 | Lower `R_gamma` | **regenerate** | §17.2 — decouples wealth from ρ, both moments improve | **most promising untested** |
+| 2 | Signed-log features | retrain | §19.1 — the member-level gain was a scoring artefact; ensemble edge is inside the noise and costs 0.13–0.20 log q | **not adopted** |
+| 2a | Wider embedder (`d_model` 128, 3 layers, 64 out) | retrain | §19.3, §19.6 — improves log q, all six recovery measures and calibration together | **adopt** |
+| 2b | Derived moment channels (`card_debt`, two ratios) | retrain | §19.4 — best log q of any arm, but calibration unmoved; not additive with 2a | alternative to 2a |
+| 2c | Larger flow (`hidden_features`, `num_transforms`) | retrain | §19.2 — every increase loses log q and converges earlier | **refuted** |
+| 3 | Lower `R_gamma` | **regenerate** | §18 — no `R_gamma > R_free` matches both moments; §17.2's reading was wrong | **refuted** |
 | 4 | Income disruption | **regenerate** | §16 — fixes income tail, worsens wealth and ρ | not alone; pair with 3 |
 | 5 | Add DC pensions to the PSID wealth measure | new PSID pull | §17.1, Pfeffer et al. | cheap, addresses the residual 2–3× |
 | 6 | Condition PSID on cardholding | rebuild tensor | §12.2 — their sample is cardholders | cheap, partially closes 17.1 |
@@ -2272,6 +2275,10 @@ calibration.
 | 10 | More Tauchen states | regenerate | §12.5 — adds no skew | **pointless alone** |
 | 11 | Re-estimate the income AR(1) on PSID | moderate | §12.5 — Gaussian cannot produce skew | pointless alone |
 | 12 | Drop illiquid wealth from the features | retrain | §15 — removes the moment that forces ρ high | diagnostic, not a fix |
+
+> **Rows 3 and 4 no longer carry a case for regenerating — see §18**, and §19.5
+> prices a plain doubling of the dataset at less than the free changes in rows 1
+> and 2a. The paragraph below is kept because it states what the case *was*.
 
 **If a regeneration is to happen, 3 + 4 together is the case for it.** They
 address opposite sides of the same coupling §16 identified — the model cannot
@@ -2687,10 +2694,11 @@ against 0.032) and the ensemble more than absorbs it. That is §19.1's mechanism
 running in the intended direction: sharper members carry more approximation
 variance, and ensembling is what corrects approximation variance.
 
-**It also dominates signed-log features on their own chosen ground.** Both reach
-an ensemble mean absolute deviation of 0.010, but log features pay 0.129 log q
-for it and this gains 0.035. Whatever calibration case was being made in §13.2
-and §13.3, widening the embedder makes it for free.
+**It also all but matches signed-log features on their own chosen ground, for
+free.** Ensemble mean absolute deviation 0.015 here against 0.012 for log
+features — log features are still marginally the better calibrated of the two —
+but they pay 0.129 log q for it and this *gains* 0.035. Most of the calibration
+case made in §13.2 and §13.3 is available without the cost.
 
 So the bottleneck was never how flexible the flow is; it was **how much of the
 trajectory reaches it**. A 32-number summary of a seven-wave, five-feature panel
@@ -2789,3 +2797,56 @@ None of this touches §15 and §18, which are about the specification failing to
 reproduce PSID's wealth and consumption-comovement moments at any θ. More draws
 and better features both sharpen per-household recovery on simulated data;
 neither makes the model fit the data.
+
+### 19.6 What to adopt
+
+All three arms at five seeds, ensembled, `start_high` 45, the same 335
+education-filtered SBC draws, one code path:
+
+```
+                      baseline  embed_big    derived
+member log q             4.879      4.874      4.914
+member log q sd          0.041      0.035      0.037
+member cov beta          0.891      0.878      0.893
+            delta        0.835      0.839      0.843
+            crra         0.879      0.860      0.879
+
+ENSEMBLE log q           5.095      5.130      5.155
+ensemble cov beta        0.928      0.913      0.928
+              delta      0.863      0.878      0.875
+              crra       0.916      0.910      0.925
+ensemble mean |dev|      0.027      0.015      0.026
+ensemble corr b/d/r  0.790 0.789 0.841   0.801 0.798 0.854   0.793 0.792 0.848
+ensemble mae b/d/r  .0953 .0193 .4452   .0924 .0188 .4165   .0940 .0193 .4348
+```
+
+**Adopt the wider embedder.** `derived` takes held-out log q by a clear margin
+(+0.060 against +0.035) but leaves calibration exactly where the baseline had it,
+0.026 against 0.027, and its recovery gains are about half the size.
+`embed_big` is the only arm that improves **all three families of measure at
+once**: density fit, all six recovery statistics, and calibration from 0.027 to
+0.015 — with δ's under-coverage, the specific residual §19.1 uncovered, the thing
+that moves (0.863 to 0.878).
+
+That the two arms split this way is consistent with §19.4 rather than at odds
+with it. They repair one deficiency by different routes, and the routes are not
+equivalent in what they leave behind: the derived channels hand the flow
+better-conditioned inputs, which shows up in density; the wider embedder moves
+the bottleneck itself, which shows up everywhere.
+
+**Recommended configuration when the models are next retrained**, all three
+retraining-only and none requiring new simulations:
+
+| change | evidence | effect |
+|---|---|---|
+| `--d_model 128 --n_layers 3 --embed_dim 64` | §19.3, §19.6 | +0.035 log q, recovery +2-3 sd on all six, calibration 0.027 to 0.015 |
+| `log(1 - δ)` estimation target | §13.1, §19.1 | δ truncation 24.3% to 0%; also the one parameter still under-covering |
+| keep levels features | §19.1 | signed logs cost 0.129-0.204 log q for a calibration edge inside the noise |
+| keep `hidden_features 50, num_transforms 5` | §19.2 | every increase loses |
+| keep 5-seed ensembling | §19.1, §19.6 | +0.22 log q over the best member, and the only thing lifting β and ρ coverage above 0.90 |
+
+**Not recommended:** a second regeneration on these grounds. §19.5 puts another
+~9.7 GPU-days at roughly +0.13 log q and +0.011 β correlation, which the free
+changes above already deliver. That is a separate question from §18's, which
+asked whether a *different* specification could reproduce PSID's moments; the
+answer there was also no.
