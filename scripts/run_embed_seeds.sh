@@ -39,7 +39,7 @@ PYTHONPATH=. .venv/bin/python scripts/ensemble_eval.py --waves 7 \
                outputs/arch/embed_big_s2 outputs/arch/embed_big_s3 \
                outputs/arch/embed_big_s4 \
     --shards data/processed/phase4_educ_dataset_shards \
-    --sbc_cache outputs/phase4_educ/sbc_sims.pt --start_low 24 \
+    --sbc_cache outputs/phase4_educ/sbc_sims.pt --start_low 24 --start_high 45 \
     --educ_group comphs --tag arch_embed_big --out outputs/ensemble \
     > logs/ensemble_embed_big.log 2>&1
 echo "$(date -u '+%F %T') embed_big ensemble rc=$?"

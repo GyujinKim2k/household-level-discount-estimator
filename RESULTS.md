@@ -2545,79 +2545,87 @@ and the SBC coverage estimates themselves carry a binomial standard error of
 **0.016** on 335 draws. A coverage difference below ~0.023 between two arms is
 not measurable with this SBC set, however many seeds are averaged.
 
-### 19.1 The signed-log-feature result was a scoring artefact — §13.2 retracted
+### 19.1 §13.2's signed-log-feature evidence was a scoring artefact
 
-The per-group SBC filter (`compare_windows.py`, commit `a46047e`, 2026-09-19)
-landed **after** the Phase 4 per-group members ran on 2026-09-17/18. Those
-members therefore scored their calibration against all 1,000 SBC draws, of which
-roughly two thirds are `somehs` and `compco` households a `comphs`-only model
-was never trained on. The stored rank files say so outright:
+Two independent provenance leaks, both in `ensemble_eval`, both of the class the
+`_check_provenance` guard was written for and neither covered by it:
 
-```
-outputs/phase4/comphs_s0/sbc_ranks_7w.npz     (1000, 3)
-outputs/test_logfeat/w7_s0/sbc_ranks_7w.npz    (335, 3)
-```
+1. **The per-group SBC filter** (`compare_windows.py`, commit `a46047e`,
+   2026-09-19) landed *after* the Phase 4 per-group members ran on 2026-09-17/18.
+   Those members scored their calibration against all 1,000 SBC draws, of which
+   roughly two thirds are `somehs` and `compco` households a `comphs`-only model
+   was never trained on. The stored rank files say so outright:
+   `outputs/phase4/comphs_s0/sbc_ranks_7w.npz` is `(1000, 3)`,
+   `outputs/test_logfeat/w7_s0/sbc_ranks_7w.npz` is `(335, 3)`. §13.2 compared
+   the first against the second.
+2. **`start_high` was hardcoded** to `START_HIGH[7] = 46`, the pre-Phase 4
+   window convention. Every Phase 4 member trained at 45 (§10.8), so both the
+   ensembles and the members were scored on held-out and SBC windows cut one
+   start age wider than training. `start_high` was already recorded in each
+   member's `_config`; it simply was not checked.
 
-§13.2 compared the first against the second and read the difference as a
-property of log features.
+Both are fixed. `start_high` is now a flag and a guarded field, and members are
+scored **in place** on the sets the ensemble is scored on rather than read back
+out of their own `results.json`, which records whatever scoring path was current
+when that member ran. On its first outing the new `start_high` check aborted a
+run of mine that would otherwise have produced numbers I was about to report.
 
-**Rescored on the same 335 draws**, five seeds each, everything else identical:
-
-```
-                        levels    logfeat   target
-member log q             4.870      4.675        —
-member coverage beta     0.901      0.864    0.900
-                delta    0.870      0.838    0.900
-                crra     0.881      0.861    0.900
-member mean |dev|        0.017      0.046        —
-member corr beta         0.776      0.764        —
-             crra        0.827      0.831        —
-
-ensemble log q           5.096      4.960        —
-ensemble coverage        0.934      0.925    0.900
-                         0.887      0.899    0.900
-                         0.916      0.904    0.900
-ensemble mean |dev|      0.021      0.010        —
-```
-
-**At member level the sign reverses.** The levels baseline does not under-cover
-at all — it sits at 0.870-0.901 against a nominal 0.900, mean absolute deviation
-0.017, i.e. within the 0.016 binomial se. Log features move all three parameters
-*away* from nominal, consistently across all five seeds, and cost 0.195 log q —
-four times the seed sd.
-
-**At ensemble level the remaining difference is not measurable.** Per parameter
-the gap is -0.009, +0.012, -0.012 against a 0.023 standard error on the
-difference. §13.3's "mean absolute deviation halves" is 0.021 against 0.010,
-both comfortably inside one se of nominal; it is a comparison of two numbers
-that are each indistinguishable from 0.900.
-
-**§13.3's mechanism argument also inverts.** It reported that ensembling
-contributed less on top of log features (+0.061 against +0.183) and read that as
-better-calibrated members having less approximation variance to correct. With
-the corrected member rows the contributions are:
+**Rescored fully matched** — both arms at `start_high` 45, the same 335
+education-filtered SBC draws, five seeds each, one code path:
 
 ```
-                    beta    delta    crra    mean
-levels            +0.033   +0.017  +0.035  +0.028
-log features      +0.061   +0.061  +0.043  +0.055
+                      levels    logfeat     diff
+member log q           4.879      4.675   -0.204
+member cov beta        0.891      0.864
+            delta      0.835      0.838
+            crra       0.879      0.861
+member mean |dev|      0.032      0.046
+
+ensemble log q         5.095      4.966   -0.129
+ensemble cov beta      0.928      0.904
+              delta    0.863      0.875
+              crra     0.916      0.907
+ensemble mean |dev|    0.027      0.012
+ensemble corr b/d/r   0.790/0.789/0.841   0.782/0.790/0.845
+
+ensembling lift       0.038/0.028/0.037   0.041/0.037/0.046
 ```
 
-Ensembling contributes **twice as much** on top of log features. The log-feature
-members have *more* approximation variance, not less, which is the opposite of
-the stated reason for adopting them.
+Three separate claims come apart.
 
-**Verdict: do not adopt signed-log features.** They cost 0.136-0.195 log q
-everywhere, hurt member calibration, and the ensemble-level gain that justified
-them is inside the noise. §13.1's `log(1 - δ)` transform is untouched by this —
-both its arms were scored on held-out draws by one script, with no SBC involved.
+**§13.2's member-level evidence is wrong.** The levels baseline covers
+0.891 / 0.835 / 0.879, not the 0.751 / 0.715 / 0.655 that section reported as
+"badly under-covering, the dangerous direction". And log features are *worse* at
+member level, mean absolute deviation 0.046 against 0.032 — the opposite sign to
+the one claimed.
 
-**The root cause is fixed, not just this instance.** `ensemble_eval.py` read
-each member's coverage back out of its own `results.json`, which records
-whatever scoring path was current when that member ran. Members are now scored
-in place, on the very sets the ensemble is scored on, so a member row and an
-ensemble row can no longer describe different draws. Every Phase 4 member
-coverage reported before this change is the artefact above.
+**§13.3's mechanism argument inverts.** It reported that ensembling contributed
+less on top of log features and read that as better-calibrated members having
+less approximation variance to correct. Matched, ensembling lifts log features
+*more* (0.041 / 0.037 / 0.046) than levels (0.038 / 0.028 / 0.037). The
+log-feature members carry more approximation variance, not less.
+
+**The ensemble-level calibration edge survives, at about half the claimed size.**
+Mean absolute deviation 0.012 against 0.027, where §13.3 reported 0.010 against
+0.021. Log features do land all three parameters within 0.01 of nominal while
+levels over-covers β at 0.928 and under-covers δ at 0.863. But the per-parameter
+differences are -0.024, +0.012, -0.009 against a **0.023 standard error on the
+difference** (binomial, 335 draws, two arms), so this is a consistent direction
+rather than a measured effect.
+
+**Verdict: still do not adopt, but for the cost rather than a refutation.** The
+ensemble-level direction is favourable and within noise; the price is 0.129 to
+0.204 log q, worse member calibration, and — already established in §13.3 —
+ρ's between-household heterogeneity ceasing to be detectable, which is a
+substantive change to a reported result rather than a free improvement.
+
+**A residual the wrong window was masking: δ under-covers.** At 0.835 the levels
+members sit 4.1 binomial standard errors below nominal, and ensembling lifts δ
+only to 0.863 while β and ρ both clear 0.92. `ensemble_eval`'s own closing note
+is the right reading — coverage still short after ensembling is bias, not
+variance. §13.1's `log(1 - δ)` transform, the one reparameterisation that
+survived, is precisely a fix to δ's geometry, so it now has a second motivation
+independent of the PSID truncation it was proposed for.
 
 ### 19.2 The flow is not capacity-limited
 
@@ -2643,41 +2651,141 @@ what over-parameterisation looks like under early stopping. Correlation and
 coverage follow log q down. Width is worse than depth, and combining them is no
 better than either alone.
 
-### 19.3 The embedder *is* capacity-limited, and it trades calibration for sharpness
+### 19.3 The embedder *is* capacity-limited — widening it wins on every metric
 
 The same sweep widened the summary network instead of the flow: `d_model` 64 to
-128, two encoder layers to three, output 32 to 64. It is the only arm that
-improved anything.
+128, two encoder layers to three, output 32 to 64. It is the only arm of the
+capacity sweep that improved anything, and at five seeds and ensembled it
+improves everything.
 
 ```
-                       log q   corr b/d/r          mae b/d/r             cov b/d/r
-baseline (64, 2, 32)   4.870   0.776 0.780 0.827   0.0983 0.0197 0.4599  0.901 0.870 0.881
-embed_big (128, 3, 64) 4.886   0.789 0.787 0.833   0.0950 0.0194 0.4319  0.872 0.818 0.848
+                      baseline   embed_big
+member log q             4.879       4.874
+member cov beta          0.891       0.878
+            delta        0.835       0.839
+            crra         0.879       0.860
+member mean |dev|        0.032       0.041
+
+ensemble log q           5.095       5.130
+ensemble cov beta        0.928       0.913
+              delta      0.863       0.878
+              crra       0.916       0.910
+ensemble mean |dev|      0.027       0.010
+ensemble corr b/d/r  0.790 0.789 0.841   0.801 0.798 0.854
+ensemble mae b/d/r  0.0953 0.0193 0.4452  0.0924 0.0188 0.4165
 ```
 
-Recovery improves on all six measures. β correlation gains 0.013 against a seed
-sd of 0.003, and ρ's mean absolute error falls 6% (0.460 to 0.432) against a
-seed sd of 0.009. Both are several seed sds and both are in the same direction
-as every other recovery statistic, so they are effects rather than scatter.
+Every ensemble measure improves: log q, all three correlations, all three errors,
+and coverage moves **closer to nominal on all three** parameters. ρ's mean
+absolute error falls 6.4%. Per-seed the recovery gains are +0.008 / +0.009 /
++0.014 in correlation and -0.0027 / -0.0005 / -0.0278 in error against member
+seed sds of 0.003-0.006 and 0.0002-0.009, so 2-3 sd each and consistent in sign
+across all five seeds.
 
-Calibration moves the other way, by 0.03 to 0.05 on all three — sharper
-posteriors that are over-confident about their sharpness.
+The members look slightly *worse* calibrated (mean absolute deviation 0.041
+against 0.032) and the ensemble more than absorbs it. That is §19.1's mechanism
+running in the intended direction: sharper members carry more approximation
+variance, and ensembling is what corrects approximation variance.
+
+**It also dominates signed-log features on their own chosen ground.** Both reach
+an ensemble mean absolute deviation of 0.010, but log features pay 0.129 log q
+for it and this gains 0.035. Whatever calibration case was being made in §13.2
+and §13.3, widening the embedder makes it for free.
 
 So the bottleneck was never how flexible the flow is; it was **how much of the
-trajectory reaches it**. A 32-number summary of a seven-wave, five-feature
-panel was discarding information that a 64-number summary keeps, and no amount
-of extra spline capacity downstream could recover what the embedder had already
-thrown away.
+trajectory reaches it**. A 32-number summary of a seven-wave, five-feature panel
+was discarding information that a 64-number summary keeps, and no amount of
+extra spline capacity downstream could recover what the embedder had already
+thrown away — which is why §19.2's arms all lost.
 
-Whether the trade is worth taking cannot be settled from one seed, because
-ensembling corrects precisely the over-confidence this arm adds, and §19.1
-showed it contributes about twice as much to members that carry more of it. Five
-seeds are running.
+### 19.4 Laibson et al.'s own moment definitions, appended as channels
 
-The economically useful reading of §19.2 is not "the defaults are lucky". Over-fitting at
-fixed data is the signature of a model that would use more draws, and it says
-the binding constraint is the training set rather than the network. That is a
-statement about recovery on *simulated* data and must not be confused with §15
-and §18's finding, which is that this specification cannot reproduce PSID's
-moments at any θ. More draws of the same specification would sharpen the first
-and do nothing for the second.
+`card_debt = 1{liquid < 0}`, `liquid / income` and `illiquid / income`, added as
+three extra features. Their sixteen target moments are `[%Visa, meanVisa,
+wealth|debt, wealth|no debt] x 4 age bands` — a borrowing indicator, and wealth
+conditional on it, scaled by income. All three are **exact functions of columns
+already in `x`**, so this cannot add information. It tests whether the flow is
+spending capacity rediscovering them.
+
+Single seed, matched to the baseline seed in every other argument:
+
+```
+arm (seed 0)   log q   corr b/d/r          mae b/d/r              epochs
+base_s0        4.807   0.773 0.777 0.817   0.0998 0.0200 0.4684     96
+derived        4.936   0.783 0.786 0.837   0.0957 0.0196 0.4424    156
+embed_big      4.886   0.789 0.787 0.833   0.0950 0.0194 0.4319     69
+derivlog       4.872   0.778 0.789 0.843   0.0984 0.0194 0.4390    121
+combo          4.818   0.781 0.788 0.845   0.0961 0.0194 0.4344     73
+```
+
+`derived` has the best held-out log q of anything tried, +0.129 on the matched
+seed against a member seed sd of 0.041, and it trains 60 epochs *longer* than
+the baseline before converging — the opposite of §19.2's flow arms, which quit
+early and landed worse. The indicator is the likely bulk of it: `1{liquid < 0}`
+is a discontinuity at exactly zero, and after the embedder's global
+standardisation a household at -$200 and one at +$200 differ by a hair, when the
+borrowing margin β rides on is precisely the sign.
+
+**`combo` is the informative arm.** Derived features plus the wide embedder is
+*worse* than either alone on log q — 4.818 against 4.936 and 4.886 — and
+converges at 73 epochs against `derived`'s 156. They are **two routes to the same
+gain, not two gains**: the derived channels hand the flow the structure the
+32-dim bottleneck was destroying, and the wider embedder gives that structure
+room to survive the bottleneck instead. Supplying both only adds parameters.
+
+That is also the cleanest evidence for §19.3's diagnosis. Two interventions at
+opposite ends of the pipeline, each worth about the same, and not additive, is
+what one underlying deficiency looks like.
+
+`derivlog` adds signed-log features on top of `derived` and costs 0.064 log q —
+a third independent arm where log features lose (§19.1).
+
+### 19.5 The learning curve, and what a second regeneration would buy
+
+Whether the model is short of data or short of capacity, measured directly:
+retrain on a quarter and a half of the `comphs` draws. All three arms are scored
+through `ensemble_eval --train_n 57344` so they sit on **one** held-out set —
+`compare_windows` holds out everything above `--train_n`, so each arm's own
+`results.json` scores it on a different set and those numbers are not comparable
+across arms.
+
+```
+panels    log q   corr b/d/r          mae b/d/r
+ 4,771    3.985   0.705 0.758 0.757   0.1149 0.0212 0.5792
+ 9,542    4.546   0.751 0.770 0.797   0.1035 0.0205 0.5138
+19,049    4.807   0.773 0.777 0.817   0.0998 0.0200 0.4684
+
+per doubling   log q    corr β    corr δ    corr ρ
+ 4.8k -> 9.5k  +0.562    +0.046    +0.012    +0.039
+ 9.5k -> 19k   +0.261    +0.022    +0.008    +0.020
+```
+
+**Each doubling buys almost exactly half what the one before it did.** The curve
+is saturating, not linear. Extrapolating one more doubling — which is another
+~9.7 GPU-days of generation — gives roughly +0.13 log q, β correlation +0.011 and
+ρ correlation +0.010.
+
+Set against §19.4:
+
+```
+                                  cost              log q    corr β
+another doubling of the dataset   ~9.7 GPU-days     +0.13     +0.011
+--derived_features                one retrain       +0.129    +0.010
+wider embedder                    one retrain       +0.035    +0.011
+```
+
+**Three appended columns deliver what nine more GPU-days of generation would
+deliver.** They are not substitutes in mechanism — extra draws supply samples,
+derived channels supply structure — but on every metric measured here they buy
+the same amount, and one of them is free.
+
+This also qualifies §19.2. Over-fitting at fixed data does say the network is not
+the constraint, but the returns to data are already halving, so "the training set
+is the binding constraint" is too strong. The better description is that the
+constraint is **how the data is presented to the flow**, which is precisely what
+§19.3 and §19.4 both act on and why they are not additive.
+
+None of this touches §15 and §18, which are about the specification failing to
+reproduce PSID's wealth and consumption-comovement moments at any θ. More draws
+and better features both sharpen per-household recovery on simulated data;
+neither makes the model fit the data.

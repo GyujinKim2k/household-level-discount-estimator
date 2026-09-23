@@ -42,7 +42,8 @@ def _run(tmp_path, cfg, **args):
 #: field cannot be added to one and forgotten in the other. Booleans default
 #: False, paths to a Phase 3-looking string, and `start_low` to its real default.
 BASE = {f: False for f in PROVENANCE_FIELDS}
-BASE.update(start_low=25, shards="phase3", sbc_cache="old", educ_group=None)
+BASE.update(start_low=25, start_high=46, shards="phase3", sbc_cache="old",
+            educ_group=None)
 
 
 def test_matching_provenance_passes(tmp_path):
@@ -51,6 +52,7 @@ def test_matching_provenance_passes(tmp_path):
 
 MISMATCHES = [
     ("start_low", 24, 25),                 # the off-by-one window of RESULTS 10.8
+    ("start_high", 45, 46),                # the other half of that window
     ("shards", "phase4", "phase3"),        # the actual Phase 4 bug
     ("sbc_cache", "phase4_sbc", "old"),
     ("educ_group", "comphs", None),        # per-group model, pooled evaluation

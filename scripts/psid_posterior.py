@@ -123,6 +123,30 @@ def sample_all(post, x: torch.Tensor, n_post: int, batch: int = 512):
             np.concatenate(frac))
 
 
+def _apply_transforms(args, xt, educ_rows):
+    """Put PSID `x` through exactly the transforms the model trained under.
+
+    Order is load-bearing and was duplicated at two call sites, one of which
+    once fell out of step and killed a conditioned run *after* it had written
+    its posteriors. Derived channels come first, since they are computed from
+    dollar levels; the signed log follows and skips them; the education one-hot
+    block is appended last so it is never rescaled as if it were dollars.
+    """
+    from hh_npe.data.waves import FEATURES_TWOASSET_AGE
+
+    feats = FEATURES_TWOASSET_AGE
+    if args.derived_features:
+        from scripts.compare_windows import derived_features
+        xt, feats = derived_features(xt, feats)
+    if args.log_features:
+        from scripts.compare_windows import log_features
+        xt = log_features(xt, feats)
+    if args.condition_educ:
+        from scripts.compare_windows import one_hot_educ
+        xt = one_hot_educ(xt, educ_rows)
+    return xt
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run_dirs", type=Path, nargs="+",
@@ -134,6 +158,11 @@ def main() -> None:
                    help="Signed log1p the dollar features, matching a model "
                         "trained with --log_features. Applied AFTER the "
                         "consumption correction, which operates in levels.")
+    ap.add_argument("--derived_features", action="store_true",
+                   help="Append card_debt, liquid/income and illiquid/income, "
+                        "matching a model trained with --derived_features. "
+                        "Applied BEFORE --log_features, which then skips them: "
+                        "an indicator and two ratios are not dollars.")
     ap.add_argument("--condition_educ", action="store_true",
                    help="Append the one-hot education block, for a posterior "
                         "trained with --condition_educ. Education comes from "
@@ -196,19 +225,7 @@ def main() -> None:
     for name, xa in arms.items():
         print(f"\n--- {name} ---", flush=True)
         torch.manual_seed(0)
-        xt = torch.from_numpy(xa).float()
-        if args.log_features:
-            # After the correction, which scales consumption in levels, and
-            # before the education block, which must not be logged.
-            from scripts.compare_windows import log_features
-            from hh_npe.data.waves import FEATURES_TWOASSET_AGE
-            xt = log_features(xt, FEATURES_TWOASSET_AGE)
-        if args.condition_educ:
-            from scripts.compare_windows import one_hot_educ
-            # The correction only touches consumption, so the education block
-            # is appended after it -- appending first would leave the one-hot
-            # columns to be rescaled as if they were dollars.
-            xt = one_hot_educ(xt, educ)
+        xt = _apply_transforms(args, torch.from_numpy(xa).float(), educ)
         m, sdv, lo, hi, fr = sample_all(post, xt, args.n_post)
         res[name] = {"mean": m, "sd": sdv, "lo": lo, "hi": hi, "frac": fr}
         np.savez(args.out / f"posterior_{name}.npz", mean=m, sd=sdv, lo=lo,
@@ -283,17 +300,11 @@ def _figure(args, post, arms, x_raw, educ):
     series = {}
     dev = posterior_device(post)
     for r, i in enumerate(pick):
-        xt = torch.from_numpy(arms["uncorrected"][i : i + 1]).float()
-        if args.log_features:
-            from scripts.compare_windows import log_features
-            from hh_npe.data.waves import FEATURES_TWOASSET_AGE
-            xt = log_features(xt, FEATURES_TWOASSET_AGE)
-        if args.condition_educ:
-            # The figure re-derives x from the raw array, so it needs the same
-            # education block the scored path got. Forgetting it here is how
-            # the first conditioned run died *after* writing its posteriors.
-            from scripts.compare_windows import one_hot_educ
-            xt = one_hot_educ(xt, educ[i : i + 1])
+        # Same helper as the scored path: the figure re-derives x from the raw
+        # array, so it must not grow its own copy of the transform chain.
+        xt = _apply_transforms(
+            args, torch.from_numpy(arms["uncorrected"][i : i + 1]).float(),
+            educ[i : i + 1])
         s = post.sample((4000,), x=xt[0].to(dev), show_progress_bars=False)
         series[f"PSID household {r + 1}"] = s.detach().cpu().numpy()
     # Title from what actually ran. It previously read "Phase 3 posterior ...

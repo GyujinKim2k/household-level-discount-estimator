@@ -43,7 +43,10 @@ log = logging.getLogger("ensemble_eval")
 
 WAVE_YEARS = 2
 # Paired with the wave count so both arms occupy ages 25-59; see
-# scripts/run_wave_matrix.sh.
+# scripts/run_wave_matrix.sh. These belong to the PRE-Phase 4 window
+# convention: RESULTS.md 10.8 moved the 7-wave arm to 24-45, so anything
+# trained after that must pass --start_high explicitly. Kept as the fallback
+# only so the Phase 3 wave matrix stays reproducible without extra flags.
 START_HIGH = {7: 46, 10: 40}
 
 
@@ -65,8 +68,9 @@ def _ensemble(posteriors: list):
 #: Every argument that shaped training and must therefore be repeated when the
 #: evaluation windows are rebuilt. Named once, so a new knob cannot be added to
 #: the guard and forgotten in its test, or the reverse.
-PROVENANCE_FIELDS = ("start_low", "shards", "sbc_cache", "educ_group",
-                     "condition_educ", "log_features", "derived_features")
+PROVENANCE_FIELDS = ("start_low", "start_high", "shards", "sbc_cache",
+                     "educ_group", "condition_educ", "log_features",
+                     "derived_features")
 
 
 def _check_provenance(args, run_dirs, w) -> None:
@@ -101,8 +105,8 @@ def _check_provenance(args, run_dirs, w) -> None:
         raise SystemExit(
             "Members were trained on different data than this scoring run "
             "rebuilds:\n" + "\n".join(sorted(set(bad))) +
-            "\nPass the matching --shards/--sbc_cache/--start_low and the same "
-            "--educ_group/--condition_educ the members used."
+            "\nPass each field above as the flag of the same name, with the "
+            "value the members were trained with."
         )
 
 
@@ -128,6 +132,14 @@ def main() -> None:
     p.add_argument("--n_heldout_eval", type=int, default=2048)
     p.add_argument("--n_post", type=int, default=1000)
     p.add_argument("--start_low", type=int, default=25)
+    p.add_argument("--start_high", type=int, default=None,
+                   help="Latest window start age. Must match training. "
+                        "Defaults to the pre-Phase 4 START_HIGH for the wave "
+                        "count, which is 46 at 7 waves and therefore WRONG for "
+                        "anything trained under the corrected 24-45 window of "
+                        "RESULTS.md 10.8 -- it would score the ensemble on one "
+                        "start age its members never saw. Recorded in every "
+                        "member's _config and now checked against it.")
     p.add_argument("--features", type=str, default=None,
                    choices=sorted(FEATURE_SETS),
                    help="Must match what the members were TRAINED on. The "
@@ -160,7 +172,9 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     w = args.waves
-    start_high = START_HIGH[w]
+    if args.start_high is None:
+        args.start_high = START_HIGH[w]
+    start_high = args.start_high
     out = args.out / (args.tag or f"w{w}")
     out.mkdir(parents=True, exist_ok=True)
 
