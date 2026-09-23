@@ -1901,6 +1901,17 @@ retrained.
 
 ### 13.2 Signed-log features — a real calibration gain
 
+> **Retracted. The comparison was invalid and the effect reverses when it is
+> repaired — see §19.1.** The baseline members quoted below were scored against
+> 1,000 *unfiltered* SBC draws, two thirds of them `somehs` and `compco`
+> households the model was never trained on; the log-feature members were scored
+> against the 335 `comphs` draws. The per-group SBC filter landed on 2026-09-19,
+> after the baseline members had already run. Rescored on the same 335 draws the
+> baseline covers 0.901 / 0.870 / 0.881, not 0.751 / 0.715 / 0.655, and log
+> features move all three *away* from nominal. Everything from here to the end
+> of §13.3 is kept for the record only.
+
+
 Signed `log1p` on the four dollar features (signed because `liquid_assets` is
 negative whenever a household borrows). Against the matched comphs baseline:
 
@@ -1941,6 +1952,11 @@ plus a PSID run (~4 h).
 before adopting, unlike §13.1 which is already established.
 
 ### 13.3 Log features at full ensemble: calibration yes, the motivation no
+
+> **Question 1's answer is retracted with §13.2 (see §19.1).** Question 2 —
+> whether log features make the network humble about households it cannot
+> generate — used no SBC draws and stands as written: the answer is no.
+
 
 Five seeds, matched to `outputs/phase4/comphs_*` in every argument except
 `--log_features`, then ensembled and run on PSID.
@@ -2245,7 +2261,7 @@ calibration.
 | # | strategy | cost | evidence | verdict |
 |---|---|---|---|---|
 | 1 | `log(1−δ)` target | retrain | §13.1 — truncation 24.3% → 0%, estimates unmoved | **adopt** |
-| 2 | Signed-log features | retrain | §13.3 — calibration deviation halves; out-of-support claim refuted | adopt for calibration |
+| 2 | Signed-log features | retrain | §19.1 — the calibration gain was a scoring artefact; costs 0.14–0.20 log q | **refuted** |
 | 3 | Lower `R_gamma` | **regenerate** | §17.2 — decouples wealth from ρ, both moments improve | **most promising untested** |
 | 4 | Income disruption | **regenerate** | §16 — fixes income tail, worsens wealth and ρ | not alone; pair with 3 |
 | 5 | Add DC pensions to the PSID wealth measure | new PSID pull | §17.1, Pfeffer et al. | cheap, addresses the residual 2–3× |
@@ -2504,3 +2520,164 @@ What a regeneration *would* legitimately deliver is the §13.1 `log(1−δ)`
 reparameterisation and the §13.3 log features, both of which are free, both
 validated, and neither of which needs new simulations — they only need
 retraining on the existing dataset.
+
+---
+
+## 19. Training-side strategies
+
+Prompted by "move to the training and modelling part: find any possibility we
+can change, try it, compare". Nothing here touches the simulator or the dataset,
+so every arm is a retrain on the data already on disk.
+
+**The noise floor first**, because several earlier comparisons were read against
+nothing. Five seeds of `outputs/phase4/comphs_*`, identical in every argument,
+varying only network initialisation and batch order:
+
+```
+             mean       sd     range
+log q       4.870    0.041    [4.785, 4.921]
+corr beta   0.776    0.003    [0.772, 0.778]
+corr crra   0.827    0.006    [0.817, 0.831]
+coverage    see 19.1          sd 0.006-0.014
+```
+
+and the SBC coverage estimates themselves carry a binomial standard error of
+**0.016** on 335 draws. A coverage difference below ~0.023 between two arms is
+not measurable with this SBC set, however many seeds are averaged.
+
+### 19.1 The signed-log-feature result was a scoring artefact — §13.2 retracted
+
+The per-group SBC filter (`compare_windows.py`, commit `a46047e`, 2026-09-19)
+landed **after** the Phase 4 per-group members ran on 2026-09-17/18. Those
+members therefore scored their calibration against all 1,000 SBC draws, of which
+roughly two thirds are `somehs` and `compco` households a `comphs`-only model
+was never trained on. The stored rank files say so outright:
+
+```
+outputs/phase4/comphs_s0/sbc_ranks_7w.npz     (1000, 3)
+outputs/test_logfeat/w7_s0/sbc_ranks_7w.npz    (335, 3)
+```
+
+§13.2 compared the first against the second and read the difference as a
+property of log features.
+
+**Rescored on the same 335 draws**, five seeds each, everything else identical:
+
+```
+                        levels    logfeat   target
+member log q             4.870      4.675        —
+member coverage beta     0.901      0.864    0.900
+                delta    0.870      0.838    0.900
+                crra     0.881      0.861    0.900
+member mean |dev|        0.017      0.046        —
+member corr beta         0.776      0.764        —
+             crra        0.827      0.831        —
+
+ensemble log q           5.096      4.960        —
+ensemble coverage        0.934      0.925    0.900
+                         0.887      0.899    0.900
+                         0.916      0.904    0.900
+ensemble mean |dev|      0.021      0.010        —
+```
+
+**At member level the sign reverses.** The levels baseline does not under-cover
+at all — it sits at 0.870-0.901 against a nominal 0.900, mean absolute deviation
+0.017, i.e. within the 0.016 binomial se. Log features move all three parameters
+*away* from nominal, consistently across all five seeds, and cost 0.195 log q —
+four times the seed sd.
+
+**At ensemble level the remaining difference is not measurable.** Per parameter
+the gap is -0.009, +0.012, -0.012 against a 0.023 standard error on the
+difference. §13.3's "mean absolute deviation halves" is 0.021 against 0.010,
+both comfortably inside one se of nominal; it is a comparison of two numbers
+that are each indistinguishable from 0.900.
+
+**§13.3's mechanism argument also inverts.** It reported that ensembling
+contributed less on top of log features (+0.061 against +0.183) and read that as
+better-calibrated members having less approximation variance to correct. With
+the corrected member rows the contributions are:
+
+```
+                    beta    delta    crra    mean
+levels            +0.033   +0.017  +0.035  +0.028
+log features      +0.061   +0.061  +0.043  +0.055
+```
+
+Ensembling contributes **twice as much** on top of log features. The log-feature
+members have *more* approximation variance, not less, which is the opposite of
+the stated reason for adopting them.
+
+**Verdict: do not adopt signed-log features.** They cost 0.136-0.195 log q
+everywhere, hurt member calibration, and the ensemble-level gain that justified
+them is inside the noise. §13.1's `log(1 - δ)` transform is untouched by this —
+both its arms were scored on held-out draws by one script, with no SBC involved.
+
+**The root cause is fixed, not just this instance.** `ensemble_eval.py` read
+each member's coverage back out of its own `results.json`, which records
+whatever scoring path was current when that member ran. Members are now scored
+in place, on the very sets the ensemble is scored on, so a member row and an
+ensemble row can no longer describe different draws. Every Phase 4 member
+coverage reported before this change is the artefact above.
+
+### 19.2 The flow is not capacity-limited
+
+`hidden_features=50, num_transforms=5` are sbi's own defaults. They had been
+carried unchanged since Phase 1 and never swept, and they size the flow for a
+dataset two orders of magnitude smaller than the 152,392 rows from 19,049 panels
+a single education group now supplies. The obvious guess was that they were too
+small.
+
+They are not. One seed per arm, `comphs`, identical to the baseline otherwise:
+
+```
+                       log q   corr b/d/r           cov b/d/r            epochs
+baseline (50, 5)       4.870   0.776 0.780 0.827    0.901 0.870 0.881       96
+flow_wide (256, 5)     4.685   0.759 0.783 0.811    0.893 0.845 0.899       73
+flow_deep (50, 10)     4.799   0.769 0.776 0.822    0.893 0.830 0.869       89
+flow_big (128, 8)      4.747   0.769 0.776 0.823    0.869 0.830 0.881       85
+```
+
+All three cost log q — width 0.185, depth 0.071, both together 0.123, against a
+seed sd of 0.041 — and all three converge *earlier* than the baseline, which is
+what over-parameterisation looks like under early stopping. Correlation and
+coverage follow log q down. Width is worse than depth, and combining them is no
+better than either alone.
+
+### 19.3 The embedder *is* capacity-limited, and it trades calibration for sharpness
+
+The same sweep widened the summary network instead of the flow: `d_model` 64 to
+128, two encoder layers to three, output 32 to 64. It is the only arm that
+improved anything.
+
+```
+                       log q   corr b/d/r          mae b/d/r             cov b/d/r
+baseline (64, 2, 32)   4.870   0.776 0.780 0.827   0.0983 0.0197 0.4599  0.901 0.870 0.881
+embed_big (128, 3, 64) 4.886   0.789 0.787 0.833   0.0950 0.0194 0.4319  0.872 0.818 0.848
+```
+
+Recovery improves on all six measures. β correlation gains 0.013 against a seed
+sd of 0.003, and ρ's mean absolute error falls 6% (0.460 to 0.432) against a
+seed sd of 0.009. Both are several seed sds and both are in the same direction
+as every other recovery statistic, so they are effects rather than scatter.
+
+Calibration moves the other way, by 0.03 to 0.05 on all three — sharper
+posteriors that are over-confident about their sharpness.
+
+So the bottleneck was never how flexible the flow is; it was **how much of the
+trajectory reaches it**. A 32-number summary of a seven-wave, five-feature
+panel was discarding information that a 64-number summary keeps, and no amount
+of extra spline capacity downstream could recover what the embedder had already
+thrown away.
+
+Whether the trade is worth taking cannot be settled from one seed, because
+ensembling corrects precisely the over-confidence this arm adds, and §19.1
+showed it contributes about twice as much to members that carry more of it. Five
+seeds are running.
+
+The economically useful reading of §19.2 is not "the defaults are lucky". Over-fitting at
+fixed data is the signature of a model that would use more draws, and it says
+the binding constraint is the training set rather than the network. That is a
+statement about recovery on *simulated* data and must not be confused with §15
+and §18's finding, which is that this specification cannot reproduce PSID's
+moments at any θ. More draws of the same specification would sharpen the first
+and do nothing for the second.

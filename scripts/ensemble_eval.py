@@ -32,7 +32,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from scipy import stats
 
 from hh_npe.data.waves import FEATURE_SETS
 from hh_npe.data.windows import build_windowed, window_panel
@@ -63,6 +62,13 @@ def _ensemble(posteriors: list):
     return ens
 
 
+#: Every argument that shaped training and must therefore be repeated when the
+#: evaluation windows are rebuilt. Named once, so a new knob cannot be added to
+#: the guard and forgotten in its test, or the reverse.
+PROVENANCE_FIELDS = ("start_low", "shards", "sbc_cache", "educ_group",
+                     "condition_educ", "log_features", "derived_features")
+
+
 def _check_provenance(args, run_dirs, w) -> None:
     """Refuse to score an ensemble on data its members were not trained on.
 
@@ -77,11 +83,8 @@ def _check_provenance(args, run_dirs, w) -> None:
     exists, it is the truth and a disagreement is an error rather than a
     warning. Older runs predate some fields and are skipped field by field.
     """
-    checks = {"start_low": args.start_low, "shards": str(args.shards),
-              "sbc_cache": str(args.sbc_cache),
-              "educ_group": args.educ_group,
-              "condition_educ": args.condition_educ,
-              "log_features": args.log_features}
+    checks = {k: str(getattr(args, k)) if k in ("shards", "sbc_cache")
+              else getattr(args, k) for k in PROVENANCE_FIELDS}
     bad = []
     for d_ in run_dirs:
         rj = Path(d_) / "results.json"
@@ -144,6 +147,9 @@ def main() -> None:
                    help="Must match training. Like --educ_group this does NOT "
                         "abort on shape when omitted -- it silently scores the "
                         "posterior on differently-scaled x.")
+    p.add_argument("--derived_features", action="store_true",
+                   help="Must match training. Omitting it aborts on shape, "
+                        "since the derived block widens x by three columns.")
     p.add_argument("--condition_educ", action="store_true",
                    help="Must match training. A feature-count mismatch does "
                         "abort here, which is how the first phase 4 run was "
@@ -185,10 +191,16 @@ def main() -> None:
     th_sbc, x_sbc, ids = window_panel(cache["panels"], cache["thetas"].numpy(),
                                       k=1, n_waves=w, seed=4242, **win)
 
+    from hh_npe.data.waves import FEATURES_TWOASSET_AGE
+    feats = FEATURE_SETS[args.features] if args.features else FEATURES_TWOASSET_AGE
+    if args.derived_features:
+        from scripts.compare_windows import derived_features
+        x_ho, feats = derived_features(x_ho, feats)
+        x_sbc, _ = derived_features(x_sbc, FEATURE_SETS[args.features]
+                                    if args.features else FEATURES_TWOASSET_AGE)
+        log.info(f"derived features appended: {x_ho.shape[-1]} features")
     if args.log_features:
         from scripts.compare_windows import log_features
-        from hh_npe.data.waves import FEATURES_TWOASSET_AGE
-        feats = FEATURE_SETS[args.features] if args.features else FEATURES_TWOASSET_AGE
         x_ho, x_sbc = log_features(x_ho, feats), log_features(x_sbc, feats)
         log.info("log features applied to the evaluation windows")
 
@@ -231,23 +243,29 @@ def main() -> None:
     # Members' own numbers, for the only comparison that matters: is the
     # ensemble better than the average member, and is it better than the *best*
     # member? Beating the average is expected; beating the best is the claim.
+    #
+    # Scored HERE, on the very sets the ensemble was just scored on, rather than
+    # read back from each member's results.json. Reading them back is what makes
+    # the comparison unsafe: a member's file records whatever evaluation set was
+    # current when it ran, and if the scoring path has been fixed since -- as the
+    # per-group SBC filter was, after the Phase 4 members had already run -- the
+    # member row and the ensemble row describe different draws. The table then
+    # shows a large ensemble-over-member gain that is entirely the fix. Every
+    # Phase 4 member coverage reported before this change is that artefact.
     members = {}
-    for s, d_ in zip(args.seeds, run_dirs):
-        # A member may have trained and saved its posterior but died before
-        # writing its own scores. The ensemble is still perfectly scoreable
-        # from the saved posteriors -- only the ensemble-vs-members comparison
-        # is lost -- so skip rather than discard the whole run.
-        rj, rn = Path(d_) / "results.json", Path(d_) / f"sbc_ranks_{w}w.npz"
-        if not (rj.exists() and rn.exists()):
-            log.warning(f"{d_} has no member scores; excluded from the "
-                        f"ensemble-vs-members comparison")
-            continue
-        j = json.load(open(rj))
-        d = np.load(rn)
-        ks = [stats.kstest((d["ranks"][:, i] + 0.5) / (args.n_post + 1),
-                           "uniform").pvalue for i in range(3)]
-        members[s] = {"log_q": j[str(w)]["held_out_log_q"],
-                      "coverage_90": d["coverage_90"].tolist(), "ks_p": ks}
+    for s, d_, post in zip(args.seeds, run_dirs, posts):
+        torch.manual_seed(0)
+        m_est, m_logq = estimation_scores(post, PHASE3, th_ho, x_ho, n_post=400)
+        m_cal = calibration_scores(post, PHASE3, th_sbc, x_sbc,
+                                   n_post=args.n_post)
+        members[s] = {
+            "log_q": m_logq,
+            "coverage_90": [m_cal[n]["coverage_90"] for n in PHASE3.names],
+            "ks_p": [m_cal[n]["ks_p"] for n in PHASE3.names],
+            "estimation": m_est,
+        }
+        log.info(f"member seed {s}: log q {m_logq:.3f}, coverage "
+                 f"{[round(c, 3) for c in members[s]['coverage_90']]}")
 
     res = {"waves": w, "seeds": args.seeds, "start_high": start_high,
            "ensemble": {"estimation": per_param, "held_out_log_q": log_q,

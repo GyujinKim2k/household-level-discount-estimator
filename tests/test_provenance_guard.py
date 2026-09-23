@@ -16,6 +16,8 @@ import json
 
 import pytest
 
+from scripts.ensemble_eval import PROVENANCE_FIELDS
+
 
 _N = iter(range(1000))
 
@@ -24,40 +26,52 @@ def _run(tmp_path, cfg, **args):
     """One member directory carrying `cfg`, checked against `args`."""
     import types
 
-    from scripts.ensemble_eval import _check_provenance
+    from scripts.ensemble_eval import _check_provenance  # noqa: F401
 
     # Fresh directory per call: a test may invoke this twice.
     d = tmp_path / f"w7_s{next(_N)}"
     d.mkdir()
     (d / "results.json").write_text(json.dumps({"7": {}, "_config": cfg}))
-    ns = types.SimpleNamespace(start_low=25, shards="phase3", sbc_cache="old",
-                               educ_group=None, condition_educ=False,
-                               log_features=False)
+    ns = types.SimpleNamespace(**BASE)
     for k, v in args.items():
         setattr(ns, k, v)
     _check_provenance(ns, [d], 7)
 
 
-BASE = {"start_low": 25, "shards": "phase3", "sbc_cache": "old",
-        "educ_group": None, "condition_educ": False, "log_features": False}
+#: Defaults for every guarded field, built from the guard's own list so a new
+#: field cannot be added to one and forgotten in the other. Booleans default
+#: False, paths to a Phase 3-looking string, and `start_low` to its real default.
+BASE = {f: False for f in PROVENANCE_FIELDS}
+BASE.update(start_low=25, shards="phase3", sbc_cache="old", educ_group=None)
 
 
 def test_matching_provenance_passes(tmp_path):
     _run(tmp_path, BASE)
 
 
-@pytest.mark.parametrize("field,trained,scoring", [
+MISMATCHES = [
     ("start_low", 24, 25),                 # the off-by-one window of RESULTS 10.8
     ("shards", "phase4", "phase3"),        # the actual Phase 4 bug
     ("sbc_cache", "phase4_sbc", "old"),
     ("educ_group", "comphs", None),        # per-group model, pooled evaluation
     ("condition_educ", True, False),       # conditioned model, unconditioned x
     ("log_features", True, False),         # log-trained model, level-scaled x
-])
+    ("derived_features", True, False),     # widened x, narrow evaluation set
+]
+
+
+@pytest.mark.parametrize("field,trained,scoring", MISMATCHES)
 def test_mismatched_provenance_aborts(tmp_path, field, trained, scoring):
     cfg = {**BASE, field: trained}
     with pytest.raises(SystemExit, match="different data"):
         _run(tmp_path, cfg, **{field: scoring})
+
+
+def test_every_guarded_field_is_exercised():
+    """The guard and this file each list the fields; keep them in step. A field
+    added to the guard but not here would be untested; one added here but not
+    to the guard would silently pass instead of aborting."""
+    assert {m[0] for m in MISMATCHES} == set(PROVENANCE_FIELDS)
 
 
 def test_a_member_without_a_config_is_skipped_not_guessed(tmp_path):

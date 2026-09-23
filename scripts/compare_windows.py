@@ -57,8 +57,12 @@ log = logging.getLogger("compare_windows")
 WAVE_YEARS = 2
 AGE_RETIRE = 64  # laibson_calibration.AGE_RETIRE, for the end-age warning
 EMBEDDER = dict(d_model=64, n_heads=4, n_layers=2, output_dim=32)
+# hidden_features and num_transforms are sbi's own defaults, carried unchanged
+# since Phase 1 and never swept -- they size the flow, not the embedder, and
+# were chosen for a dataset two orders of magnitude smaller than this one.
 TRAINING = dict(flow="nsf", max_num_epochs=200, stop_after_epochs=20,
-                learning_rate=5e-4, batch_size=256, validation_fraction=0.1)
+                learning_rate=5e-4, batch_size=256, validation_fraction=0.1,
+                hidden_features=50, num_transforms=5)
 
 
 def add_obs_noise(x: torch.Tensor, sigma: float, features, seed: int):
@@ -119,6 +123,49 @@ def one_hot_educ(x: torch.Tensor, educ_rows: np.ndarray) -> torch.Tensor:
     return torch.cat([x, oh[:, None, :].expand(n, w, 3)], dim=-1)
 
 
+#: Features measured in dollars. Only these are log-transformed or perturbed by
+#: observation noise -- `age`, the education one-hot block and the derived
+#: ratios below are on their own scales and must be left alone.
+DOLLAR_FEATURES = frozenset(FEATURES_TWOASSET)
+
+#: Appended by :func:`derived_features`, in this order.
+DERIVED_FEATURES: tuple[str, ...] = ("card_debt", "liq_to_inc", "illiq_to_inc")
+
+
+def derived_features(x: torch.Tensor, features) -> tuple[torch.Tensor, tuple]:
+    """Append Laibson et al.'s own moment definitions as explicit channels.
+
+    Their sixteen target moments are ``[%Visa, meanVisa, wealth|debt,
+    wealth|no debt] x 4 age bands``: a borrowing *indicator*, and wealth
+    *conditional on* that indicator, normalised by income. All three are
+    non-linear functions of the level features the network already sees, so
+    nothing here is new information -- the question is whether the flow has to
+    spend capacity rediscovering them.
+
+    The indicator is the one with a real claim. ``1{liquid < 0}`` is a
+    discontinuity at exactly zero, and after the embedder's global
+    standardisation a household at -$200 and one at +$200 differ by a hair; the
+    borrowing margin beta rides on is precisely the sign, not the magnitude.
+
+    The two ratios divide by the household's own income, so they survive the
+    global standardisation that flattens small signed features against
+    six-figure income.
+
+    Returns the widened ``x`` and the widened feature-name tuple.
+    """
+    f = list(features)
+    liq, illiq, inc = (f.index("liquid_assets"), f.index("illiquid_assets"),
+                       f.index("income"))
+    # Income is positive by construction in the simulator and floored in the
+    # PSID tensor, but a zero would make both ratios infinite; clamp rather
+    # than fail, since the ratio of a zero-income household is just undefined.
+    denom = x[..., inc].clamp_min(1.0)
+    cols = torch.stack([(x[..., liq] < 0).to(x.dtype),
+                        x[..., liq] / denom,
+                        x[..., illiq] / denom], dim=-1)
+    return torch.cat([x, cols], dim=-1), tuple(f) + DERIVED_FEATURES
+
+
 def log_features(x: torch.Tensor, features) -> torch.Tensor:
     """Signed log1p on the dollar features; ``age`` and one-hots untouched.
 
@@ -137,8 +184,7 @@ def log_features(x: torch.Tensor, features) -> torch.Tensor:
     whenever a household is borrowing on the card, which is the margin beta
     rides on.
     """
-    idx = [i for i, f in enumerate(features)
-           if f != "age" and not f.startswith("educ_")]
+    idx = [i for i, f in enumerate(features) if f in DOLLAR_FEATURES]
     out = x.clone()
     v = x[..., idx]
     out[..., idx] = torch.sign(v) * torch.log1p(v.abs())
@@ -279,6 +325,27 @@ def main() -> None:
                         "it, and keep both fixed across every arm of a "
                         "comparison.")
     p.add_argument("--learning_rate", type=float, default=5e-4)
+    p.add_argument("--derived_features", action="store_true",
+                   help="Append card_debt = 1{liquid<0}, liquid/income and "
+                        "illiquid/income as extra channels. These are Laibson "
+                        "et al.'s own moment definitions and are exact "
+                        "functions of features already present, so this adds "
+                        "no information -- it tests whether the flow is "
+                        "spending capacity rediscovering them.")
+    p.add_argument("--hidden_features", type=int, default=50,
+                   help="Width of each flow transform's conditioner. sbi's "
+                        "default, never swept here.")
+    p.add_argument("--num_transforms", type=int, default=5,
+                   help="Spline transforms stacked in the flow. sbi's default, "
+                        "never swept here.")
+    p.add_argument("--d_model", type=int, default=64,
+                   help="Embedder width. --n_heads must divide it.")
+    p.add_argument("--n_layers", type=int, default=2,
+                   help="Embedder encoder layers.")
+    p.add_argument("--n_heads", type=int, default=4)
+    p.add_argument("--embed_dim", type=int, default=32,
+                   help="Embedder output width, i.e. how many numbers the flow "
+                        "sees in place of the raw trajectory.")
     p.add_argument("--train_seed", type=int, default=0,
                    help="Seeds network init and batch order only. The dataset, "
                         "the panel split and the SBC draws have their own fixed "
@@ -376,6 +443,10 @@ def main() -> None:
         base_feats = feats
         x_tr = add_obs_noise(x_tr, args.obs_noise, feats, seed=11)
         x_ho = add_obs_noise(x_ho, args.obs_noise, feats, seed=22)
+        if args.derived_features:
+            x_tr, feats = derived_features(x_tr, feats)
+            x_ho, _ = derived_features(x_ho, base_feats)
+            log.info(f"derived features appended: {x_tr.shape[-1]} features")
         if args.log_features:
             x_tr, x_ho = log_features(x_tr, feats), log_features(x_ho, feats)
 
@@ -425,22 +496,29 @@ def main() -> None:
         # draws fixed (their seeds are passed explicitly above), so a spread in
         # calibration across seeds is optimization noise and nothing else.
         seed_all(args.train_seed)
-        feats = (FEATURE_SETS[args.features] if args.features
-                 else (FEATURES_TWOASSET if args.no_age else FEATURES_TWOASSET_AGE))
+        # `feats` is NOT recomputed here. It has been widened above by
+        # --derived_features and --condition_educ, and recomputing it from the
+        # CLI arguments silently drops those names -- which would leave `skip`
+        # without the education one-hot indices and let per-sequence
+        # normalisation divide a constant block by its zero spread.
         # Derived, not hardcoded: the age column moves with the feature set.
         # `age` and the one-hot education block are constant within a
         # sequence; per-sequence normalisation would divide by a zero spread.
         skip = tuple(i for i, f in enumerate(feats)
-                     if f == "age" or f.startswith("educ_"))
+                     if f == "age" or f.startswith("educ_")
+                     or f == "card_debt")
         embedder = TrajectoryTransformer(
             n_features=x_tr.shape[-1], seq_len=k,
             feature_mean=x_tr.mean(dim=(0, 1)), feature_std=x_tr.std(dim=(0, 1)),
             per_sequence=args.per_sequence, per_sequence_skip=skip,
-            **EMBEDDER,
+            **{**EMBEDDER, "d_model": args.d_model, "n_heads": args.n_heads,
+               "n_layers": args.n_layers, "output_dim": args.embed_dim},
         )
         device = "cuda" if torch.cuda.is_available() else "cpu"
         training = {**TRAINING, "batch_size": args.batch_size,
-                    "learning_rate": args.learning_rate}
+                    "learning_rate": args.learning_rate,
+                    "hidden_features": args.hidden_features,
+                    "num_transforms": args.num_transforms}
         post, _de, _inf = train_npe(
             th_tr, x_tr, embedder=embedder, box=PHASE3, device=device,
             group_ids=pid_tr, **training
@@ -459,6 +537,8 @@ def main() -> None:
                 sbc_panels, sbc_thetas.numpy(), k=1, n_waves=k, seed=4242, **win
             )
             x_sbc = add_obs_noise(x_sbc, args.obs_noise, base_feats, seed=33)
+            if args.derived_features:
+                x_sbc, _ = derived_features(x_sbc, base_feats)
             if args.log_features:
                 x_sbc = log_features(x_sbc, base_feats)
             # SBC x must go through exactly the transformations training x did,
@@ -493,11 +573,16 @@ def main() -> None:
         "k_windows_per_panel": args.k, "wave_years": WAVE_YEARS,
         "train_n": args.train_n, "train_seed": args.train_seed,
         "batch_size": args.batch_size, "learning_rate": args.learning_rate,
+        "hidden_features": args.hidden_features,
+        "num_transforms": args.num_transforms,
+        "d_model": args.d_model, "n_heads": args.n_heads,
+        "n_layers": args.n_layers, "embed_dim": args.embed_dim,
         "per_sequence": args.per_sequence,
         "obs_noise": args.obs_noise,
         "educ_group": args.educ_group,
         "condition_educ": args.condition_educ,
         "log_features": args.log_features,
+        "derived_features": args.derived_features,
         # Provenance, so a later scorer can verify it is rebuilding the
         # evaluation windows from the data the members actually saw. Omitting
         # this is how a Phase 4 ensemble came to be scored on Phase 3 shards.
