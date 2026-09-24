@@ -214,7 +214,7 @@ def main() -> None:
                         "card POSSESSION, so this is a proxy and a biased one: "
                         "it drops convenience users, who are systematically the "
                         "patient households, and so selects on the very outcome "
-                        "that identifies beta. 'Ever in 7 waves' (66.6%) is far "
+                        "that identifies beta. 'Ever in 7 waves' (66.6%%) is far "
                         "closer to the ~70%% US holding rate than any single "
                         "wave (36%%), but report it as a bound, not a fix.")
     p.add_argument("--compare", type=Path,

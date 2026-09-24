@@ -79,6 +79,68 @@ class PriorBox:
 PHASE3 = PriorBox(beta_low=0.30, beta_high=1.00)
 
 
+#: ``delta = 1`` is unreachable under the log transform below, so the
+#: transformed box needs a cap. ``1e-6`` sits well beyond the largest Sobol draw
+#: (``1 - 1.15e-6``), so no training point is clipped.
+LOG1M_EPS = 1e-6
+
+
+def delta_index(box: PriorBox = PHASE3) -> int:
+    """Column of ``delta``. Not a constant: it is 1 with beta, 0 without."""
+    return box.names.index("delta")
+
+
+def to_log1m(theta, box: PriorBox = PHASE3):
+    """Reparameterise ``delta`` as ``log(1 - delta)``, in place of the column.
+
+    ``delta = 1`` is a hard wall that a normalising flow must press a spike
+    against, and on PSID roughly a quarter of households want their posterior
+    there (RESULTS.md 12.6, 13.1). Under this map the wall moves to minus
+    infinity and truncation becomes structurally impossible, since
+    ``1 - exp(d') < 1`` for every finite ``d'``.
+
+    Accepts a torch tensor or a numpy array and returns the same kind. The map
+    is monotone *decreasing*, which matters for SBC: ranks flip to
+    ``n - rank``, leaving uniformity and central-interval coverage unchanged.
+    """
+    j = delta_index(box)
+    if hasattr(theta, "clone"):          # torch
+        import torch
+
+        out = theta.clone()
+        out[:, j] = torch.log(torch.clamp(1.0 - theta[:, j], min=LOG1M_EPS))
+        return out
+    out = np.array(theta, copy=True)
+    out[:, j] = np.log(np.clip(1.0 - out[:, j], LOG1M_EPS, None))
+    return out
+
+
+def from_log1m(t, box: PriorBox = PHASE3):
+    """Invert :func:`to_log1m`, so every reported number is in delta space."""
+    j = delta_index(box)
+    if hasattr(t, "clone"):              # torch
+        import torch
+
+        out = t.clone()
+        out[..., j] = 1.0 - torch.exp(t[..., j])
+        return out
+    out = np.array(t, copy=True)
+    out[..., j] = 1.0 - np.exp(out[..., j])
+    return out
+
+
+def log1m_box(box: PriorBox = PHASE3) -> PriorBox:
+    """``box`` with the delta axis replaced by its ``log(1 - delta)`` image.
+
+    The bounds swap ends because the map is decreasing: the tight end of delta
+    (``delta_high``) becomes the *low* end in log space.
+    """
+    return PriorBox(beta_low=box.beta_low, beta_high=box.beta_high,
+                    delta_low=float(np.log(LOG1M_EPS)),
+                    delta_high=float(np.log(1.0 - box.delta_low)),
+                    crra_low=box.crra_low, crra_high=box.crra_high)
+
+
 def sample_sobol(
     n_samples: int,
     box: PriorBox = PriorBox(),

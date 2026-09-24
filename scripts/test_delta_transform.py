@@ -44,35 +44,17 @@ import torch
 from hh_npe.data.waves import FEATURES_TWOASSET_AGE
 from hh_npe.data.windows import build_windowed
 from hh_npe.npe.embedder import TrajectoryTransformer
-from hh_npe.npe.prior import PHASE3, PriorBox, sample_sobol
+from hh_npe.npe.prior import (
+    PHASE3,
+    from_log1m,
+    log1m_box,
+    sample_sobol,
+    to_log1m,
+)
 from hh_npe.npe.train import train_npe
 from scripts.compare_windows import EMBEDDER, TRAINING, educ_by_draw, split_shards
 
 log = logging.getLogger("delta_transform")
-
-#: delta = 1 is unreachable, so the box needs a cap. 1e-6 sits well beyond the
-#: largest Sobol draw (1 - 1.15e-6), so no training point is clipped.
-EPS = 1e-6
-
-
-def to_log1m(theta: torch.Tensor) -> torch.Tensor:
-    out = theta.clone()
-    out[:, 1] = torch.log(torch.clamp(1.0 - theta[:, 1], min=EPS))
-    return out
-
-
-def from_log1m(t: np.ndarray) -> np.ndarray:
-    out = t.copy()
-    out[:, 1] = 1.0 - np.exp(t[:, 1])
-    return out
-
-
-def transformed_box() -> PriorBox:
-    return PriorBox(beta_low=PHASE3.beta_low, beta_high=PHASE3.beta_high,
-                    delta_low=float(np.log(EPS)),
-                    delta_high=float(np.log(1.0 - PHASE3.delta_low)),
-                    crra_low=PHASE3.crra_low, crra_high=PHASE3.crra_high)
-
 
 def score(post, box, th_true, x, n_post: int, invert: bool) -> dict:
     """corr / mae / 90% coverage, always in delta space."""
@@ -119,7 +101,13 @@ def main() -> None:
                    help="Persist the trained posterior. Needed to evaluate on "
                         "PSID, which is the only place the delta boundary "
                         "actually bites -- held-out theta is uniform, so only "
-                        "~1.3% of it sits where truncation happens.")
+                        "~1.3%% of it sits where truncation happens.")
+    ap.add_argument("--d_model", type=int, default=EMBEDDER["d_model"])
+    ap.add_argument("--n_layers", type=int, default=EMBEDDER["n_layers"])
+    ap.add_argument("--n_heads", type=int, default=EMBEDDER["n_heads"])
+    ap.add_argument("--embed_dim", type=int, default=EMBEDDER["output_dim"],
+                   help="Embedder output width. RESULTS 19.6 adopts 64 with "
+                        "--d_model 128 --n_layers 3.")
     ap.add_argument("--out", type=Path, default=Path("outputs/test_delta"))
     args = ap.parse_args()
 
@@ -141,7 +129,7 @@ def main() -> None:
     log.info(f"{args.educ_group}: {len(th_tr)} train rows, {len(th_ho)} held out")
 
     use = args.transform == "log1m"
-    box = transformed_box() if use else PHASE3
+    box = log1m_box(PHASE3) if use else PHASE3
     th_fit = to_log1m(th_tr) if use else th_tr
     log.info(f"transform={args.transform}  delta range in fit space: "
              f"[{th_fit[:,1].min():.3f}, {th_fit[:,1].max():.3f}]")
@@ -150,7 +138,9 @@ def main() -> None:
     emb = TrajectoryTransformer(
         n_features=x_tr.shape[-1], seq_len=7,
         feature_mean=x_tr.mean(dim=(0, 1)), feature_std=x_tr.std(dim=(0, 1)),
-        per_sequence=False, per_sequence_skip=skip, **EMBEDDER)
+        per_sequence=False, per_sequence_skip=skip,
+        **{**EMBEDDER, "d_model": args.d_model, "n_heads": args.n_heads,
+           "n_layers": args.n_layers, "output_dim": args.embed_dim})
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(args.train_seed)
     post, _de, _inf = train_npe(th_fit, x_tr, embedder=emb, box=box, device=dev,
@@ -162,7 +152,7 @@ def main() -> None:
     if args.save_posterior:
         from hh_npe.npe.train import save_posterior
         save_posterior(post, emb, box,
-                       args.out / f"posterior_7w_{args.transform}.pt")
+                       args.out / f"posterior_7w.pt")
         log.info(f"saved posterior for {args.transform}")
     res = score(post, box, th_ho, x_ho.to(dev), args.n_post, invert=use)
     (args.out / f"{args.transform}_s{args.train_seed}.json").write_text(

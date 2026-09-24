@@ -64,7 +64,8 @@ def graded_correction(x: np.ndarray, cons_idx: int = 1) -> np.ndarray:
     return out
 
 
-def sample_all(post, x: torch.Tensor, n_post: int, batch: int = 512):
+def sample_all(post, x: torch.Tensor, n_post: int, batch: int = 512,
+               box=PHASE3, invert=None):
     """Posterior summaries per household, plus the share of mass in the prior box.
 
     Deliberately does NOT use ``posterior.sample``. That rejection-samples
@@ -93,8 +94,14 @@ def sample_all(post, x: torch.Tensor, n_post: int, batch: int = 512):
     """
     dev = posterior_device(post)
     x = x.to(dev)
-    lo_b = torch.as_tensor(PHASE3.low, dtype=torch.float32, device=dev)
-    hi_b = torch.as_tensor(PHASE3.high, dtype=torch.float32, device=dev)
+    # `box` is the space the FLOW lives in, which is not always theta space.
+    # Under --delta_transform it is the log(1-delta) box, and rejecting there
+    # rather than after inverting is load-bearing: exp underflows for d' below
+    # about -745, so `1 - exp(d')` returns exactly 1.0 and an inverted-then-
+    # tested draw would slip through as delta = 1 -- the very truncation the
+    # transform exists to remove. The transformed box caps d' at log(1e-6).
+    lo_b = torch.as_tensor(box.low, dtype=torch.float32, device=dev)
+    hi_b = torch.as_tensor(box.high, dtype=torch.float32, device=dev)
     members = getattr(post, "posteriors", [post])
     per = max(1, int(np.ceil(n_post * 4 / len(members))))   # 4x for rejection
 
@@ -110,6 +117,11 @@ def sample_all(post, x: torch.Tensor, n_post: int, batch: int = 512):
             k = inb.cpu().numpy()
             for j in range(d.shape[1]):
                 keep = d[k[:, j], j, :]
+                # Invert only what survived the box test, so every summary
+                # below -- mean, sd, the 5th and 95th percentiles -- is in
+                # theta space and directly comparable to a untransformed run.
+                if invert is not None and len(keep):
+                    keep = invert(keep)
                 if len(keep) < 20:
                     # Too little admissible mass to summarise honestly.
                     nan = np.full(d.shape[-1], np.nan)
@@ -154,6 +166,12 @@ def main() -> None:
     ap.add_argument("--waves", type=int, default=7)
     ap.add_argument("--x", type=Path, default=Path("data/processed/psid_x.pt"))
     ap.add_argument("--n_post", type=int, default=500)
+    ap.add_argument("--delta_transform", action="store_true",
+                   help="The posterior was trained on log(1 - delta) rather "
+                        "than delta (RESULTS.md 13.1). Draws are rejected "
+                        "against the TRANSFORMED box and inverted afterwards, "
+                        "so every number reported is in delta space and "
+                        "directly comparable to an untransformed run.")
     ap.add_argument("--log_features", action="store_true",
                    help="Signed log1p the dollar features, matching a model "
                         "trained with --log_features. Applied AFTER the "
@@ -183,6 +201,14 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=Path("outputs/psid"))
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
+
+    # The space the flow lives in, and how to get back to theta space from it.
+    flow_box, invert = PHASE3, None
+    if args.delta_transform:
+        from hh_npe.npe.prior import from_log1m, log1m_box
+        flow_box, invert = log1m_box(PHASE3), from_log1m
+        print(f"delta transform: rejecting in log(1-delta) space, "
+              f"delta axis [{flow_box.delta_low:.3f}, {flow_box.delta_high:.3f}]")
 
     from scripts.ensemble_eval import _ensemble
     posts = [load_posterior(d / f"posterior_{args.waves}w.pt")["posterior"]
@@ -226,7 +252,8 @@ def main() -> None:
         print(f"\n--- {name} ---", flush=True)
         torch.manual_seed(0)
         xt = _apply_transforms(args, torch.from_numpy(xa).float(), educ)
-        m, sdv, lo, hi, fr = sample_all(post, xt, args.n_post)
+        m, sdv, lo, hi, fr = sample_all(post, xt, args.n_post,
+                                        box=flow_box, invert=invert)
         res[name] = {"mean": m, "sd": sdv, "lo": lo, "hi": hi, "frac": fr}
         np.savez(args.out / f"posterior_{name}.npz", mean=m, sd=sdv, lo=lo,
                  hi=hi, in_box_frac=fr)
@@ -306,6 +333,12 @@ def _figure(args, post, arms, x_raw, educ):
             args, torch.from_numpy(arms["uncorrected"][i : i + 1]).float(),
             educ[i : i + 1])
         s = post.sample((4000,), x=xt[0].to(dev), show_progress_bars=False)
+        if args.delta_transform:
+            # `post.sample` rejects against the posterior's own box, which for a
+            # log1m-trained checkpoint is already the transformed one, so these
+            # draws are in log space and must be inverted for the figure.
+            from hh_npe.npe.prior import from_log1m
+            s = from_log1m(s)
         series[f"PSID household {r + 1}"] = s.detach().cpu().numpy()
     # Title from what actually ran. It previously read "Phase 3 posterior ...
     # 2,119-household panel" on every figure regardless of the variant or the
