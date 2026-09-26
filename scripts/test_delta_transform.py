@@ -157,6 +157,24 @@ def main() -> None:
     res = score(post, box, th_ho, x_ho.to(dev), args.n_post, invert=use)
     (args.out / f"{args.transform}_s{args.train_seed}.json").write_text(
         json.dumps(res, indent=2))
+    # A `results.json` carrying `_config`, in the shape ensemble_eval's
+    # provenance guard reads. Without it nothing on disk records that this
+    # checkpoint lives in log(1-delta) space, and scoring it without
+    # --delta_transform would not fail on shape -- it would quietly compare
+    # log-space draws against delta-space truth.
+    (args.out / "results.json").write_text(json.dumps({
+        str(7): {"estimation": res},
+        "_config": {
+            "start_low": 24, "start_high": 45,
+            "shards": str(args.shards),
+            "sbc_cache": "outputs/phase4_educ/sbc_sims.pt",
+            "educ_group": args.educ_group, "condition_educ": False,
+            "log_features": False, "derived_features": False,
+            "delta_transform": use, "train_seed": args.train_seed,
+            "d_model": args.d_model, "n_layers": args.n_layers,
+            "embed_dim": args.embed_dim,
+        },
+    }, indent=2))
     print(f"\n=== {args.transform} (seed {args.train_seed}) — metrics in DELTA space ===")
     print(f"{'param':8s}{'corr':>9s}{'mae':>10s}{'coverage_90':>13s}")
     for n in PHASE3.names:

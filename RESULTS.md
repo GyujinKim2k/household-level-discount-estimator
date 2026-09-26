@@ -1,9 +1,10 @@
 # Phase 4 — PSID empirical results
 
-**Status:** Phase 4 complete. The §7.1 limitation that motivated the
-regeneration has been addressed; §10.13 reports what that bought and §11 the
-corrections an audit turned up afterwards.
-**Last updated:** 2026-09-19.
+**Status:** Phase 4 complete, plus the training-side sweep of §19 and its
+application to PSID in §20. The headline below is the §19.6 configuration — a
+wider embedder and `log(1 - δ)` as the estimation target — and supersedes the
+Phase 4 numbers, which are kept in §20 for comparison.
+**Last updated:** 2026-09-26.
 
 Per-household posteriors over (β, δ, ρ) for 889 PSID households observed in
 seven biennial waves, 2011–2023, against Laibson, Lee, Maxted, Repetto &
@@ -13,32 +14,35 @@ Tobacman's single population MSM estimate.
 
 ## 1. Headline
 
-**Current** (Phase 4, `M=8`, corrected window, 889 comphs households). The
-numbers this section carried before were computed on the misaligned window of
-§10.8 and are superseded; see §10.9 and §11 for what changed and why.
+**Current** (§19.6 configuration: `M=8`, corrected window, wider embedder,
+`log(1 - δ)` target, 5-member ensemble, 889 comphs households).
 
 ```
                           beta       delta        crra
-median of means         0.8100      0.9922      4.4625
-mean of means           0.7854      0.9811      4.0986
-sd across households    0.0948      0.0241      0.9560
-median posterior sd     0.1530      0.0108      0.1766
-between/within ratio      0.62        2.23        5.41
+median of means         0.8399      0.9942      4.4538
+mean of means           0.8122      0.9830      4.0855
+sd across households    0.0985      0.0229      0.8885
+median posterior sd     0.1483      0.0085      0.1333
 
 Laibson et al. MSM      0.5305      0.9891      1.9355
   their std error       0.1140      0.0051      0.4350
 
 share of households whose 90% CI covers their estimate:
-  beta 0.557    delta 0.664    crra 0.238
+  beta 0.496    delta 0.559    crra 0.264
 ```
 
-**δ replicates** — 0.9922 against their 0.9891. **β and ρ are both
+**δ replicates** — 0.9942 against their 0.9891. **β and ρ are both
 substantially higher**, and β's gap is not explained by education composition:
-it is 0.81 / 0.79 / 0.79 across comphs / somehs / compco (§10.13).
+it is 0.81 / 0.79 / 0.79 across comphs / somehs / compco (§10.13, on the Phase 4
+arm).
 
-Their estimate is not *excluded*: 55.7% of households' 90% intervals cover their
-β and 23.8% cover their ρ, and in `figures/05_phase4_per_group.png` their point
+Their estimate is not *excluded*: 49.6% of households' 90% intervals cover their
+β and 26.4% cover their ρ, and in `figures/05_phase4_per_group.png` their point
 sits outside every group's 68% contour but inside the 95% ones.
+
+The between/within ratio this table used to carry has been removed on purpose —
+§20.2 shows it is not a stable summary of heterogeneity. See "Is the
+heterogeneity real?" below.
 
 ### β agrees with the experimental literature; their estimate is the outlier
 
@@ -48,14 +52,14 @@ instead against published ranges (§14, `figures/07_literature_comparison.png`):
 
 ```
 param   our median    meta-analytic band   inside    Laibson 95% CI   inside
-beta        0.8100          [0.66, 0.94]    88.9%    [0.307, 0.754]    30.3%
-delta       0.9922          [0.95, 1.00]    88.1%    [0.979, 0.999]    68.8%
-crra        4.4625             [1, 7]       99.0%    [1.083, 2.788]     9.3%
+beta        0.8399          [0.66, 0.94]    90.7%    [0.307, 0.754]    22.2%
+delta       0.9942          [0.95, 1.00]    89.3%    [0.979, 0.999]    68.7%
+crra        4.4538             [1, 7]       99.8%    [1.083, 2.788]     9.7%
 
-all three jointly inside the meta-analytic band: 79.2%
+all three jointly inside the meta-analytic band: 82.7%
 ```
 
-**Our β of 0.810 sits essentially on Imai, Rutter & Camerer's pooled estimate of
+**Our β of 0.840 sits close to Imai, Rutter & Camerer's pooled estimate of
 0.82** (95% CI [0.74, 0.90]; 220 estimates from 28 convex-time-budget studies).
 The project's recurring finding — "β is 0.81 against their 0.53" — has been read
 throughout as a discrepancy needing explanation. Against the wider literature it
@@ -63,48 +67,52 @@ reads the other way: **our estimate matches the experimental consensus, and
 0.5305 is the outlier**, below even the non-monetary lower bound of both CTB
 meta-analyses.
 
-**ρ is now the parameter that needs explaining.** At 4.46 it is far above the
+**ρ is now the parameter that needs explaining.** At 4.45 it is far above the
 consumption-Euler consensus of roughly 1 and only inside the band because
 finance-context estimates reach 7. §7.1's account — high ρ as the only channel
 this model has for precautionary saving — remains the live hypothesis.
 
 ### Is the heterogeneity real?
 
+Answered by decomposing `Var(posterior means) = Var(true θ) + E[posterior
+variance]`, so `Var(true θ) = Var(means) - E[posterior var]`. A **negative**
+value means households differ by *less* than estimation error alone would
+produce: no heterogeneity detectable, and one population estimate would serve.
+Bootstrapped over households by `scripts/heterogeneity_test.py`; `P` is the
+share of replicates at or below zero.
+
 ```
-            between-hh sd   within-hh sd   ratio
-beta               0.0948         0.1530    0.62
-delta              0.0241         0.0108    2.23
-crra               0.9560         0.1766    5.41
+          Var(true)              95% CI      P<=0   implied between-hh sd
+beta       -0.01391  [-0.01514, -0.01263]   1.000   none detectable
+delta      +0.00019  [+0.00012, +0.00026]   0.000   0.0138
+crra       +0.30606  [+0.19070, +0.42363]   0.000   0.553  (NOT identified)
 ```
 
-A ratio below 1 means households differ by *less* than any one of them is
-uncertain — the apparent spread is estimation noise, and a single population
-estimate would serve as well.
+- **β heterogeneity is not demonstrated, and that is now well established.**
+  `Var(true β)` is negative in every run, every education group and every
+  configuration tried — the Phase 3 baseline, Phase 4, and both §20 arms — at
+  `P = 1.000` throughout. It survives correcting for β's known over-coverage
+  (§11.2) and replicates in all three education groups (§10.13). **This is a
+  finding about the project's own premise and belongs in any writeup.**
+- **δ heterogeneity is real and small.** `Var(true δ)` is positive at
+  `P = 0.000` in all three configurations of §20, with an implied
+  between-household sd of about **0.0138** — 1.4 percentage points in the annual
+  discount factor. The censoring that qualified this before is **gone**: under
+  the `log(1 - δ)` target only 0.4% of comphs households have a δ interval at
+  the 1.0 bound, against 24.6% without it (§20.1).
+- **ρ heterogeneity is NOT identified.** §20.2: its sign flips across three
+  configurations that are all defensible and all at least as good as the
+  baseline on simulated data, with non-overlapping confidence intervals. It
+  tracks whatever ρ's posterior width happens to be, which is a modelling
+  artefact. The "ρ heterogeneity is real (5.4×)" this section previously
+  reported does not survive.
 
-- **ρ heterogeneity is real** (5.4×).
-- **δ heterogeneity is real** (2.2×), but δ is **censored at 1.0 for 24% of
-  comphs households** (52% of compco) — they are at the patience constraint and
-  their δ should be read as a bound, not a point estimate (§12.6). β and ρ are
-  unaffected by it.
-- **β heterogeneity is not demonstrated** (0.62), and Phase 4 made the evidence
-  against it *stronger*, not weaker — §10.13. It replicates in all three
-  education groups independently (0.62 / 0.83 / 0.74), and survives correcting
-  for β's known over-coverage, which would move it only to 0.68 (§11.2).
-
-**The sharper statement (§11.3).** Decomposing
-`Var(means) = Var(true θ) + Var(estimation error)` gives a **negative** estimate
-of `Var(true β)` in every run and every education group, including the Phase 3
-baseline: the posterior means are *less* spread than the posteriors are wide.
-So the finding is not merely "the ratio is below 1" but **no evidence of
-between-household variation in β at all** — and it predates the regeneration
-rather than being caused by it. Implied between-household sds are ρ 0.27–0.65,
-δ 0.014–0.019, β none detectable. **This is a finding about the project's own
-premise and belongs in any writeup.**
-
-`within-hh sd` is the **median posterior sd across all households**, not one
-representative household's. The representative-household version is unstable —
-it swung 2.3× across runs and would have reported ρ heterogeneity tripling when
-it in fact declined (§10.13).
+**The ratio is not a safe summary.** Earlier versions of this section reported a
+between/within ratio built on the median posterior sd. That statistic is what
+made ρ look like the strongest finding: it reads 5.41, 0.94 and 6.66 across the
+three §20 arms while the variance decomposition reads +0.417, -0.069 and +0.306.
+The decomposition is the one tied to an actual identity, and it is what the
+bullets above use.
 
 Within households the parameters are close to orthogonal — re-measured on the
 Phase 4 posteriors (60 households, 1,500 draws each): median
@@ -2850,3 +2858,195 @@ retraining-only and none requiring new simulations:
 changes above already deliver. That is a separate question from §18's, which
 asked whether a *different* specification could reproduce PSID's moments; the
 answer there was also no.
+
+---
+
+## 20. The adopted configuration on PSID
+
+§19.6's recommendation applied to the 889 comphs households: the wider embedder
+(§19.3) and the `log(1 - δ)` estimation target (§13.1). Neither had been run
+with the other before, so this is also the first test that they compose.
+
+Three arms, all on `psid_x_educ_rental.pt` filtered to comphs, all 5-member
+ensembles:
+
+| arm | embedder | target |
+|---|---|---|
+| `baseline` | 64 / 2 / 32 | δ |
+| `arch_only` | 128 / 3 / 64 | δ |
+| `adopted_full` | 128 / 3 / 64 | `log(1 - δ)` |
+
+```
+                          baseline   arch_only  adopted_full
+median of means  beta       0.8100      0.8366      0.8399
+                 delta      0.9922      0.9920      0.9942
+                 crra       4.4625      4.4495      4.4538
+sd across hh     beta       0.0948      0.0938      0.0985
+                 delta      0.0241      0.0233      0.0229
+                 crra       0.9560      0.7020      0.8885
+median post sd   beta       0.1530      0.1356      0.1483
+                 delta      0.0108      0.0121      0.0085
+                 crra       0.1766      0.2452      0.1333
+90% CI covers    beta        0.557       0.418       0.496
+Laibson          delta       0.664       0.732       0.559
+                 crra        0.238       0.263       0.264
+```
+
+### 20.1 The δ truncation is removed
+
+The defect §12.6 and §13.1 identified, measured the same way across all three
+arms — the share of households whose δ 95th percentile sits at or above 0.9999:
+
+```
+                delta p95 >= 0.9999   median delta CI   in-box mass (median)
+baseline                     14.5%           0.02512                  0.972
+arch_only                    24.6%           0.02829                  0.940
+adopted_full                  0.4%           0.01842                  0.974
+```
+
+**The wider embedder makes it worse before the transform makes it better.**
+Sharper posteriors press harder against the wall, so `arch_only` truncates 24.6%
+of households against the baseline's 14.5%. The two adopted changes are
+therefore complements rather than independent options: one buys recovery and
+aggravates the boundary, the other removes the boundary it is pressing against.
+
+On the household the contour figure happens to draw first, which is a clipped
+one:
+
+```
+                delta mean       p95    CI width
+arch_only         0.995362  0.999908    0.023202
+adopted_full      0.996922  0.999494    0.009729
+```
+
+2.4x tighter and off the wall. Every prediction §13.1 made for the transform
+holds at five seeds and with the new embedder: truncation gone, no runaway (max
+p95 0.999937 across all 889), in-box mass restored, and the affected households
+move by ~+0.0015 rather than to 1.
+
+### 20.2 ρ heterogeneity is not identified
+
+This is the substantive result, and it retracts part of §1.
+
+`Var(true θ) = Var(posterior means) - E[posterior variance]`, bootstrapped over
+households by `scripts/heterogeneity_test.py` (10,000 replicates; the two terms
+are estimated on the same households and move together, so the *difference* is
+resampled rather than two separate bootstraps differenced):
+
+```
+             baseline                  arch_only                adopted_full
+        Var(true)  P<=0          Var(true)  P<=0           Var(true)  P<=0
+beta     -0.01548  1.000          -0.01137  1.000           -0.01391  1.000
+delta    +0.00020  0.000          +0.00016  0.000           +0.00019  0.000
+crra     +0.41734  0.000          -0.06879  0.947           +0.30606  0.000
+```
+
+**ρ's sign flips with the configuration.** Three specifications, all defensible,
+all at least as good as the baseline on simulated data, and ρ's between-household
+heterogeneity is decisively present, absent, and decisively present again. The
+95% intervals are `[+0.282, +0.551]`, `[-0.151, +0.015]` and `[+0.191, +0.424]`
+— they do not overlap in sign.
+
+What drives it is the ρ posterior width, which is a modelling artefact rather
+than a property of households:
+
+```
+                 rho between sd   rho within sd (rms)   ratio
+baseline                 0.9565                0.7054    1.36
+arch_only                0.7020                0.7494    0.94
+adopted_full             0.8890                0.6959    1.28
+```
+
+Because `Var(true)` subtracts the within term, an over-confident posterior
+manufactures heterogeneity. `arch_only` widens ρ's posteriors by 6% and narrows
+the between-household spread by 27%, and the finding vanishes; `adopted_full`
+narrows them again and it returns. Nothing about the 889 households changed.
+
+**So the honest statement is that ρ heterogeneity is not identified by this
+design**, and §1's between/within ratio of 5.41 for ρ should not be read as
+evidence of it. §11.3 had already found it fragile — non-significant at
+`P = 0.597` in the pooled conditioned model while significant in the per-group
+one — and this is the same fragility appearing under a different perturbation.
+
+**β and δ are stable, and they answer opposite ways.** β's `Var(true)` is
+negative in all three arms at `P = 1.000`: the spread in β posterior means is
+*smaller* than estimation error alone would produce, so there is no detectable
+β heterogeneity, confirming §11.3 under two further specifications. δ's is
+positive in all three at `P = 0.000`, with `Var(true) ≈ 0.00019`, a true
+between-household spread of about **0.0138**.
+
+**The per-household contribution therefore rests on δ**, and it is small: a
+between-household sd of roughly 1.4 percentage points in the annual discount
+factor. That is a much narrower claim than the project has been making, and it
+is the one the evidence actually supports.
+
+### 20.3 The transform trades a boundary defect for a shape defect
+
+SBC on the same 335 education-filtered draws. Ranks are invariant under a
+monotone map, so calibration is directly comparable across parameterisations
+even though held-out log q is not — `adopted_full`'s log q is in
+`log(1 - δ)` space and is omitted for that reason.
+
+```
+                        baseline   arch_only   adopted_full
+ensemble cov beta          0.928       0.913          0.896
+ensemble cov delta         0.863       0.878          0.842
+ensemble cov crra          0.916       0.910          0.899
+ensemble mean |dev|        0.027       0.015          0.021
+ensemble ks_p beta        0.1801      0.3814         0.2106
+ensemble ks_p delta       0.1263      0.1716         0.0074
+ensemble ks_p crra        0.8510      0.0892         0.1686
+```
+
+`adopted_full` puts β and ρ almost exactly on nominal — 0.896 and 0.899 — and
+is the worst of the three on the one parameter it was adopted to fix. δ's rank
+uniformity is rejected, and not marginally or by one seed:
+
+```
+delta member ks_p
+  baseline       0.0341  0.0098  0.1294  0.2346  0.0036
+  arch_only      0.0178  0.0001  0.1372  0.0606  0.0049
+  adopted_full   0.0009  0.0006  0.0001  0.0038  0.0007
+```
+
+All five seeds under the transform, two to three orders of magnitude below the
+scattered values the other arms give.
+
+**§13.1 could not have detected this.** It scored held-out coverage and never
+ran SBC — the same gap §19.1 found running through §13.2 and §13.3 — and
+held-out θ is uniform on [0.85, 1.0], so only ~1.3% of it sits where the
+transform does its work.
+
+The mechanism is that the transform stretches the δ axis very unevenly. Most of
+the prior maps into a narrow log range while the tail runs out to -13.8, so the
+flow must represent a badly-conditioned density, and its rank distribution pays
+for it. That is a *shape* defect over the whole prior, traded for the *boundary*
+defect it removes at δ = 1.
+
+**Neither arm dominates, and the choice depends on which defect matters.**
+`arch_only` is the better-calibrated model on simulated data (mean absolute
+deviation 0.015, δ ranks not rejected) and truncates a quarter of PSID
+households. `adopted_full` removes the truncation, lands β and ρ on nominal, and
+fails δ's rank test. Since the PSID per-household posterior is the deliverable
+and truncation corrupts it directly, `adopted_full` is the right arm to *report*
+— with this cost stated, not buried.
+
+**The one surviving finding does not depend on the choice.** `Var(true δ)` is
++0.00020, +0.00016 and +0.00019 across the three arms, `P = 0.000` in every one.
+The δ heterogeneity result is invariant to the whole of §19 and §20.
+
+### 20.4 What §19.6 got wrong
+
+§19.6 recommended `log(1 - δ)` on §13.1's evidence, which had no SBC. With SBC
+the recommendation needs splitting:
+
+| change | simulated-data verdict | PSID verdict |
+|---|---|---|
+| wider embedder | **adopt** — best calibration of the three, best log q, best recovery | worsens δ truncation 14.5% to 24.6% |
+| `log(1 - δ)` | **costs** δ rank uniformity at all five seeds | **adopt** — truncation 24.6% to 0.4%, intervals 35% tighter |
+
+Both are still worth taking together for the reported headline, because the two
+δ defects do not cancel — they trade — and the PSID one falsifies reported
+intervals while the simulated one shows up as a rank statistic over a region
+PSID does not occupy. But §19.6's flat "adopt" for the transform was written
+without the evidence that would have qualified it.

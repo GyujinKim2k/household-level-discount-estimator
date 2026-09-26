@@ -59,6 +59,7 @@ MISMATCHES = [
     ("condition_educ", True, False),       # conditioned model, unconditioned x
     ("log_features", True, False),         # log-trained model, level-scaled x
     ("derived_features", True, False),     # widened x, narrow evaluation set
+    ("delta_transform", True, False),      # log-space flow, delta-space truth
 ]
 
 

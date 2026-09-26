@@ -70,7 +70,7 @@ def _ensemble(posteriors: list):
 #: the guard and forgotten in its test, or the reverse.
 PROVENANCE_FIELDS = ("start_low", "start_high", "shards", "sbc_cache",
                      "educ_group", "condition_educ", "log_features",
-                     "derived_features")
+                     "derived_features", "delta_transform")
 
 
 def _check_provenance(args, run_dirs, w) -> None:
@@ -162,6 +162,16 @@ def main() -> None:
     p.add_argument("--derived_features", action="store_true",
                    help="Must match training. Omitting it aborts on shape, "
                         "since the derived block widens x by three columns.")
+    p.add_argument("--delta_transform", action="store_true",
+                   help="Members were trained on log(1 - delta). SBC ranks and "
+                        "coverage are invariant under a monotone map -- the "
+                        "map is decreasing, so ranks flip to n-rank and "
+                        "uniformity and central coverage are untouched -- so "
+                        "calibration is scored in the transformed space and is "
+                        "directly comparable to an untransformed run. "
+                        "ESTIMATION metrics are not: delta's corr and mae come "
+                        "back in log space, while beta's and rho's are "
+                        "unaffected. Read the delta row accordingly.")
     p.add_argument("--condition_educ", action="store_true",
                    help="Must match training. A feature-count mismatch does "
                         "abort here, which is how the first phase 4 run was "
@@ -248,10 +258,18 @@ def main() -> None:
     th_ho, x_ho = th_ho[: args.n_heldout_eval], x_ho[: args.n_heldout_eval]
     log.info(f"Scoring on {len(th_ho)} held-out and {len(th_sbc)} SBC draws")
 
+    box = PHASE3
+    if args.delta_transform:
+        from hh_npe.npe.prior import log1m_box, to_log1m
+        box = log1m_box(PHASE3)
+        th_ho, th_sbc = to_log1m(th_ho), to_log1m(th_sbc)
+        log.info("delta transform: scoring in log(1-delta) space. Calibration "
+                 "is invariant and comparable; delta's corr/mae are NOT.")
+
     ens = _ensemble(posts)
     torch.manual_seed(0)
-    per_param, log_q = estimation_scores(ens, PHASE3, th_ho, x_ho, n_post=400)
-    cal = calibration_scores(ens, PHASE3, th_sbc, x_sbc, n_post=args.n_post,
+    per_param, log_q = estimation_scores(ens, box, th_ho, x_ho, n_post=400)
+    cal = calibration_scores(ens, box, th_sbc, x_sbc, n_post=args.n_post,
                              out_dir=out, tag=f"{w}w_ensemble")
 
     # Members' own numbers, for the only comparison that matters: is the
@@ -269,13 +287,13 @@ def main() -> None:
     members = {}
     for s, d_, post in zip(args.seeds, run_dirs, posts):
         torch.manual_seed(0)
-        m_est, m_logq = estimation_scores(post, PHASE3, th_ho, x_ho, n_post=400)
-        m_cal = calibration_scores(post, PHASE3, th_sbc, x_sbc,
+        m_est, m_logq = estimation_scores(post, box, th_ho, x_ho, n_post=400)
+        m_cal = calibration_scores(post, box, th_sbc, x_sbc,
                                    n_post=args.n_post)
         members[s] = {
             "log_q": m_logq,
-            "coverage_90": [m_cal[n]["coverage_90"] for n in PHASE3.names],
-            "ks_p": [m_cal[n]["ks_p"] for n in PHASE3.names],
+            "coverage_90": [m_cal[n]["coverage_90"] for n in box.names],
+            "ks_p": [m_cal[n]["ks_p"] for n in box.names],
             "estimation": m_est,
         }
         log.info(f"member seed {s}: log q {m_logq:.3f}, coverage "
@@ -287,7 +305,7 @@ def main() -> None:
            "members": members}
     (out / "results.json").write_text(json.dumps(res, indent=2))
 
-    names = PHASE3.names
+    names = box.names
     seeds_ok = [s for s in args.seeds if s in members]
     if not seeds_ok:
         print(f"\n=== {w} waves: ensemble of {len(posts)} "
