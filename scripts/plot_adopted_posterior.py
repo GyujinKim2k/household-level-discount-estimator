@@ -65,8 +65,21 @@ def main() -> None:
         f"{args.label}  N={len(cur)}": cur,
         f"{args.baseline_label}  N={len(base)}": base,
     }
+    # The meta-analytic ranges are the primary benchmark. Laibson et al.'s MSM
+    # number is a representative-agent fit to population moments, a different
+    # object from a distribution over households; it is kept on the figure only
+    # as the same-model reference.
+    lo_m, hi_m = META
     for k, v in series.items():
+        inside = (v >= lo_m) & (v <= hi_m)
         print(f"{k}\n  median {np.median(v, 0).round(4)}  sd {v.std(0).round(4)}")
+        print("  median inside meta-analytic range:  "
+              + "  ".join(f"{n} {'yes' if lo_m[j] <= np.median(v[:, j]) <= hi_m[j] else 'NO'}"
+                          for j, n in enumerate(PHASE3.names)))
+        print("  households inside meta-analytic range:  "
+              + "  ".join(f"{n} {inside[:, j].mean():.1%}"
+                          for j, n in enumerate(PHASE3.names))
+              + f"   all three {inside.all(1).mean():.1%}")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     contour_corner(
