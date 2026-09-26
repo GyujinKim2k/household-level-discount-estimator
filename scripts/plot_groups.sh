@@ -3,7 +3,7 @@
 # against its own group's Phase 4 baseline. Run after run_groups_adopted.sh.
 set -euo pipefail
 cd /home/household-level-discount-estimator
-n=10
+n=11
 for g in somehs compco; do
     for cfg in full arch; do
         if [ "$cfg" = full ]; then lab="wide embedder, log(1-δ)"; else lab="wide embedder only (linear δ)"; fi

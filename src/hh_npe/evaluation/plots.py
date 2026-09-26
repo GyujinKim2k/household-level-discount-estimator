@@ -98,6 +98,8 @@ def contour_corner(
     probs=(0.68, 0.95),
     axis_limits: tuple | None = None,
     reflect_axes: tuple[str, ...] = (),
+    truth_markers: tuple[str, ...] | None = None,
+    truth_colors: tuple[str, ...] | None = None,
 ):
     """Lower-triangle pairwise contour plot of posterior samples.
 
@@ -126,6 +128,10 @@ def contour_corner(
         delta ~ 0.998 would otherwise draw contours above 1.00 that no
         household occupies. Use it to show that a bound is empty, not to
         pretend it is not there.
+    truth_markers, truth_colors
+        Optional per-entry marker symbols and colours for ``truth``; default a
+        star in the series palette. Lets a true value and a point estimate be
+        told apart on the same panel.
     reflect_axes
         Parameter names (e.g. ``("delta",)``) whose density is reflected at the
         box's upper bound, so a pile of samples against a hard wall does not
@@ -177,9 +183,11 @@ def contour_corner(
             ax.contour(X, Y, Z, levels=[lv[1]], colors=[c],
                        linestyles="solid", linewidths=2.0)
         if truth:
-            for c, t in zip(PALETTE, truth.values()):
-                ax.plot(t[i], t[j], marker="*", ms=15, color=c,
-                        mec="0.15", mew=0.8, zorder=5, ls="none")
+            for c, mk, t in zip(truth_colors or PALETTE,
+                                truth_markers or ("*",) * len(truth),
+                                truth.values()):
+                ax.plot(t[i], t[j], marker=mk, ms=15 if mk == "*" else 11,
+                        color=c, mec="0.15", mew=0.8, zorder=5, ls="none")
         alo, ahi = (lo, hi) if axis_limits is None else map(np.asarray, axis_limits)
         ax.set_xlim(alo[i], ahi[i])
         ax.set_ylim(alo[j], ahi[j])
@@ -205,9 +213,11 @@ def contour_corner(
         handles += [plt.Line2D([], [], color=bc, lw=6, alpha=0.35, label=k)
                     for bc, k in zip(BAND_COLORS, bands)]
     if truth:
-        handles += [plt.Line2D([], [], marker="*", ms=13, color=c, mec="0.15",
-                               mew=0.8, ls="none", label=k)
-                    for c, k in zip(PALETTE, truth)]
+        handles += [plt.Line2D([], [], marker=mk, ms=13 if mk == "*" else 10,
+                               color=c, mec="0.15", mew=0.8, ls="none", label=k)
+                    for c, mk, k in zip(truth_colors or PALETTE,
+                                        truth_markers or ("*",) * len(truth),
+                                        truth)]
     handles += [
         plt.Line2D([], [], color="0.35", lw=2.0, ls="solid", label="68%"),
         plt.Line2D([], [], color="0.35", lw=1.6, ls="dashed", label="95%"),

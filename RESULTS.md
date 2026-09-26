@@ -2273,6 +2273,7 @@ calibration.
 | 2a | Wider embedder (`d_model` 128, 3 layers, 64 out) | retrain | §19.3, §19.6 — improves log q, all six recovery measures and calibration together | **adopt** |
 | 2b | Derived moment channels (`card_debt`, two ratios) | retrain | §19.4 — best log q of any arm, but calibration unmoved; not additive with 2a | alternative to 2a |
 | 2c | Larger flow (`hidden_features`, `num_transforms`) | retrain | §19.2 — every increase loses log q and converges earlier | **refuted** |
+| 2d | Quasi-hyperbolic vs exponential (β ≡ 1) model comparison | **regenerate** (~2.5 GPU-days, 2 params, comphs) | §21 — out-of-sample, amortised model comparison, SBC, moment fit | **planned** |
 | 3 | Lower `R_gamma` | **regenerate** | §18 — no `R_gamma > R_free` matches both moments; §17.2's reading was wrong | **refuted** |
 | 4 | Income disruption | **regenerate** | §16 — fixes income tail, worsens wealth and ρ | not alone; pair with 3 |
 | 5 | Add DC pensions to the PSID wealth measure | new PSID pull | §17.1, Pfeffer et al. | cheap, addresses the residual 2–3× |
@@ -3050,3 +3051,72 @@ Both are still worth taking together for the reported headline, because the two
 intervals while the simulated one shows up as a rank statistic over a region
 PSID does not occupy. But §19.6's flat "adopt" for the transform was written
 without the evidence that would have qualified it.
+
+---
+
+## 21. Planned: quasi-hyperbolic vs exponential discounting
+
+**Not yet run.** Added to the plan on 2026-09-26.
+
+**Question.** Does present bias earn its place? Train two models on PSID-shaped
+simulations and compare them on the same households:
+
+| model | parameters | discounting |
+|---|---|---|
+| quasi-hyperbolic (current) | β, δ, ρ | `β·δ^t` — the β-δ approximation to hyperbolic discounting |
+| exponential | δ, ρ (β ≡ 1) | `δ^t` — standard time-consistent discounting |
+
+Setting β = 1 recovers exponential discounting exactly, so the second model is
+nested in the first. Laibson et al. report both on their own data: benchmark
+(0.5305, 0.9891, 1.9355) and exponential (1, 0.9600, 1.4663)
+(`laibson_calibration.EXPONENTIAL_PREFS`); they find the exponential model fits
+their moments worse.
+
+**What it costs.** The exponential model needs its own training set. The current
+dataset draws β uniformly on [0.3, 1.0], so essentially no draw has β = 1 and it
+cannot be retrained into a two-parameter model. That means a new generation run,
+but a smaller one than Phase 4's:
+
+- two parameters instead of three;
+- comphs only, since the comparison is to Laibson's comphs sample;
+- §19.5's learning curve: returns halve with each doubling, so ~16,384 draws at
+  `M = 8` should suffice. Roughly **2.5 GPU-days**, against 9.7 for the full set.
+
+**Comparisons, in order of how directly they answer the question:**
+
+1. **Out-of-sample prediction** (§22's design). Infer each household's
+   parameters from waves 1–5 under each model and forecast waves 6–7. If the
+   exponential model forecasts as well, β adds nothing a household's own
+   behaviour can detect.
+2. **Amortised model comparison.** Train a classifier on simulations from both
+   models to output `p(model | x)` per household (Radev et al. 2021, the
+   BayesFlow model-comparison approach). NPE gives no marginal likelihood, so this
+   is the NPE-native replacement for a Bayes factor. It also answers a
+   household-level version: the share of households the data assign to each
+   model.
+3. **Calibration.** SBC for each model on its own simulations, so neither wins by
+   being mis-fit.
+4. **Fit to PSID moments.** Both at their inferred parameters, against the
+   wealth and consumption-comovement targets of §15 and §18. The current model
+   misses both by ~2×; the question is whether dropping β makes that worse.
+
+**Free preliminary check (run 2026-09-26, current headline model).** Whether
+each household's 90% β interval reaches 1:
+
+```
+90% beta interval reaches 0.99 or above      58.0% of households
+90% beta interval clearly excludes 1 (<0.95)   4.5%
+median household's beta 95th percentile       0.991
+```
+
+For 95% of households the data do not rule out β = 1, so the exponential model
+is a live candidate at the household level. That is the same weak household-level
+identification §20.2 found, seen from the other side, and it is exactly why the
+comparison needs the forecasting and model-comparison tests rather than
+per-household intervals.
+
+**Watch for.** §20.2 found no detectable β heterogeneity. If the exponential
+model forecasts as well, the natural reading is that β is weakly identified at
+the household level in this panel, not that present bias is absent: the
+population-level β of 0.84 can still differ from 1 while no single household's
+data can tell.

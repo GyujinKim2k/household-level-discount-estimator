@@ -491,3 +491,94 @@ def simulate(
         "income_state": state_idx,
         "t_age": np.tile(np.arange(T), (N, 1)),
     }
+
+
+def simulate_from(
+    sol: Solution,
+    t0: np.ndarray,
+    liquid0: np.ndarray,
+    illiquid0: np.ndarray,
+    income0: np.ndarray,
+    horizon: int,
+    n_sims: int = 1,
+    seed: int = 0,
+) -> dict[str, np.ndarray]:
+    """Forward-simulate households from an OBSERVED state, mid-life.
+
+    :func:`simulate` always starts at age 20 from an endowment. Out-of-sample
+    prediction needs the opposite: take each household where the data leave it
+    -- its own liquid and illiquid wealth and income at period ``t0`` -- and run
+    the solved policy forward ``horizon`` years.
+
+    Inputs are one entry per household (length ``H``); each is simulated
+    ``n_sims`` times with independent future shocks. ``liquid0`` is the position
+    *before* period-``t0`` income, matching ``simulate``'s ``liquid_assets``;
+    ``income0`` is period-``t0`` income, which is observed and so is used as is.
+    The persistent income state at ``t0`` is the Tauchen state nearest to
+    ``log(income0) - mean_log_income[t0]``; the transitory part is not separable
+    from one observation, so that is an approximation, and the same one for
+    every parameter value being compared.
+
+    Shocks depend only on ``seed`` and the income process, never on ``sol``'s
+    preferences, so two solutions simulated with the same seed face identical
+    income paths -- which is what makes a paired comparison across parameter
+    values possible.
+
+    Returns arrays of shape ``(H, n_sims, horizon + 1)``, column 0 being period
+    ``t0`` itself.
+    """
+    rng = np.random.default_rng(seed)
+    spec = sol.spec
+    X, Z, P = sol.X, sol.Z, sol.P
+    nS = spec.n_income_states
+    t0 = np.asarray(t0, dtype=np.int64)
+    H = len(t0)
+    if t0.max() + horizon >= len(sol.age):
+        raise ValueError("horizon runs past the end of the lifecycle")
+    ymean = grids.mean_log_income(sol.age, spec.calib)
+    xmin = grids.credit_limit(sol.age, spec.xjump, spec.calib)
+
+    rep = lambda a: np.repeat(np.asarray(a, dtype=float), n_sims)  # noqa: E731
+    tt = np.repeat(t0, n_sims)
+    N = H * n_sims
+    inc0 = rep(income0)
+    s = np.argmin(np.abs((np.log(np.maximum(inc0, 1.0)) - ymean[tt])[:, None]
+                         - sol.states[None, :]), axis=1)
+    xind = _nearest_index(X, np.clip(rep(liquid0), -xmin[tt], X[-1])).astype(np.int64)
+    zind = _nearest_index(Z, np.clip(rep(illiquid0), 0.0, Z[-1])).astype(np.int64)
+
+    out = {k: np.empty((N, horizon + 1)) for k in
+           ("income", "consumption", "liquid_assets", "illiquid_assets")}
+    cdf = np.cumsum(P, axis=1)
+    for h in range(horizon + 1):
+        t = tt + h
+        if h == 0:
+            inc = inc0
+        else:
+            s = np.clip((rng.random(N)[:, None] > cdf[s]).sum(axis=1), 0, nS - 1)
+            inc = np.empty(N)
+            u = rng.random(N)
+            for key in np.unique(np.stack([t, s], 1), axis=0):
+                rows = np.flatnonzero((t == key[0]) & (s == key[1]))
+                probs, levels = grids.discretize_transitory(
+                    float(ymean[key[0]] + sol.states[key[1]]),
+                    xjump=spec.xjump, xmax=spec.xmax, xmin=xmin[key[0]],
+                    c=spec.calib, disrupt_p=spec.disrupt_p,
+                    disrupt_mult=spec.disrupt_mult)
+                d = np.searchsorted(np.cumsum(probs), u[rows])
+                inc[rows] = levels[np.clip(d, 0, len(levels) - 1)]
+            inc = np.round(inc)
+        xind = _nearest_index(X, X[xind] + inc).astype(np.int64)
+        # Same definition as `simulate`'s liquid_assets -- post-income cash on
+        # the grid, minus income -- which is what the network was trained on.
+        # Reporting the pre-income grid point instead differs by up to one
+        # xjump ($2,000).
+        out["liquid_assets"][:, h] = X[xind] - inc
+        out["income"][:, h] = inc
+        out["illiquid_assets"][:, h] = Z[zind]
+        out["consumption"][:, h] = (sol.cons[t, xind, zind, s]
+                                    + (spec.R_gamma - 1.0) * Z[zind])
+        nx = sol.next_x[t, xind, zind, s].astype(np.int64)
+        nz = sol.next_z[t, xind, zind, s].astype(np.int64)
+        xind, zind = nx, nz
+    return {k: v.reshape(H, n_sims, horizon + 1) for k, v in out.items()}
