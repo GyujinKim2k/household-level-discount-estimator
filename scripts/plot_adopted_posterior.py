@@ -1,13 +1,21 @@
-"""Population posterior of the current headline model, against the literature.
+"""The current headline model's per-household posteriors, against the literature.
 
-The §19.6 / §20 configuration -- wider embedder, `log(1 - delta)` target,
-5-member ensemble -- applied to the 889 comphs PSID households. Draws are pooled
-across households (the mixture of per-household posteriors), rejected against
-the TRANSFORMED box and only then inverted to delta, for the underflow reason
-recorded in `psid_posterior.sample_all`.
+Plots the **posterior mean of each household** -- one point per household, 889
+in all -- as 68/95% contours, the same object as ``figures/07``. That shows how
+households differ from each other.
 
-Shaded behind: the sourced meta-analytic bands of `literature_ranges.py` and
-Laibson et al.'s 95% CI.
+It deliberately does NOT pool every posterior draw across households. A pooled
+cloud adds each household's own estimation uncertainty on top of the
+between-household spread, and for beta that uncertainty (median posterior sd
+~0.15) exceeds the spread itself (~0.10), so the pooled contours smear across
+most of the prior box. An earlier version of figure 08 did exactly that and read
+as a much worse model when the model was unchanged in that respect.
+
+The Phase 4 baseline is overlaid for comparison. Shaded behind: the sourced
+meta-analytic bands of ``literature_ranges.py`` and Laibson et al.'s 95% CI.
+
+Reads the ``posterior_uncorrected.npz`` files written by ``psid_posterior.py``,
+whose means are already in delta space (rejected in log space, then inverted).
 
 Usage::
 
@@ -20,61 +28,45 @@ import argparse
 from pathlib import Path
 
 import numpy as np
-import torch
 
 from hh_npe.evaluation.plots import contour_corner
-from hh_npe.npe.prior import PHASE3, from_log1m, log1m_box
-from hh_npe.npe.train import load_posterior
-from hh_npe.simulator.laibson_calibration import EDUC_GROUPS
-from scripts.literature_ranges import META, laibson_ci
+from hh_npe.npe.prior import PHASE3
+from scripts.literature_ranges import LAIBSON, META, laibson_ci
+
+
+def means(run: Path) -> np.ndarray:
+    m = np.load(run / "posterior_uncorrected.npz")["mean"]
+    return m[np.isfinite(m[:, 0])]
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--run_dirs", type=Path, nargs="+",
-                    default=[Path(f"outputs/adopted/log1m_s{s}") for s in range(5)])
-    ap.add_argument("--x", type=Path,
-                    default=Path("data/processed/psid_x_educ_rental.pt"))
-    ap.add_argument("--per_household", type=int, default=40,
-                    help="In-box draws kept per household per member.")
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--current", type=Path, default=Path("outputs/psid_adopted"))
+    ap.add_argument("--baseline", type=Path,
+                    default=Path("outputs/psid_phase4_comphs"))
     ap.add_argument("--out", type=Path,
                     default=Path("figures/08_adopted_literature_comparison.png"))
     args = ap.parse_args()
 
-    d = torch.load(args.x, weights_only=False)
-    x = d["x"][d["educ"] == EDUC_GROUPS.index("comphs")].float()
-    posts = [load_posterior(r / "posterior_7w.pt")["posterior"] for r in args.run_dirs]
-    dev = next(posts[0].posterior_estimator.parameters()).device
-    x = x.to(dev)
-
-    box = log1m_box(PHASE3)
-    lo = torch.as_tensor(box.low, dtype=torch.float32, device=dev)
-    hi = torch.as_tensor(box.high, dtype=torch.float32, device=dev)
-    torch.manual_seed(0)
-    pooled = []
-    with torch.no_grad():
-        for p in posts:
-            s = p.posterior_estimator.sample((args.per_household * 2,), condition=x)
-            s = s.transpose(0, 1)                         # (hh, S, 3)
-            for row in s:
-                keep = row[((row >= lo) & (row <= hi)).all(-1)][: args.per_household]
-                pooled.append(keep.cpu().numpy())
-    draws = from_log1m(np.concatenate(pooled))           # reject first, then invert
-    print(f"{len(x)} households, {len(draws):,} pooled draws")
-    for j, n in enumerate(PHASE3.names):
-        print(f"  {n:6s} median {np.median(draws[:, j]):.4f}  "
-              f"90% [{np.percentile(draws[:, j], 5):.4f}, "
-              f"{np.percentile(draws[:, j], 95):.4f}]")
+    cur, base = means(args.current), means(args.baseline)
+    series = {
+        f"current model: wide embedder, log(1-δ)  N={len(cur)}": cur,
+        f"Phase 4 baseline  N={len(base)}": base,
+    }
+    for k, v in series.items():
+        print(f"{k}\n  median {np.median(v, 0).round(4)}  sd {v.std(0).round(4)}")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     contour_corner(
-        {"PSID comphs, pooled posterior (N=889)": draws},
-        PHASE3,
-        truth={"Laibson et al. MSM": np.array([0.5305, 0.9891, 1.9355])},
-        bands={"meta-analytic range": META, "Laibson et al. 95% CI": laibson_ci()},
+        series, PHASE3,
+        truth={"Laibson et al. MSM": LAIBSON},
+        bands={"meta-analytic range (lit.)": META,
+               "Laibson et al. 95% CI": laibson_ci()},
         path=args.out,
-        title="Current model (wide embedder, log(1-δ) target, 5-member ensemble)\n"
-              "vs. the published literature",
+        title="Per-household posterior means against published ranges -- PSID "
+              "comphs, 7 waves\nbands: CTB present-bias meta-analyses (β), "
+              "Carroll et al. heterogeneous δ, Elminejad et al. ρ",
     )
     print(f"wrote {args.out}")
 
