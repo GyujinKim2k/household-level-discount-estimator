@@ -38,52 +38,50 @@ def _hpd_levels(density: np.ndarray, probs=(0.68, 0.95)) -> list[float]:
     return [float(flat[np.searchsorted(csum, p)]) for p in probs][::-1]
 
 
-#: Smoothing coordinate for an axis bounded above by 1: u = log(1 - v). The
-#: grid runs to v = 1 - 1e-5, beyond which no posterior mean has been observed
-#: (max 0.99962); the mass past it is negligible and simply not drawn.
-_LOG1M = (lambda v: np.log(1.0 - v), lambda u: 1.0 - np.exp(u), 1e-5)
-
-
-def _axis_grid(lo, hi, n, log1m):
-    """Grid for one axis, uniform in the space the KDE is fitted in."""
-    if not log1m:
-        return np.linspace(lo, hi, n)
-    fwd, _inv, eps = _LOG1M
-    # Uniform in u, running from the low end of v up to v = 1 - eps.
-    return np.linspace(fwd(min(hi, 1.0 - eps)), fwd(lo), n)
-
-
 def _kde_grid(x: np.ndarray, y: np.ndarray, lo, hi, n: int = 140,
-              log1m=(False, False)):
-    """KDE on a grid, optionally fitted in log(1 - v) for either axis.
+              reflect=(False, False)):
+    """KDE on a grid, with optional reflection at an axis's upper bound.
 
-    With ``log1m`` set for an axis the grid, the fit AND the HPD level
-    computation all happen in ``u = log(1 - v)`` -- equal cells in u, so
-    ``_hpd_levels`` stays valid -- and only the returned coordinates are mapped
-    back to v for drawing. A region holding 68% of the mass holds 68% in any
-    coordinates, so the contours are the same credible regions; what changes is
-    that a Gaussian kernel no longer has to represent a hard wall at v = 1. In
-    v it cannot: households piled at 0.995-0.9996 are narrower than the kernel,
-    the smoothed density spills past 1, and a grid cut at 1 draws a flat contour
-    along the bound that no household produced.
+    Reflection (Schuster 1985; Silverman 1986, sec. 2.10) is the classic
+    boundary correction for a density on a bounded range. Near a hard wall a
+    Gaussian kernel spills mass past it; cutting the grid at the wall then draws
+    a contour along the bound that no data point produced. Here: households
+    piled at delta 0.995-0.9996, narrower than the kernel, against delta = 1.
+
+    The estimate is ``f(v) + f(2 * hi - v)``: the kernel is fitted on the REAL
+    points only and evaluated at each grid point and at its mirror image.
+    Fitting on points plus mirrored copies would instead double the axis's
+    spread and so inflate the automatically chosen bandwidth.
+
+    Known limitation: reflection forces zero slope at the bound, so where the
+    true density rises steeply into the wall the very edge is slightly
+    underestimated. The body and far tail are exactly as without it.
+
+    An earlier version smoothed in log(1 - v) instead (the transformation
+    method). It closed the contours below 1 but, with one fixed bandwidth in u,
+    made the kernel very wide in v away from the wall and dragged the 95%
+    region down to the bottom of the axis.
     """
     from scipy.stats import gaussian_kde
 
-    fwd, inv, _ = _LOG1M
-    gx = _axis_grid(lo[0], hi[0], n, log1m[0])
-    gy = _axis_grid(lo[1], hi[1], n, log1m[1])
-    X, Y = np.meshgrid(gx, gy)
-    xf = fwd(x) if log1m[0] else x
-    yf = fwd(y) if log1m[1] else y
+    X, Y = np.meshgrid(np.linspace(lo[0], hi[0], n), np.linspace(lo[1], hi[1], n))
     try:
-        k = gaussian_kde(np.vstack([xf, yf]))
+        k = gaussian_kde(np.vstack([x, y]))
     except np.linalg.LinAlgError:
         # A posterior that has collapsed to a point has a singular covariance;
         # nothing to contour, and silently drawing nothing is better than
         # aborting a whole figure over one degenerate series.
         return X, Y, None
-    Z = k(np.vstack([X.ravel(), Y.ravel()])).reshape(X.shape)
-    return (inv(X) if log1m[0] else X), (inv(Y) if log1m[1] else Y), Z
+    xs, ys = X.ravel(), Y.ravel()
+    mx, my = 2 * hi[0] - xs, 2 * hi[1] - ys
+    Z = k(np.vstack([xs, ys]))
+    if reflect[0]:
+        Z += k(np.vstack([mx, ys]))
+    if reflect[1]:
+        Z += k(np.vstack([xs, my]))
+    if reflect[0] and reflect[1]:
+        Z += k(np.vstack([mx, my]))
+    return X, Y, Z.reshape(X.shape)
 
 
 #: Muted hues for external ranges, chosen to sit behind the series palette.
@@ -99,7 +97,7 @@ def contour_corner(
     title: str | None = None,
     probs=(0.68, 0.95),
     axis_limits: tuple | None = None,
-    log1m_axes: tuple[str, ...] = (),
+    reflect_axes: tuple[str, ...] = (),
 ):
     """Lower-triangle pairwise contour plot of posterior samples.
 
@@ -128,11 +126,10 @@ def contour_corner(
         delta ~ 0.998 would otherwise draw contours above 1.00 that no
         household occupies. Use it to show that a bound is empty, not to
         pretend it is not there.
-    log1m_axes
-        Parameter names (e.g. ``("delta",)``) whose density is smoothed in
-        ``log(1 - v)`` rather than ``v``. For an axis with a hard wall at 1 that
-        the posterior piles against; see ``_kde_grid``. Requires every sample on
-        that axis to be strictly below 1.
+    reflect_axes
+        Parameter names (e.g. ``("delta",)``) whose density is reflected at the
+        box's upper bound, so a pile of samples against a hard wall does not
+        draw a contour along the wall. See ``_kde_grid``.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -166,11 +163,9 @@ def contour_corner(
                     ls=(0, (4, 3)), zorder=0))
         for c, (label, s) in zip(PALETTE, series.items()):
             s = np.asarray(s)
-            lm = (names[i] in log1m_axes, names[j] in log1m_axes)
-            if any(lm) and (s[:, [k for k, f in zip((i, j), lm) if f]] >= 1).any():
-                raise ValueError("log1m_axes needs samples strictly below 1")
             X, Y, Z = _kde_grid(s[:, i], s[:, j], (lo[i], lo[j]), (hi[i], hi[j]),
-                                log1m=lm)
+                                reflect=(names[i] in reflect_axes,
+                                         names[j] in reflect_axes))
             if Z is None:
                 continue
             lv = _hpd_levels(Z, probs)

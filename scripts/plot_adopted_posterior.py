@@ -75,7 +75,7 @@ def main() -> None:
         bands={"meta-analytic range (lit.)": META,
                "Laibson et al. 95% CI": laibson_ci()},
         path=args.out,
-        log1m_axes=("delta",),
+        reflect_axes=("delta",),
         axis_limits=(PHASE3.low,
                      np.where(np.array(PHASE3.names) == "delta",
                               args.delta_top, PHASE3.high)),
