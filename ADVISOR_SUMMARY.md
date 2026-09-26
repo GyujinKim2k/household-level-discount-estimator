@@ -132,6 +132,46 @@ Laibson et al. (population) 0.531  0.989     1.936
 against published ranges (grey) and Laibson et al.'s estimate (star, tan box =
 their 95% interval).
 
+### One real household in detail
+
+![posterior for one PSID household](figures/15_psid_household_posterior.png)
+
+`figures/15_psid_household_posterior.png` — the counterpart of figure 10 on real
+data. There is no true θ, so the panel shows the posterior, its mean (black
+cross), Laibson et al.'s population estimate (red star) and the published ranges
+(grey). Chosen by rule: the **typical** comphs household, whose posterior mean is
+closest to the median across all 889.
+
+The household, ages 35–47: income $49–89k, consumption $34–67k, card debt of
+about $7k paid down to +$30k liquid savings by the last wave, illiquid wealth
+$59–131k.
+
+```
+          estimate    90% interval        population median
+beta       0.829     [0.523, 0.983]            0.840
+delta      0.993     [0.976, 0.999]            0.994
+rho        4.462     [4.378, 4.550]            4.454
+```
+
+How to read it:
+- **β is barely pinned down** for a single real household: the interval spans
+  most of the plausible range. This is the per-household face of the "no
+  detectable β heterogeneity" result below.
+- **δ is precise** and sits in the published range.
+- **ρ's interval is very narrow**, but that is not a sign of trouble with real
+  data. On simulated households the typical ρ interval is 1.48 wide, but for
+  those whose true ρ exceeds 4 it is 0.29 — the model genuinely pins ρ down in
+  that region, where behaviour changes sharply with ρ. Across PSID the median
+  width is 0.22. The open question is not the width but whether ρ ≈ 4.5 is
+  right, which is the misspecification issue below.
+
+```
+90% interval width (median)      beta     delta     rho
+simulated, all households        0.357    0.064    1.48
+simulated, true rho > 4            —        —      0.29
+PSID                             0.457    0.018    0.22
+```
+
 ### Comparison with the literature
 
 Laibson et al.'s number is a representative-agent fit to population moments, so
