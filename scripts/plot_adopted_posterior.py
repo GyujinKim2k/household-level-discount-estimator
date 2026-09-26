@@ -48,6 +48,12 @@ def main() -> None:
     ap.add_argument("--current", type=Path, default=Path("outputs/psid_adopted"))
     ap.add_argument("--baseline", type=Path,
                     default=Path("outputs/psid_phase4_comphs"))
+    ap.add_argument("--delta_top", type=float, default=1.04,
+                    help="Upper end of the delta AXIS. The prior bound at 1.00 "
+                         "is drawn as a dotted line; the density is not "
+                         "extended past it (see contour_corner's axis_limits).")
+    ap.add_argument("--baseline_label", default="Phase 4 baseline")
+    ap.add_argument("--title_group", default="comphs")
     ap.add_argument("--label", default="current model: wide embedder, log(1-δ)",
                     help="Legend name for --current.")
     ap.add_argument("--out", type=Path,
@@ -57,7 +63,7 @@ def main() -> None:
     cur, base = means(args.current), means(args.baseline)
     series = {
         f"{args.label}  N={len(cur)}": cur,
-        f"Phase 4 baseline  N={len(base)}": base,
+        f"{args.baseline_label}  N={len(base)}": base,
     }
     for k, v in series.items():
         print(f"{k}\n  median {np.median(v, 0).round(4)}  sd {v.std(0).round(4)}")
@@ -69,8 +75,12 @@ def main() -> None:
         bands={"meta-analytic range (lit.)": META,
                "Laibson et al. 95% CI": laibson_ci()},
         path=args.out,
+        log1m_axes=("delta",),
+        axis_limits=(PHASE3.low,
+                     np.where(np.array(PHASE3.names) == "delta",
+                              args.delta_top, PHASE3.high)),
         title="Per-household posterior means against published ranges -- PSID "
-              "comphs, 7 waves\nbands: CTB present-bias meta-analyses (β), "
+              f"{args.title_group}, 7 waves\nbands: CTB present-bias meta-analyses (β), "
               "Carroll et al. heterogeneous δ, Elminejad et al. ρ",
     )
     print(f"wrote {args.out}")

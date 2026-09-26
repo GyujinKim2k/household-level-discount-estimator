@@ -38,20 +38,52 @@ def _hpd_levels(density: np.ndarray, probs=(0.68, 0.95)) -> list[float]:
     return [float(flat[np.searchsorted(csum, p)]) for p in probs][::-1]
 
 
-def _kde_grid(x: np.ndarray, y: np.ndarray, lo, hi, n: int = 140):
+#: Smoothing coordinate for an axis bounded above by 1: u = log(1 - v). The
+#: grid runs to v = 1 - 1e-5, beyond which no posterior mean has been observed
+#: (max 0.99962); the mass past it is negligible and simply not drawn.
+_LOG1M = (lambda v: np.log(1.0 - v), lambda u: 1.0 - np.exp(u), 1e-5)
+
+
+def _axis_grid(lo, hi, n, log1m):
+    """Grid for one axis, uniform in the space the KDE is fitted in."""
+    if not log1m:
+        return np.linspace(lo, hi, n)
+    fwd, _inv, eps = _LOG1M
+    # Uniform in u, running from the low end of v up to v = 1 - eps.
+    return np.linspace(fwd(min(hi, 1.0 - eps)), fwd(lo), n)
+
+
+def _kde_grid(x: np.ndarray, y: np.ndarray, lo, hi, n: int = 140,
+              log1m=(False, False)):
+    """KDE on a grid, optionally fitted in log(1 - v) for either axis.
+
+    With ``log1m`` set for an axis the grid, the fit AND the HPD level
+    computation all happen in ``u = log(1 - v)`` -- equal cells in u, so
+    ``_hpd_levels`` stays valid -- and only the returned coordinates are mapped
+    back to v for drawing. A region holding 68% of the mass holds 68% in any
+    coordinates, so the contours are the same credible regions; what changes is
+    that a Gaussian kernel no longer has to represent a hard wall at v = 1. In
+    v it cannot: households piled at 0.995-0.9996 are narrower than the kernel,
+    the smoothed density spills past 1, and a grid cut at 1 draws a flat contour
+    along the bound that no household produced.
+    """
     from scipy.stats import gaussian_kde
 
-    gx = np.linspace(lo[0], hi[0], n)
-    gy = np.linspace(lo[1], hi[1], n)
+    fwd, inv, _ = _LOG1M
+    gx = _axis_grid(lo[0], hi[0], n, log1m[0])
+    gy = _axis_grid(lo[1], hi[1], n, log1m[1])
     X, Y = np.meshgrid(gx, gy)
+    xf = fwd(x) if log1m[0] else x
+    yf = fwd(y) if log1m[1] else y
     try:
-        k = gaussian_kde(np.vstack([x, y]))
+        k = gaussian_kde(np.vstack([xf, yf]))
     except np.linalg.LinAlgError:
         # A posterior that has collapsed to a point has a singular covariance;
         # nothing to contour, and silently drawing nothing is better than
         # aborting a whole figure over one degenerate series.
         return X, Y, None
-    return X, Y, k(np.vstack([X.ravel(), Y.ravel()])).reshape(X.shape)
+    Z = k(np.vstack([X.ravel(), Y.ravel()])).reshape(X.shape)
+    return (inv(X) if log1m[0] else X), (inv(Y) if log1m[1] else Y), Z
 
 
 #: Muted hues for external ranges, chosen to sit behind the series palette.
@@ -66,6 +98,8 @@ def contour_corner(
     path: str | Path | None = None,
     title: str | None = None,
     probs=(0.68, 0.95),
+    axis_limits: tuple | None = None,
+    log1m_axes: tuple[str, ...] = (),
 ):
     """Lower-triangle pairwise contour plot of posterior samples.
 
@@ -87,6 +121,18 @@ def contour_corner(
         Drawn first and unfilled at the edges so they never obscure a contour.
     probs
         Enclosed-mass levels. Default 68% (filled) and 95% (dashed).
+    axis_limits
+        Optional ``(low, high)`` arrays that widen the *axes only*. The density
+        is still evaluated on ``box``, so the region outside it stays empty
+        rather than filling with kernel smoothing: a KDE of households piled at
+        delta ~ 0.998 would otherwise draw contours above 1.00 that no
+        household occupies. Use it to show that a bound is empty, not to
+        pretend it is not there.
+    log1m_axes
+        Parameter names (e.g. ``("delta",)``) whose density is smoothed in
+        ``log(1 - v)`` rather than ``v``. For an axis with a hard wall at 1 that
+        the posterior piles against; see ``_kde_grid``. Requires every sample on
+        that axis to be strictly below 1.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -120,7 +166,11 @@ def contour_corner(
                     ls=(0, (4, 3)), zorder=0))
         for c, (label, s) in zip(PALETTE, series.items()):
             s = np.asarray(s)
-            X, Y, Z = _kde_grid(s[:, i], s[:, j], (lo[i], lo[j]), (hi[i], hi[j]))
+            lm = (names[i] in log1m_axes, names[j] in log1m_axes)
+            if any(lm) and (s[:, [k for k, f in zip((i, j), lm) if f]] >= 1).any():
+                raise ValueError("log1m_axes needs samples strictly below 1")
+            X, Y, Z = _kde_grid(s[:, i], s[:, j], (lo[i], lo[j]), (hi[i], hi[j]),
+                                log1m=lm)
             if Z is None:
                 continue
             lv = _hpd_levels(Z, probs)
@@ -135,8 +185,14 @@ def contour_corner(
             for c, t in zip(PALETTE, truth.values()):
                 ax.plot(t[i], t[j], marker="*", ms=15, color=c,
                         mec="0.15", mew=0.8, zorder=5, ls="none")
-        ax.set_xlim(lo[i], hi[i])
-        ax.set_ylim(lo[j], hi[j])
+        alo, ahi = (lo, hi) if axis_limits is None else map(np.asarray, axis_limits)
+        ax.set_xlim(alo[i], ahi[i])
+        ax.set_ylim(alo[j], ahi[j])
+        if axis_limits is not None:
+            # Mark the prior bound wherever the axes run past it.
+            for k, setter in ((i, ax.axvline), (j, ax.axhline)):
+                if ahi[k] > hi[k]:
+                    setter(hi[k], color="0.3", lw=0.9, ls=":", zorder=1)
         ax.grid(True, ls=":", lw=0.6, color="0.85")
         ax.set_axisbelow(True)
         if j == d - 1:
