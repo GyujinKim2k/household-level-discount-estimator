@@ -20,6 +20,9 @@ whose means are already in delta space (rejected in log space, then inverted).
 Usage::
 
     uv run python scripts/plot_adopted_posterior.py
+    uv run python scripts/plot_adopted_posterior.py \
+        --current outputs/psid_adopted_arch --label "wide embedder only" \
+        --out figures/09_arch_only_literature_comparison.png
 """
 
 from __future__ import annotations
@@ -45,13 +48,15 @@ def main() -> None:
     ap.add_argument("--current", type=Path, default=Path("outputs/psid_adopted"))
     ap.add_argument("--baseline", type=Path,
                     default=Path("outputs/psid_phase4_comphs"))
+    ap.add_argument("--label", default="current model: wide embedder, log(1-δ)",
+                    help="Legend name for --current.")
     ap.add_argument("--out", type=Path,
                     default=Path("figures/08_adopted_literature_comparison.png"))
     args = ap.parse_args()
 
     cur, base = means(args.current), means(args.baseline)
     series = {
-        f"current model: wide embedder, log(1-δ)  N={len(cur)}": cur,
+        f"{args.label}  N={len(cur)}": cur,
         f"Phase 4 baseline  N={len(base)}": base,
     }
     for k, v in series.items():

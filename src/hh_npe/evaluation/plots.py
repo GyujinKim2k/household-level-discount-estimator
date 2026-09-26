@@ -153,6 +153,10 @@ def contour_corner(
     if bands:
         handles += [plt.Line2D([], [], color=bc, lw=6, alpha=0.35, label=k)
                     for bc, k in zip(BAND_COLORS, bands)]
+    if truth:
+        handles += [plt.Line2D([], [], marker="*", ms=13, color=c, mec="0.15",
+                               mew=0.8, ls="none", label=k)
+                    for c, k in zip(PALETTE, truth)]
     handles += [
         plt.Line2D([], [], color="0.35", lw=2.0, ls="solid", label="68%"),
         plt.Line2D([], [], color="0.35", lw=1.6, ls="dashed", label="95%"),
