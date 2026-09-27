@@ -48,6 +48,10 @@ def main() -> None:
                          "log(1 - delta).")
     ap.add_argument("--log_features", action="store_true",
                     help="The models were trained on signed-log features.")
+    ap.add_argument("--anchor_log", action="store_true",
+                    help="The models were trained on anchor-log features.")
+    ap.add_argument("--household_ratios", action="store_true",
+                    help="The models were trained with household ratios.")
     ap.add_argument("--model_label", default="current model (wide embedder, "
                     "log(1-δ) target)")
     ap.add_argument("--out", type=Path,
@@ -68,11 +72,11 @@ def main() -> None:
     posts = [load_posterior(r / "posterior_7w.pt")["posterior"] for r in args.run_dirs]
     dev = next(posts[0].posterior_estimator.parameters()).device
     torch.manual_seed(0)
-    xin = x[pick:pick + 1]
-    if args.log_features:
-        from hh_npe.data.waves import FEATURES_TWOASSET_AGE
-        from scripts.compare_windows import log_features
-        xin = log_features(xin, FEATURES_TWOASSET_AGE)
+    # Same transform chain, in the same order, as psid_posterior.
+    from scripts.psid_posterior import _apply_transforms
+    args.derived_features = False
+    args.condition_educ = False
+    xin = _apply_transforms(args, x[pick:pick + 1], None)
     s = draws_for(posts, xin.to(dev), args.n_draws,
                   log1m=not args.linear_delta)
     est = s.mean(0)

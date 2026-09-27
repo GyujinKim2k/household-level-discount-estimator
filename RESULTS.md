@@ -3356,3 +3356,63 @@ PSID's mass of households at ~$0 liquid (39-54% against the model's 7-12%).
 Deferred: option B (all three groups, repairing §25's somehs and compco) until
 the comphs result shows the fix works; option C (adding the β = 1 dataset of
 §21) can share the run.
+
+---
+
+## 27. Scale-free input representations
+
+Proposed because the absolute dollar level may matter less to behaviour than
+relative quantities, and because removing it would make the model immune to the
+§24 liquid-level misfit. Three arms, each matched to the wide-embedder levels
+model (linear δ, comphs, same SBC draws), 5 seeds each:
+
+| arm | input |
+|---|---|
+| log + row-wise | signed log, then each feature z-scored within the household |
+| log + anchor | all four dollar features divided by the household's mean income, then log (income, consumption) or asinh (liquid, illiquid) |
+| log + row-wise + ratios | the first arm plus mean consumption, liquid and illiquid wealth relative to mean income, as per-household constants |
+
+**Simulated data:**
+
+```
+ENSEMBLE                  log q   corr b/d/r            mae b/d/r              cov b/d/r
+levels                    5.130   0.801 0.798 0.854   0.0924 0.0188 0.4165   0.913 0.878 0.910
+log + row-wise            2.226   0.541 0.635 0.682   0.1454 0.0278 0.7219   0.893 0.872 0.901
+log + anchor              4.153   0.753 0.787 0.843   0.1067 0.0198 0.4474   0.910 0.860 0.878
+log + row-wise + ratios   2.850   0.596 0.728 0.729   0.1376 0.0233 0.6548   0.884 0.857 0.899
+```
+
+Per-feature z-scoring destroys the ratios between features — saving rates,
+wealth-to-income — that identify θ, and the log step cannot recover them; the
+three ratios help (2.23 to 2.85) but also cannot restore each feature's own
+relative volatility. Anchor scaling, which divides every feature by one common
+number, keeps the ratios and loses much less. **Levels still win by about one
+log-q point**: every comphs household shares one income profile, so a
+household's income *level* locates it on the income process. All four arms are
+calibrated; they differ in how much they learn.
+
+**PSID:**
+
+```
+                  median b/d/r             in-box   90% width b/d/r       δ heterogeneity
+levels            0.837 0.992 4.449        0.940    0.423 0.028 0.226     yes (P=0.000)
+log + row-wise    0.731 0.939 4.374        0.993    0.592 0.127 0.495     none
+log + anchor      0.761 0.956 4.478        0.993    0.541 0.108 0.199     none
+row-wise + ratios 0.739 0.945 4.343        0.993    0.579 0.113 0.495     none
+```
+
+- **Robustness gain, as intended:** in-box mass rises to 0.993 — without
+  absolute levels nearly every PSID household is representable.
+- **δ loses its information.** Intervals widen about fourfold and the median
+  slides toward the prior's centre. Patience shows up mainly in how *much*
+  wealth a household holds, which these representations remove. The δ
+  heterogeneity finding disappears for the same reason: not measurable, rather
+  than absent.
+- **ρ ≈ 4.5 survives all three**, anchor even with a narrower interval. High
+  ρ is therefore not a by-product of the liquid-level misfit.
+
+**Verdict.** Keep levels for the headline and fix the misfit in the model
+(option A, §26). Log + anchor is worth keeping as a robustness check: it
+reproduces ρ and the absence of β heterogeneity without relying on dollar
+levels. Figures 16-18 (literature comparison for each arm against the levels
+model) and 19-20 (one PSID household under anchor and under log + row-wise).
