@@ -3220,3 +3220,53 @@ from M = 4. That was stated as the expected caveat before the run: multiplying M
 approximate posteriors multiplies their small over-confidence. It is a property
 of the pooling, not of the data. A 2-draw smoke test had suggested β barely
 shrinks; on 60 draws it shrinks like the others.
+
+---
+
+## 24. The wealth-dynamics misfit is a liquid-wealth level misfit
+
+§22 found persistence out-forecasting the model, widely on liquid wealth. The
+first hypothesis was the illiquid asset: deposits are free and it pays
+`R_gamma = 1.05` against `R = 1.02`, while withdrawals pay a ~31% penalty at 45,
+which predicts one-way, lumpy moves into illiquid wealth. **That is wrong.**
+`scripts/wealth_dynamics.py` compares the two-year change from each household's
+real wave-5 state, model against what the household actually did:
+
+```
+                        ΔZ p90    Z big up   Z down  |  ΔX median   ΔX p10
+PSID                  +114,558     23.8%     30.7%  |          0    -9,830
+model (population θ)   +33,524     11.1%     34.2%  |    -10,962   -29,701
+```
+
+PSID illiquid wealth moves *more* than the model's (house prices and retirement
+accounts). The misfit is **liquid**: the model drains the median household by
+$11,000 in two years; the median PSID household does not move.
+
+**It is not preferences.** The drain is -9,720 with β = 1, -5,010 at ρ = 2,
+-10,000 at δ = 0.995, -10,295 at Laibson et al.'s θ.
+
+**It is a level misfit.** The model's own households sit deep in net debt:
+
+```
+ages    PSID median liquid   model median   PSID net debt   model net debt
+35-39            $1              -$6,000          21%             65%
+40-44            $0              -$9,000          22%             75%
+45-49          $140             -$13,000          21%             83%
+```
+
+Dropped into the model at a real household's state, each household is pulled
+toward the model's equilibrium. The "lumpy dynamics" are that pull.
+
+**Why the model over-borrows, as a decomposition of a ~55-point gap:**
+
+| piece | size | evidence |
+|---|---|---|
+| **Net vs gross (co-holding).** The model has one liquid account, so "carries card debt" can only mean net liquid < 0. Laibson et al.'s %Visa is a *gross* share; real households hold checking and card debt together. | ~15 pts | PSID share with any card balance 36% against 21% net-negative |
+| **Cardholders vs everyone.** Their targets are shares of *cardholders*; PSID includes households without cards, and 22–44% report exactly $0 liquid, a mass the model never produces. | ~18 pts | among ever-borrowers, 54% carry a balance per wave, close to their 50–64% |
+| **Our θ over-borrows relative to the calibration.** Even their targets are 50–64%; at our population θ the model produces 75–83%. | ~16–20 pts | model at our θ against `TARGET_MOMENTS` |
+
+**The data-side fix closes only the first piece.** `build_psid_tensor.py
+--liquid_def gross` enters any household with a card balance as `-card debt`,
+which is what the model's X < 0 means. It raises PSID's debt share to 33–38%
+and cuts the two-year drain from -$10,962 to -$9,000 — about a fifth. The
+remaining two pieces need the model changed.

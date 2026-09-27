@@ -195,6 +195,16 @@ def main() -> None:
                         "self-employed, no business or farm income. Cuts 2119 "
                         "to ~889. Required for the calibration to be the right "
                         "one for the sample.")
+    p.add_argument("--liquid_def", choices=["net", "gross"], default="net",
+                   help="How liquid wealth is measured. 'net' (default, every "
+                        "result before RESULTS 24): checking + CDs/bonds - card "
+                        "debt. 'gross': -card debt for any household carrying "
+                        "a balance, else checking + CDs/bonds. The model has "
+                        "one liquid account and is calibrated so that X < 0 "
+                        "means 'carries card debt' (Laibson et al.'s %%Visa is "
+                        "a gross share); households that co-hold checking and "
+                        "card debt are net-positive in 'net' but borrowers in "
+                        "the model's own terms. See RESULTS 24.")
     p.add_argument("--with_pension", action="store_true",
                    help="Add defined-contribution pension balances (Section P) "
                         "to illiquid wealth. Needs PSID-data/pension.pkl from "
@@ -310,9 +320,15 @@ def main() -> None:
                 - col(fam, "vdown", y).loc[idx].fillna(0)
                 - col(fam, "vloan", y).loc[idx].fillna(0)).to_numpy() * d_flow
 
-        liq = (col(fam, "chk", y).loc[idx].fillna(0)
-               + col(fam, "cd", y).loc[idx].fillna(0)
-               - col(fam, "cc", y).loc[idx].fillna(0)).to_numpy() * d_stock
+        cash = (col(fam, "chk", y).loc[idx].fillna(0)
+                + col(fam, "cd", y).loc[idx].fillna(0)).to_numpy()
+        card = col(fam, "cc", y).loc[idx].fillna(0).to_numpy()
+        if args.liquid_def == "gross":
+            # A card balance makes the household a borrower in the model's
+            # sense, whatever it also holds in checking.
+            liq = np.where(card > 0, -card, cash) * d_stock
+        else:
+            liq = (cash - card) * d_stock
 
         home = (col(fam, "w2", y).loc[idx] - col(fam, "w1", y).loc[idx]).fillna(0)
         assets = sum(col(fam, k, y).loc[idx].fillna(0)
@@ -361,7 +377,8 @@ def main() -> None:
                "psid_row": torch.from_numpy(idx).long(),
                "waves": WAVES,
                "features": list(FEATURES_TWOASSET_AGE),
-               "units": "2010 USD (CPI-U, base 2010; simulator's units)"}
+               "units": "2010 USD (CPI-U, base 2010; simulator's units)",
+               "liquid_def": args.liquid_def}
     if args.match_laibson or args.educ_groups:
         e = educ_all[idx]
         payload |= {"educ": torch.from_numpy(e).long(),
