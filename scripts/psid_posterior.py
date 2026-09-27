@@ -150,6 +150,9 @@ def _apply_transforms(args, xt, educ_rows):
     if args.derived_features:
         from scripts.compare_windows import derived_features
         xt, feats = derived_features(xt, feats)
+    if args.mean_income_channel:
+        from scripts.compare_windows import mean_income_channel
+        xt, feats = mean_income_channel(xt, feats)
     if args.household_ratios:
         from scripts.compare_windows import household_ratios
         xt, feats = household_ratios(xt, feats)
@@ -191,6 +194,8 @@ def main() -> None:
                    help="Matching a model trained with --anchor_log.")
     ap.add_argument("--household_ratios", action="store_true",
                    help="Matching a model trained with --household_ratios.")
+    ap.add_argument("--mean_income_channel", action="store_true",
+                   help="Matching a model trained with --mean_income_channel.")
     ap.add_argument("--condition_educ", action="store_true",
                    help="Append the one-hot education block, for a posterior "
                         "trained with --condition_educ. Education comes from "

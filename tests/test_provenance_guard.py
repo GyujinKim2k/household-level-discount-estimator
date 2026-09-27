@@ -62,6 +62,7 @@ MISMATCHES = [
     ("delta_transform", True, False),      # log-space flow, delta-space truth
     ("anchor_log", True, False),           # anchored x, raw-scale evaluation
     ("household_ratios", True, False),     # widened x, narrow evaluation set
+    ("mean_income_channel", True, False),  # widened x, narrow evaluation set
 ]
 
 

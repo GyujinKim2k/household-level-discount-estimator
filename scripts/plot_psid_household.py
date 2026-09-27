@@ -52,6 +52,8 @@ def main() -> None:
                     help="The models were trained on anchor-log features.")
     ap.add_argument("--household_ratios", action="store_true",
                     help="The models were trained with household ratios.")
+    ap.add_argument("--mean_income_channel", action="store_true",
+                    help="The models were trained with the mean-income channel.")
     ap.add_argument("--model_label", default="current model (wide embedder, "
                     "log(1-δ) target)")
     ap.add_argument("--out", type=Path,

@@ -202,6 +202,27 @@ def household_ratios(x: torch.Tensor, features) -> tuple[torch.Tensor, tuple]:
     return torch.cat([x, block], dim=-1), tuple(f) + RATIO_FEATURES
 
 
+def mean_income_channel(x: torch.Tensor, features) -> tuple[torch.Tensor, tuple]:
+    """Append ``log(mean income)`` as one per-household constant channel.
+
+    Paired with :func:`anchor_log`, it restores the level that anchoring
+    removes: anchored ratio x mean income recovers every dollar value, so
+    anchor + this channel carries exactly the information of the levels input,
+    only presented differently (RESULTS.md 28).
+
+    Log, because income is roughly log-normal and a raw value would be dominated
+    by a few high earners. NOT normalised here: the embedder standardises every
+    channel with fixed statistics computed once from the training data and
+    stored with the model, so on PSID this channel is scaled by the training
+    set's mean and sd, never re-estimated. Computed from dollar LEVELS, so call
+    before any log or anchor transform. Constant within a household, so it is
+    kept out of per-sequence normalisation.
+    """
+    f = list(features)
+    v = torch.log(_mean_income(x, f))[:, None, :].expand(-1, x.shape[1], -1)
+    return torch.cat([x, v], dim=-1), tuple(f) + ("log_mean_income",)
+
+
 def anchor_log(x: torch.Tensor, features) -> torch.Tensor:
     """Divide the four dollar features by the household's mean income, then log.
 
@@ -410,6 +431,17 @@ def main() -> None:
                         "(liquid, illiquid). Removes only the dollar scale; "
                         "keeps ratios between features. Not with "
                         "--log_features. RESULTS 27.")
+    p.add_argument("--static_norm_channels", nargs="+", default=None,
+                   help="Standardise ONLY these channels with the training "
+                        "set's fixed mean/sd; all others pass through as "
+                        "computed. Default: every channel (the behaviour of "
+                        "every run before RESULTS 28). E.g. "
+                        "--static_norm_channels age log_mean_income.")
+    p.add_argument("--mean_income_channel", action="store_true",
+                   help="Append log(household mean income) as one constant "
+                        "channel, standardised by the embedder's fixed "
+                        "training-set statistics. With --anchor_log it restores "
+                        "the level anchoring removes. RESULTS 28.")
     p.add_argument("--household_ratios", action="store_true",
                    help="Append asinh(mean consumption / mean income), and the "
                         "same for liquid and illiquid wealth, as per-household "
@@ -533,6 +565,12 @@ def main() -> None:
             x_tr, feats = derived_features(x_tr, feats)
             x_ho, _ = derived_features(x_ho, base_feats)
             log.info(f"derived features appended: {x_tr.shape[-1]} features")
+        if args.mean_income_channel:
+            # From dollar levels, so before any log or anchor.
+            x_tr, feats_m = mean_income_channel(x_tr, feats)
+            x_ho, _ = mean_income_channel(x_ho, feats)
+            feats = feats_m
+            log.info(f"log mean income appended: {x_tr.shape[-1]} features")
         if args.household_ratios:
             # From dollar levels, so before any log.
             x_tr, feats_r = household_ratios(x_tr, feats)
@@ -600,10 +638,27 @@ def main() -> None:
         # sequence; per-sequence normalisation would divide by a zero spread.
         skip = tuple(i for i, f in enumerate(feats)
                      if f == "age" or f.startswith("educ_")
-                     or f == "card_debt" or f.startswith("ratio_"))
+                     or f == "card_debt" or f.startswith("ratio_")
+                     or f == "log_mean_income")
+        f_mean, f_std = x_tr.mean(dim=(0, 1)), x_tr.std(dim=(0, 1))
+        if args.static_norm_channels is not None:
+            # Only the listed channels are standardised by the training set's
+            # fixed statistics; every other channel passes through exactly as
+            # computed (mean 0, sd 1 is the identity). For scale-free inputs
+            # this keeps training-set constants out of them entirely, so a
+            # household outside the training range is not rescaled by numbers
+            # fitted to it. RESULTS 28.
+            unknown = set(args.static_norm_channels) - set(feats)
+            if unknown:
+                raise SystemExit(f"--static_norm_channels names unknown "
+                                 f"channels {sorted(unknown)}; have {list(feats)}")
+            keep = torch.tensor([f in args.static_norm_channels for f in feats])
+            f_mean = torch.where(keep, f_mean, torch.zeros_like(f_mean))
+            f_std = torch.where(keep, f_std, torch.ones_like(f_std))
+            log.info(f"static normalisation only for {args.static_norm_channels}")
         embedder = TrajectoryTransformer(
             n_features=x_tr.shape[-1], seq_len=k,
-            feature_mean=x_tr.mean(dim=(0, 1)), feature_std=x_tr.std(dim=(0, 1)),
+            feature_mean=f_mean, feature_std=f_std,
             per_sequence=args.per_sequence, per_sequence_skip=skip,
             **{**EMBEDDER, "d_model": args.d_model, "n_heads": args.n_heads,
                "n_layers": args.n_layers, "output_dim": args.embed_dim},
@@ -633,6 +688,8 @@ def main() -> None:
             x_sbc = add_obs_noise(x_sbc, args.obs_noise, base_feats, seed=33)
             if args.derived_features:
                 x_sbc, _ = derived_features(x_sbc, base_feats)
+            if args.mean_income_channel:
+                x_sbc, _ = mean_income_channel(x_sbc, base_feats)
             if args.household_ratios:
                 x_sbc, _ = household_ratios(x_sbc, base_feats)
             if args.log_features:
@@ -683,6 +740,8 @@ def main() -> None:
         "derived_features": args.derived_features,
         "anchor_log": args.anchor_log,
         "household_ratios": args.household_ratios,
+        "mean_income_channel": args.mean_income_channel,
+        "static_norm_channels": args.static_norm_channels,
         # Provenance, so a later scorer can verify it is rebuilding the
         # evaluation windows from the data the members actually saw. Omitting
         # this is how a Phase 4 ensemble came to be scored on Phase 3 shards.

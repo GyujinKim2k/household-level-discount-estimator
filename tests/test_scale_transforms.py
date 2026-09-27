@@ -69,3 +69,26 @@ def test_zero_income_household_does_not_blow_up():
     z = torch.zeros(1, 7, 5); z[..., 2] = -500.0
     assert torch.isfinite(anchor_log(z, FEATS)).all()
     assert torch.isfinite(household_ratios(z, FEATS)[0]).all()
+
+
+def test_anchor_plus_mean_income_is_a_lossless_reexpression_of_levels(x):
+    """RESULTS 28: anchored values x mean income recover every dollar value, so
+    the pair carries exactly the information of the levels input."""
+    import torch as _t
+    from scripts.compare_windows import mean_income_channel
+    wide, names = mean_income_channel(x, FEATS)
+    assert names[-1] == "log_mean_income"
+    ybar = _t.exp(wide[:, 0, -1])[:, None]
+    a = anchor_log(wide, names)
+    back_inc = _t.exp(a[..., 0]) * ybar
+    back_liq = _t.sinh(a[..., 2]) * ybar
+    _t.testing.assert_close(back_inc, x[..., 0], rtol=1e-4, atol=1e-2)
+    _t.testing.assert_close(back_liq, x[..., 2], rtol=1e-4, atol=1e-1)
+
+
+def test_mean_income_channel_is_constant_in_time_and_log_scale(x):
+    from scripts.compare_windows import mean_income_channel
+    wide, _ = mean_income_channel(x, FEATS)
+    v = wide[..., -1]
+    assert torch.equal(v, v[:, :1].expand_as(v))
+    torch.testing.assert_close(v[:, 0], torch.log(x[..., 0].mean(1)))

@@ -71,7 +71,7 @@ def _ensemble(posteriors: list):
 PROVENANCE_FIELDS = ("start_low", "start_high", "shards", "sbc_cache",
                      "educ_group", "condition_educ", "log_features",
                      "derived_features", "delta_transform", "anchor_log",
-                     "household_ratios")
+                     "household_ratios", "mean_income_channel")
 
 
 def _check_provenance(args, run_dirs, w) -> None:
@@ -167,6 +167,8 @@ def main() -> None:
                    help="Must match training (compare_windows --anchor_log).")
     p.add_argument("--household_ratios", action="store_true",
                    help="Must match training. Aborts on shape if omitted.")
+    p.add_argument("--mean_income_channel", action="store_true",
+                   help="Must match training. Aborts on shape if omitted.")
     p.add_argument("--delta_transform", action="store_true",
                    help="Members were trained on log(1 - delta). SBC ranks and "
                         "coverage are invariant under a monotone map -- the "
@@ -228,6 +230,12 @@ def main() -> None:
         x_sbc, _ = derived_features(x_sbc, FEATURE_SETS[args.features]
                                     if args.features else FEATURES_TWOASSET_AGE)
         log.info(f"derived features appended: {x_ho.shape[-1]} features")
+    if args.mean_income_channel:
+        from scripts.compare_windows import mean_income_channel
+        base = feats
+        x_ho, feats = mean_income_channel(x_ho, base)
+        x_sbc, _ = mean_income_channel(x_sbc, base)
+        log.info(f"log mean income appended: {x_ho.shape[-1]} features")
     if args.household_ratios:
         from scripts.compare_windows import household_ratios
         base = feats
