@@ -265,7 +265,8 @@ def split_shards(shard_files: list[Path], train_n: int):
 
 
 def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
-                      cache: Path | None = None, educ: str = "comphs"):
+                      cache: Path | None = None, educ: str = "comphs",
+                      card_types: bool = False):
     """One GPU pass; the panels are re-windowed per window afterwards.
 
     Cached to disk because this is hours of GPU and everything downstream is
@@ -278,15 +279,23 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
     mismatch instead of the calibration, and would look like miscalibration that
     no amount of training could fix. It is part of the cache key for the same
     reason -- silently reusing a comphs cache under ``mixed`` is the exact trap.
+
+    ``card_types`` likewise must match generation (``generate_dataset.py
+    --card_types``): 50/50 cardholder / no card, from its own stream
+    (seed + 1). Also part of the cache key. The per-draw type is stored in the
+    cache as ``card_idx`` (1 = cardholder).
     """
     if cache is not None and cache.exists():
         d = torch.load(cache, weights_only=False)
         cached_educ = d.get("educ", "comphs")
-        if d["n_sbc"] == n_sbc and d["seed"] == seed and cached_educ == educ:
+        cached_card = d.get("card_types", False)
+        if (d["n_sbc"] == n_sbc and d["seed"] == seed and cached_educ == educ
+                and cached_card == card_types):
             log.info(f"Reusing {n_sbc} cached SBC simulations from {cache}")
             return d["thetas"], d["panels"], d.get("educ_idx")
         log.warning(f"{cache} holds n_sbc={d['n_sbc']} seed={d['seed']} "
-                    f"educ={cached_educ}; need {n_sbc}/{seed}/{educ}. "
+                    f"educ={cached_educ} card_types={cached_card}; need "
+                    f"{n_sbc}/{seed}/{educ}/{card_types}. "
                     f"Re-simulating.")
     prior = make_sbi_prior(PHASE3)
     torch.manual_seed(seed)
@@ -294,6 +303,8 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
     educ_idx = (None if educ == "comphs" else
                 np.random.default_rng(seed).integers(
                     0, len(cal.EDUC_GROUPS), size=n_sbc))
+    card_idx = (np.random.default_rng(seed + 1).integers(0, 2, size=n_sbc)
+                if card_types else None)
     t0 = time.time()
     # n_waves here only sizes the throwaway `x`; the panels are what we keep,
     # and they get windowed per arm afterwards.
@@ -302,14 +313,15 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
         grid=solver_config.get("grid", "full"),
         theta_batch=solver_config["theta_batch"],
         chunk=solver_config["chunk"],
-        return_panels=True, educ=educ_idx,
+        return_panels=True, educ=educ_idx, card=card_idx,
     )
     log.info(f"SBC simulations done in {(time.time() - t0) / 3600:.2f} h")
     if cache is not None:
         cache.parent.mkdir(parents=True, exist_ok=True)
         torch.save({"thetas": thetas, "panels": panels, "n_sbc": n_sbc,
                     "seed": seed, "solver_config": solver_config,
-                    "educ": educ, "educ_idx": educ_idx}, cache)
+                    "educ": educ, "educ_idx": educ_idx,
+                    "card_types": card_types, "card_idx": card_idx}, cache)
         log.info(f"Cached SBC simulations to {cache}")
     return thetas, panels, educ_idx
 

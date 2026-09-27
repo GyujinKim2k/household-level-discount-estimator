@@ -81,7 +81,8 @@ def _solver_config(args) -> dict:
            "start_age": args.start_age, "n_waves": args.n_waves,
            "wave_years": args.wave_years, "seed": args.seed,
            "store_panel": _stores_panel(args),
-           "n_households": args.n_households, "educ": args.educ}
+           "n_households": args.n_households, "educ": args.educ,
+           "card_types": args.card_types}
     if args.device == "cuda":
         import torch
         cfg |= {"theta_batch": args.theta_batch, "chunk": args.chunk,
@@ -258,6 +259,14 @@ def main() -> None:
                              "equal draws per group support a separate per-group "
                              "model, and a representative result is recovered by "
                              "reweighting.")
+    parser.add_argument("--card_types", action="store_true",
+                        help="Draw a card-access type per Sobol draw, 50/50: "
+                             "cardholder (the bundle's credit line) or no card "
+                             "(zero credit line, cannot borrow). Stored per draw "
+                             "as `card` (1 = cardholder). 50/50 is a training "
+                             "design, like the uniform education draw; the "
+                             "population share enters through conditioning or "
+                             "reweighting. RESULTS.md 24.1, 26.")
     parser.add_argument("--verbose", type=int, default=0)
     args = parser.parse_args()
 
@@ -275,6 +284,10 @@ def main() -> None:
     educ_np = (None if args.educ == "comphs" else
                np.random.default_rng(args.seed).integers(
                    0, len(cal.EDUC_GROUPS), size=args.n_samples))
+    # Its own stream (seed + 1), so turning card types on leaves the education
+    # draws of the same seed unchanged.
+    card_np = (np.random.default_rng(args.seed + 1).integers(
+                   0, 2, size=args.n_samples) if args.card_types else None)
     window = {"start_age": args.start_age, "n_waves": args.n_waves,
               "wave_years": args.wave_years}
 
@@ -340,6 +353,7 @@ def main() -> None:
                 args.n_waves, args.wave_years, args.grid, args.theta_batch,
                 args.chunk, store_panel, args.n_households,
                 None if educ_np is None else educ_np[lo:hi],
+                None if card_np is None else card_np[lo:hi],
             )
             xb, ab = out_batch[0], out_batch[1]
             if store_panel:
@@ -370,6 +384,10 @@ def main() -> None:
         # whole reason for drawing it. Forgetting this makes the run unusable
         # for its stated purpose.
         extra = {} if educ_np is None else {"educ": educ_np[lo:hi]}
+        if card_np is not None:
+            # Like education: unrecoverable afterwards, and needed to condition
+            # on or reweight the card type.
+            extra["card"] = card_np[lo:hi]
         np.savez(tmp, x=xb, alive=ab, lo=lo, hi=hi,
                  n_households=args.n_households, **extra,
                  **{PANEL_PREFIX + k: v for k, v in panels.items()})

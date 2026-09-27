@@ -3330,7 +3330,7 @@ assumed to survive the fix.
 
 ## 26. Planned: regeneration with card-access types (option A)
 
-**Agreed 2026-09-27, queued after the §27 normalisation experiment.**
+**Agreed 2026-09-27. Prepared, not launched** — awaiting a decision after review of §27. Launch with `scripts/run_optionA_generation.sh`. Ready: card types in `generate_dataset.py --card_types`, the dispatch and the SBC simulations (tested: no-card draws never borrow; cardholder draws are bit-identical to before), and PSID liquid wealth on the gross definition (`psid_x_educ_rental_grossliq.pt`). A 32-draw smoke run on the full grid passed: type stored per draw, no-card households 0% in debt against 73% for cardholders, 12.4 s per draw, so 32,768 draws is ~4.7 GPU-days. **Still to do at training time:** giving the network the card type (conditioning, like `--condition_educ`) or marginalising it, and the PSID card proxy for conditioning.
 
 - **Scope.** comphs only — the group comparable to Laibson et al.
 - **Model change.** A per-draw card-access type: cardholder (comphs credit line)

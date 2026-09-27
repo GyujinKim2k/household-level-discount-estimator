@@ -69,7 +69,7 @@ def simulate_batch_twoasset_gpu(
     thetas: np.ndarray, seed_base: int, start_age: int, n_waves: int,
     wave_years: int, grid: str = "full", theta_batch: int = 16, chunk: int = 16,
     return_panels: bool = False, n_households: int = 1,
-    educ: np.ndarray | None = None,
+    educ: np.ndarray | None = None, card: np.ndarray | None = None,
 ) -> tuple[np.ndarray, ...]:
     """Phase 3 on the GPU: many draws per backward induction, one panel each.
 
@@ -102,6 +102,11 @@ def simulate_batch_twoasset_gpu(
     size -- so those settings are arguments rather than defaults to be guessed,
     and callers should take them from the dataset's recorded configuration.
 
+    ``card`` marks each draw as cardholder (1) or no card (0). A no-card draw
+    is solved with its bundle's credit line set to zero, so it cannot borrow
+    (RESULTS.md 24.1, 26). Draws are grouped by (education, card) pair, for the
+    same reason as by education alone.
+
     The forward pass and wave aggregation stay on the CPU and are shared with
     :func:`simulate_one_twoasset` verbatim; only the solver differs.
     """
@@ -118,6 +123,9 @@ def simulate_batch_twoasset_gpu(
     if educ is not None and len(educ) != len(thetas):
         raise ValueError(
             f"educ has {len(educ)} entries for {len(thetas)} thetas")
+    if card is not None and len(card) != len(thetas):
+        raise ValueError(
+            f"card has {len(card)} entries for {len(thetas)} thetas")
 
     # Consume each sub-batch before solving the next: a Solution holds ~58 MB of
     # policy arrays, so accumulating a whole large block would exhaust host RAM.
@@ -128,13 +136,19 @@ def simulate_batch_twoasset_gpu(
     xs: list[np.ndarray | None] = [None] * n
     alives: list[np.ndarray | None] = [None] * n
     panels: list[dict | None] = [None] * n
-    groups = ({0: np.arange(n)} if educ is None
-              else {g: np.flatnonzero(np.asarray(educ) == g)
-                    for g in np.unique(np.asarray(educ))})
+    e_arr = np.zeros(n, int) if educ is None else np.asarray(educ, int)
+    c_arr = np.ones(n, int) if card is None else np.asarray(card, int)
+    groups = {(g, c): np.flatnonzero((e_arr == g) & (c_arr == c))
+              for g in np.unique(e_arr) for c in np.unique(c_arr)}
+    groups = {k: v for k, v in groups.items() if len(v)}
 
-    for g, idx in groups.items():
-        spec = (GRIDS[grid] if educ is None else
-                dataclasses.replace(GRIDS[grid], calib=cal.bundle(int(g))))
+    for (g, c), idx in groups.items():
+        # educ=None keeps GRIDS[grid]'s own calibration, exactly as before.
+        calib = GRIDS[grid].calib if educ is None else cal.bundle(int(g))
+        if c == 0:
+            calib = dataclasses.replace(calib, c0_credit=0.0, c1_credit=0.0,
+                                        c2_credit=0.0)
+        spec = dataclasses.replace(GRIDS[grid], calib=calib)
         for s0 in range(0, len(idx), theta_batch):
             sel = idx[s0:s0 + theta_batch]
             sols = solve_batch(thetas[sel], spec,
