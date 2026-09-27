@@ -144,6 +144,12 @@ def main() -> None:
     post = _ensemble(posts) if len(posts) > 1 else posts[0]
     torch.manual_seed(0)
     mean, *_ = sample_all(post, torch.from_numpy(x[:, :N_IN]).float(), args.n_post)
+    # Release the networks and their sampling buffers before solving. They hold
+    # ~13 GB of GPU memory after sample_all, and solve_batch needs ~2.5 GB per
+    # batch on top: the first batch fits, the second does not. A 16-household
+    # smoke test needs only one batch and so never shows it.
+    del post, posts
+    torch.cuda.empty_cache()
     bad = ~np.isfinite(mean[:, 0])
     pop = np.median(mean[~bad], axis=0)
     mean[bad] = pop     # unrepresentable households fall back to the population
