@@ -3416,3 +3416,59 @@ row-wise + ratios 0.739 0.945 4.343        0.993    0.579 0.113 0.495     none
 reproduces ρ and the absence of β heterogeneity without relying on dollar
 levels. Figures 16-18 (literature comparison for each arm against the levels
 model) and 19-20 (one PSID household under anchor and under log + row-wise).
+
+---
+
+## 28. Anchor + income level, with static normalisation restricted
+
+§27's anchor arm lost about one log-q point to levels. Two follow-ups, both
+matched to the other representation arms (wide embedder, linear δ, comphs, same
+SBC draws), 5 seeds each:
+
+- **anchor, no static** — anchored channels enter exactly as computed, with no
+  training-set standardisation; only age keeps its fixed scaling. A control for
+  the concern that dividing by training-set constants harms generalisation.
+- **anchor + level** — the same, plus `log(household mean income)` as one
+  constant channel (`--mean_income_channel`), the only channel besides age with
+  fixed training-set scaling (`--static_norm_channels age log_mean_income`,
+  verified in the saved model). Anchored ratio × mean income recovers every
+  dollar value (tested), so this is a **lossless re-expression of the levels
+  input**: same information, different presentation.
+
+```
+ENSEMBLE (simulated)     log q   corr b/d/r            mae b/d/r              cov b/d/r    |dev|
+levels                   5.130   0.801 0.798 0.854   0.0924 0.0188 0.4165   0.913 0.878 0.910  0.015
+anchor (static all)      4.153   0.753 0.787 0.843   0.1067 0.0198 0.4474   0.910 0.860 0.878  0.024
+anchor, no static        4.109   0.748 0.782 0.838   0.1079 0.0199 0.4513   0.913 0.869 0.893  0.017
+anchor + level           5.051   0.795 0.796 0.851   0.0934 0.0190 0.4244   0.904 0.872 0.907  0.013
+
+PSID (889 comphs)        median b/d/r          in-box   90% width b/d/r    all 3 in lit. range
+levels                   0.837 0.992 4.449     0.940    0.423 0.028 0.226        82.8%
+anchor, no static        0.786 0.955 4.483     0.995    0.525 0.108 0.198        50.1%
+anchor + level           0.861 0.992 4.503     0.952    0.379 0.027 0.192        77.6%
+```
+
+**Static normalisation of the anchored channels is unnecessary.** With and
+without it the anchor arm is identical within seed noise (4.109 against 4.153),
+so the scale-free channels can go in with no training-set constants at all.
+
+**The income level was the missing information.** One number per household
+closes ~90% of the gap to levels (4.11 to 5.05 against 5.13), recovery matches
+on every parameter, and calibration is the best of any arm. On PSID δ returns
+fully — median 0.992, width 0.027, heterogeneity +0.00016 at P = 0.000, all as
+under levels — and the β and ρ intervals are slightly narrower. Robustness to
+the §24 liquid-level misfit improves only marginally (in-box 0.940 to 0.952):
+with the level back, the misfit is visible again, as it must be for a lossless
+re-expression.
+
+**ρ heterogeneity flips once more:** +0.145, 95% CI [+0.045, +0.246],
+P = 0.002, where levels had -0.069 at P = 0.947. A fourth configuration and a
+fourth answer, strengthening §20.2: ρ heterogeneity is not identified. β
+heterogeneity is absent here too (P = 1.000), as in every representation tried.
+
+**Verdict.** Anchor + level is a legitimate alternative to levels — equivalent
+information, marginally better calibrated, free of training-set constants on the
+dollar channels. It is not a fix for the misfit; option A (§26) still is. Like
+every arm in §27–§28 it uses linear δ, so if adopted for the headline it should
+be retrained with the `log(1 - δ)` target. Figures 21 (literature comparison
+against levels) and 22 (one PSID household).
