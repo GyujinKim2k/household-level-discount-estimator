@@ -166,6 +166,66 @@ def derived_features(x: torch.Tensor, features) -> tuple[torch.Tensor, tuple]:
     return torch.cat([x, cols], dim=-1), tuple(f) + DERIVED_FEATURES
 
 
+#: Appended by :func:`household_ratios`, in this order.
+RATIO_FEATURES: tuple[str, ...] = ("ratio_cons", "ratio_liq", "ratio_illiq")
+
+
+def _mean_income(x: torch.Tensor, features) -> torch.Tensor:
+    """The household's own mean income over its observed waves, (N, 1).
+
+    Computed from the input window itself, so it is available identically for
+    simulated and PSID households. Floored at $1,000: a household reporting no
+    income in every wave has no meaningful scale, and dividing by ~0 would send
+    every ratio to infinity.
+    """
+    return x[..., list(features).index("income")].mean(1, keepdim=True).clamp_min(1000.0)
+
+
+def household_ratios(x: torch.Tensor, features) -> tuple[torch.Tensor, tuple]:
+    """Append each household's mean consumption, liquid and illiquid wealth
+    relative to its mean income, as constants repeated across waves.
+
+    Per-household, per-feature z-scoring (``--per_sequence``) removes each
+    feature's level and scale separately, which destroys the ratios between
+    features -- saving rates and wealth-to-income -- that identify theta. These
+    three channels put the between-feature ratios back. Computed from dollar
+    LEVELS, so call before any log transform. asinh scale: illiquid wealth
+    relative to income runs from 0 to above 20 across households. Constant
+    within a household, so they must be kept out of per-sequence normalisation
+    (the skip list matches the ``ratio_`` prefix).
+    """
+    f = list(features)
+    ybar = _mean_income(x, f)
+    cols = [torch.asinh(x[..., f.index(k)].mean(1, keepdim=True) / ybar)
+            for k in ("consumption", "liquid_assets", "illiquid_assets")]
+    block = torch.cat(cols, dim=-1)[:, None, :].expand(-1, x.shape[1], -1)
+    return torch.cat([x, block], dim=-1), tuple(f) + RATIO_FEATURES
+
+
+def anchor_log(x: torch.Tensor, features) -> torch.Tensor:
+    """Divide the four dollar features by the household's mean income, then log.
+
+    Removes only the absolute dollar scale while keeping every ratio between
+    features and the shape of each series over time: the anchor is ONE number
+    per household, shared by all features, unlike per-feature z-scoring.
+
+    Income and consumption are positive, so they enter as ``log(v / anchor)``
+    (floored at 1% of the anchor). Liquid and illiquid wealth can be zero or
+    negative, so they enter as ``asinh(v / anchor)``, the signed log. Age and
+    any appended channels are untouched.
+    """
+    f = list(features)
+    ybar = _mean_income(x, f)
+    out = x.clone()
+    for k in ("income", "consumption"):
+        i = f.index(k)
+        out[..., i] = torch.log((x[..., i] / ybar).clamp_min(0.01))
+    for k in ("liquid_assets", "illiquid_assets"):
+        i = f.index(k)
+        out[..., i] = torch.asinh(x[..., i] / ybar)
+    return out
+
+
 def log_features(x: torch.Tensor, features) -> torch.Tensor:
     """Signed log1p on the dollar features; ``age`` and one-hots untouched.
 
@@ -332,6 +392,17 @@ def main() -> None:
                         "functions of features already present, so this adds "
                         "no information -- it tests whether the flow is "
                         "spending capacity rediscovering them.")
+    p.add_argument("--anchor_log", action="store_true",
+                   help="Divide the four dollar features by the household's "
+                        "mean income, then log (income, consumption) or asinh "
+                        "(liquid, illiquid). Removes only the dollar scale; "
+                        "keeps ratios between features. Not with "
+                        "--log_features. RESULTS 27.")
+    p.add_argument("--household_ratios", action="store_true",
+                   help="Append asinh(mean consumption / mean income), and the "
+                        "same for liquid and illiquid wealth, as per-household "
+                        "constants. Restores the between-feature ratios that "
+                        "--per_sequence removes. RESULTS 27.")
     p.add_argument("--hidden_features", type=int, default=50,
                    help="Width of each flow transform's conditioner. sbi's "
                         "default, never swept here.")
@@ -382,6 +453,9 @@ def main() -> None:
     p.add_argument("--skip_sbc", action="store_true",
                    help="Estimation metrics only; skips the GPU simulations.")
     args = p.parse_args()
+    if args.anchor_log and args.log_features:
+        raise SystemExit("--anchor_log and --log_features are alternatives; "
+                         "anchor_log already takes the log.")
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
@@ -447,8 +521,16 @@ def main() -> None:
             x_tr, feats = derived_features(x_tr, feats)
             x_ho, _ = derived_features(x_ho, base_feats)
             log.info(f"derived features appended: {x_tr.shape[-1]} features")
+        if args.household_ratios:
+            # From dollar levels, so before any log.
+            x_tr, feats_r = household_ratios(x_tr, feats)
+            x_ho, _ = household_ratios(x_ho, feats)
+            feats = feats_r
+            log.info(f"household ratios appended: {x_tr.shape[-1]} features")
         if args.log_features:
             x_tr, x_ho = log_features(x_tr, feats), log_features(x_ho, feats)
+        if args.anchor_log:
+            x_tr, x_ho = anchor_log(x_tr, feats), anchor_log(x_ho, feats)
 
         if args.educ_group or args.condition_educ:
             by_draw = educ_by_draw(shard_files)
@@ -506,7 +588,7 @@ def main() -> None:
         # sequence; per-sequence normalisation would divide by a zero spread.
         skip = tuple(i for i, f in enumerate(feats)
                      if f == "age" or f.startswith("educ_")
-                     or f == "card_debt")
+                     or f == "card_debt" or f.startswith("ratio_"))
         embedder = TrajectoryTransformer(
             n_features=x_tr.shape[-1], seq_len=k,
             feature_mean=x_tr.mean(dim=(0, 1)), feature_std=x_tr.std(dim=(0, 1)),
@@ -539,8 +621,12 @@ def main() -> None:
             x_sbc = add_obs_noise(x_sbc, args.obs_noise, base_feats, seed=33)
             if args.derived_features:
                 x_sbc, _ = derived_features(x_sbc, base_feats)
+            if args.household_ratios:
+                x_sbc, _ = household_ratios(x_sbc, base_feats)
             if args.log_features:
                 x_sbc = log_features(x_sbc, base_feats)
+            if args.anchor_log:
+                x_sbc = anchor_log(x_sbc, base_feats)
             # SBC x must go through exactly the transformations training x did,
             # or the posterior is handed a different feature count than it was
             # built for. One SBC draw is one household, so `ids` is the draw
@@ -583,6 +669,8 @@ def main() -> None:
         "condition_educ": args.condition_educ,
         "log_features": args.log_features,
         "derived_features": args.derived_features,
+        "anchor_log": args.anchor_log,
+        "household_ratios": args.household_ratios,
         # Provenance, so a later scorer can verify it is rebuilding the
         # evaluation windows from the data the members actually saw. Omitting
         # this is how a Phase 4 ensemble came to be scored on Phase 3 shards.

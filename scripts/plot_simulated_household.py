@@ -36,9 +36,13 @@ from hh_npe.simulator.laibson_calibration import EDUC_GROUPS
 from scripts.compare_windows import educ_by_draw, split_shards
 
 
-def draws_for(posts, x1: torch.Tensor, n: int) -> np.ndarray:
-    """Pooled ensemble draws for one household, rejected in log space."""
-    box = log1m_box(PHASE3)
+def draws_for(posts, x1: torch.Tensor, n: int, log1m: bool = True) -> np.ndarray:
+    """Pooled ensemble draws for one household.
+
+    ``log1m``: the models were trained on log(1 - delta), so draws are rejected
+    in that space and then inverted. False for a model trained on delta itself.
+    """
+    box = log1m_box(PHASE3) if log1m else PHASE3
     lo, hi = np.asarray(box.low), np.asarray(box.high)
     out = []
     with torch.no_grad():
@@ -46,7 +50,8 @@ def draws_for(posts, x1: torch.Tensor, n: int) -> np.ndarray:
             s = p.posterior_estimator.sample((n,), condition=x1).squeeze(1)
             s = s.cpu().numpy()
             out.append(s[((s >= lo) & (s <= hi)).all(1)])
-    return from_log1m(np.concatenate(out))
+    s = np.concatenate(out)
+    return from_log1m(s) if log1m else s
 
 
 def main() -> None:

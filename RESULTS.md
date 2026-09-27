@@ -2273,6 +2273,7 @@ calibration.
 | 2a | Wider embedder (`d_model` 128, 3 layers, 64 out) | retrain | §19.3, §19.6 — improves log q, all six recovery measures and calibration together | **adopt** |
 | 2b | Derived moment channels (`card_debt`, two ratios) | retrain | §19.4 — best log q of any arm, but calibration unmoved; not additive with 2a | alternative to 2a |
 | 2c | Larger flow (`hidden_features`, `num_transforms`) | retrain | §19.2 — every increase loses log q and converges earlier | **refuted** |
+| 2e | Card-access types + gross liquid wealth (option A) | **regenerate** (~4.8 GPU-days, comphs) | §24, §24.1, §26 — closes most of the liquid-level misfit in simulation | **planned, next** |
 | 2d | Quasi-hyperbolic vs exponential (β ≡ 1) model comparison | **regenerate** (~2.5 GPU-days, 2 params, comphs) | §21 — out-of-sample, amortised model comparison, SBC, moment fit | **planned** |
 | 3 | Lower `R_gamma` | **regenerate** | §18 — no `R_gamma > R_free` matches both moments; §17.2's reading was wrong | **refuted** |
 | 4 | Income disruption | **regenerate** | §16 — fixes income tail, worsens wealth and ρ | not alone; pair with 3 |
@@ -3324,3 +3325,34 @@ and GPU.
 with the wrong borrowing limit and needs regenerating before it is reported.
 Their β and δ medians happen to sit close to comphs', but that cannot be
 assumed to survive the fix.
+
+---
+
+## 26. Planned: regeneration with card-access types (option A)
+
+**Agreed 2026-09-27, queued after the §27 normalisation experiment.**
+
+- **Scope.** comphs only — the group comparable to Laibson et al.
+- **Model change.** A per-draw card-access type: cardholder (comphs credit line)
+  or no card (zero credit line), recorded per draw like education so the
+  posterior can be conditioned on it or marginalised. Uses the §25-fixed
+  solvers, so the credit limit reaches the solve.
+- **Data change.** PSID liquid wealth on `--liquid_def gross`, matching what
+  X < 0 means in the model.
+- **Size.** ~32,768 draws at `M = 8`: each card type needs enough draws of its
+  own (§19.5's learning curve). About 4.8 GPU-days at Phase 4's measured
+  12.7 s per draw.
+- **Before the long run.** A 256-draw smoke shard: confirm the type is recorded,
+  that no-card households never borrow, and that comphs cardholder draws are
+  bit-identical to the current solver.
+- **Evaluation.** SBC, the §22 out-of-sample test (the target being to close
+  the gap to persistence on liquid wealth), the §24 wealth-dynamics comparison,
+  and the heterogeneity test.
+
+**Expected, from §24.1 at fixed θ:** debt share at 40-44 from 75% to ~50%
+(PSID gross 36%), two-year liquid drain from -$9,000 to ~-$2,400. Not addressed:
+PSID's mass of households at ~$0 liquid (39-54% against the model's 7-12%).
+
+Deferred: option B (all three groups, repairing §25's somehs and compco) until
+the comphs result shows the fix works; option C (adding the β = 1 dataset of
+§21) can share the run.

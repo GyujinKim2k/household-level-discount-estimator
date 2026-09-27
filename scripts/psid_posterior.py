@@ -150,9 +150,15 @@ def _apply_transforms(args, xt, educ_rows):
     if args.derived_features:
         from scripts.compare_windows import derived_features
         xt, feats = derived_features(xt, feats)
+    if args.household_ratios:
+        from scripts.compare_windows import household_ratios
+        xt, feats = household_ratios(xt, feats)
     if args.log_features:
         from scripts.compare_windows import log_features
         xt = log_features(xt, feats)
+    if args.anchor_log:
+        from scripts.compare_windows import anchor_log
+        xt = anchor_log(xt, feats)
     if args.condition_educ:
         from scripts.compare_windows import one_hot_educ
         xt = one_hot_educ(xt, educ_rows)
@@ -181,6 +187,10 @@ def main() -> None:
                         "matching a model trained with --derived_features. "
                         "Applied BEFORE --log_features, which then skips them: "
                         "an indicator and two ratios are not dollars.")
+    ap.add_argument("--anchor_log", action="store_true",
+                   help="Matching a model trained with --anchor_log.")
+    ap.add_argument("--household_ratios", action="store_true",
+                   help="Matching a model trained with --household_ratios.")
     ap.add_argument("--condition_educ", action="store_true",
                    help="Append the one-hot education block, for a posterior "
                         "trained with --condition_educ. Education comes from "

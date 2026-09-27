@@ -70,7 +70,8 @@ def _ensemble(posteriors: list):
 #: the guard and forgotten in its test, or the reverse.
 PROVENANCE_FIELDS = ("start_low", "start_high", "shards", "sbc_cache",
                      "educ_group", "condition_educ", "log_features",
-                     "derived_features", "delta_transform")
+                     "derived_features", "delta_transform", "anchor_log",
+                     "household_ratios")
 
 
 def _check_provenance(args, run_dirs, w) -> None:
@@ -162,6 +163,10 @@ def main() -> None:
     p.add_argument("--derived_features", action="store_true",
                    help="Must match training. Omitting it aborts on shape, "
                         "since the derived block widens x by three columns.")
+    p.add_argument("--anchor_log", action="store_true",
+                   help="Must match training (compare_windows --anchor_log).")
+    p.add_argument("--household_ratios", action="store_true",
+                   help="Must match training. Aborts on shape if omitted.")
     p.add_argument("--delta_transform", action="store_true",
                    help="Members were trained on log(1 - delta). SBC ranks and "
                         "coverage are invariant under a monotone map -- the "
@@ -223,10 +228,20 @@ def main() -> None:
         x_sbc, _ = derived_features(x_sbc, FEATURE_SETS[args.features]
                                     if args.features else FEATURES_TWOASSET_AGE)
         log.info(f"derived features appended: {x_ho.shape[-1]} features")
+    if args.household_ratios:
+        from scripts.compare_windows import household_ratios
+        base = feats
+        x_ho, feats = household_ratios(x_ho, base)
+        x_sbc, _ = household_ratios(x_sbc, base)
+        log.info(f"household ratios appended: {x_ho.shape[-1]} features")
     if args.log_features:
         from scripts.compare_windows import log_features
         x_ho, x_sbc = log_features(x_ho, feats), log_features(x_sbc, feats)
         log.info("log features applied to the evaluation windows")
+    if args.anchor_log:
+        from scripts.compare_windows import anchor_log
+        x_ho, x_sbc = anchor_log(x_ho, feats), anchor_log(x_sbc, feats)
+        log.info("anchor-log applied to the evaluation windows")
 
     # The evaluation windows are rebuilt here, so every transformation the
     # members saw in training has to be reapplied. Omitting them does not

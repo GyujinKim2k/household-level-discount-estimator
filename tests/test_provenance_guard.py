@@ -60,6 +60,8 @@ MISMATCHES = [
     ("log_features", True, False),         # log-trained model, level-scaled x
     ("derived_features", True, False),     # widened x, narrow evaluation set
     ("delta_transform", True, False),      # log-space flow, delta-space truth
+    ("anchor_log", True, False),           # anchored x, raw-scale evaluation
+    ("household_ratios", True, False),     # widened x, narrow evaluation set
 ]
 
 

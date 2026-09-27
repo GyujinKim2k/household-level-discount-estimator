@@ -43,6 +43,13 @@ def main() -> None:
     ap.add_argument("--x", type=Path,
                     default=Path("data/processed/psid_x_educ_rental.pt"))
     ap.add_argument("--n_draws", type=int, default=1000)
+    ap.add_argument("--linear_delta", action="store_true",
+                    help="The models were trained on delta itself, not "
+                         "log(1 - delta).")
+    ap.add_argument("--log_features", action="store_true",
+                    help="The models were trained on signed-log features.")
+    ap.add_argument("--model_label", default="current model (wide embedder, "
+                    "log(1-δ) target)")
     ap.add_argument("--out", type=Path,
                     default=Path("figures/15_psid_household_posterior.png"))
     args = ap.parse_args()
@@ -61,7 +68,13 @@ def main() -> None:
     posts = [load_posterior(r / "posterior_7w.pt")["posterior"] for r in args.run_dirs]
     dev = next(posts[0].posterior_estimator.parameters()).device
     torch.manual_seed(0)
-    s = draws_for(posts, x[pick:pick + 1].to(dev), args.n_draws)
+    xin = x[pick:pick + 1]
+    if args.log_features:
+        from hh_npe.data.waves import FEATURES_TWOASSET_AGE
+        from scripts.compare_windows import log_features
+        xin = log_features(xin, FEATURES_TWOASSET_AGE)
+    s = draws_for(posts, xin.to(dev), args.n_draws,
+                  log1m=not args.linear_delta)
     est = s.mean(0)
     q = np.percentile(s, [5, 95], axis=0)
 
@@ -88,8 +101,8 @@ def main() -> None:
         reflect_axes=("delta",),
         path=args.out,
         title=f"One real PSID comphs household (typical: nearest the median), "
-              f"ages {age[0]}-{age[-1]}\ncurrent model (wide embedder, "
-              "log(1-δ) target); no true θ exists for real data",
+              f"ages {age[0]}-{age[-1]}\n{args.model_label}; no true θ "
+              "exists for real data",
     )
     np.savez(args.out.with_suffix(".npz"), draws=s, estimate=est, pick=pick)
     print(f"wrote {args.out}")
