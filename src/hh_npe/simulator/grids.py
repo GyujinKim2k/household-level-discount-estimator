@@ -135,8 +135,16 @@ def liquid_grid(
     xmax: float = 4e5,
     cells_per_step: int = X_CELLS_PER_STEP,
     nonlinear: bool = True,
+    c: cal.Calibration = cal.COMPHS,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Common liquid-asset grid plus a per-age feasibility mask.
+
+    ``c`` supplies the credit limit, which differs by education group
+    (``c0_credit`` is 0.167 / 0.0006 / 0.42 for comphs / somehs / compco). It
+    was once omitted here, so every solve -- CPU and GPU -- used the comphs
+    limit whatever group it was for, while the forward pass used the group's
+    own. comphs was unaffected; somehs and compco were solved with the wrong
+    borrowing limit (RESULTS.md 25). The solvers must pass ``spec.calib``.
 
     Returns
     -------
@@ -148,7 +156,7 @@ def liquid_grid(
         ``feasible[t, i]`` is True when ``X[i] >= -xmin_(t)``, i.e. the point
         is within that age's credit limit.
     """
-    xmin = credit_limit(age, xjump)
+    xmin = credit_limit(age, xjump, c)
     if nonlinear:
         pos = _nonuniform_positive_grid(xjump, XJUMP_MAX, xmax, cells_per_step)
     else:

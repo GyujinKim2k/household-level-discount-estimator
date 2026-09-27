@@ -148,7 +148,8 @@ def solve_batch(
 
     age = grids.ages(spec.age_start, spec.age_end)
     T = len(age)
-    X_np, feas_np = grids.liquid_grid(age, spec.xjump, spec.xmax, spec.x_cells_per_step)
+    X_np, feas_np = grids.liquid_grid(age, spec.xjump, spec.xmax,
+                                      spec.x_cells_per_step, c=spec.calib)
     Z_np = grids.illiquid_grid(spec.zjump, spec.zmax, spec.z_cells_per_step)
     states_np, P_np = grids.tauchen(n_states=spec.n_income_states, c=spec.calib)
     nX, nZ, nS = len(X_np), len(Z_np), spec.n_income_states

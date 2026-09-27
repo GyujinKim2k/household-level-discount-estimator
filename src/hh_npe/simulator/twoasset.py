@@ -249,7 +249,7 @@ def solve(
     age = grids.ages(spec.age_start, spec.age_end)
     T = len(age)
     X, feasible = grids.liquid_grid(
-        age, spec.xjump, spec.xmax, spec.x_cells_per_step
+        age, spec.xjump, spec.xmax, spec.x_cells_per_step, c=spec.calib
     )
     Z = grids.illiquid_grid(spec.zjump, spec.zmax, spec.z_cells_per_step)
     states, P = grids.tauchen(n_states=spec.n_income_states, c=spec.calib)

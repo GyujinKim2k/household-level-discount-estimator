@@ -240,6 +240,12 @@ rho              not identified — see below
 
 ### Education groups
 
+> **Caution — found after this summary was first written (RESULTS §25).** A bug
+> gave every somehs and compco *solve* the comphs credit limit. The comphs
+> results are unaffected; the somehs and compco rows below, and their
+> heterogeneity results above, come from models with the wrong borrowing limit
+> and must be regenerated before they are reported.
+
 | | N | median β | median δ | median ρ | all three inside published ranges |
 |---|---|---|---|---|---|
 | comphs | 889 | 0.840 | 0.994 | 4.45 | 82.7% |
@@ -304,6 +310,17 @@ all targets, averaged             +0.004  [-0.039, +0.049]         48%
 **Main limitation.** The structural model does not reproduce PSID's wealth and
 consumption-comovement patterns at any parameter value (misses by ~2×). The
 posteriors are "best fit within a misspecified model".
+
+**Diagnosed since (RESULTS §24).** The wealth-forecast failure is a liquid-wealth
+*level* misfit: the model keeps 65–83% of mid-life households in net card debt,
+PSID has 21%, and each household is pulled toward the model's level. Three
+causes of similar size: the model's single liquid account cannot represent
+households holding checking and card debt together; Laibson et al.'s targets
+condition on holding a card while PSID does not; and our estimated θ borrows
+more than the calibration. Measuring PSID liquid wealth the way the model
+defines it, plus a no-card household type, closes most of it in simulation
+(two-year liquid drain -$9,000 to -$2,400). Doing it properly needs new
+simulations.
 
 ---
 

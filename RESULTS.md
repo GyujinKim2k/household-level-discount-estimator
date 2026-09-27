@@ -3270,3 +3270,57 @@ toward the model's equilibrium. The "lumpy dynamics" are that pull.
 which is what the model's X < 0 means. It raises PSID's debt share to 33–38%
 and cuts the two-year drain from -$10,962 to -$9,000 — about a fifth. The
 remaining two pieces need the model changed.
+
+### 24.1 A no-card household type closes most of the rest
+
+Piece 2 suggests a specific model change: let some households have no credit
+card, so they cannot borrow. Tested in simulation at the population θ, without
+regenerating: PSID households that report card debt in any wave (65.8%) are
+solved as cardholders, the rest with a zero credit line. PSID liquid wealth on
+the gross definition.
+
+```
+                                  PSID gross   all cardholders   card types
+share in card debt, ages 40-44       36%             75%             50%
+two-year liquid change, median        $0          -$9,000          -$2,412
+mean |model - PSID| liquid change      —            3.15            2.62   (asinh)
+```
+
+Two thirds of the debt-share gap and three quarters of the two-year drain close,
+and the liquid forecast error falls 17%, all before any retraining. The type
+assignment uses a biased proxy (it misses cardholders who always pay in full),
+so these are indicative, not final.
+
+**What remains is PSID's mass at zero.** 39-54% of PSID households report under
+$1,000 of liquid wealth; the model produces 7-12%. Its no-card households hold a
+positive buffer rather than nothing. That may be reporting (unreported checking
+balances) as much as behaviour, and is the next-largest gap.
+
+---
+
+## 25. Bug: every solve used the comphs credit limit
+
+`grids.liquid_grid`, which sets each age's borrowing limit inside both the CPU
+and GPU solvers, called `credit_limit(age, xjump)` **without the education
+calibration**. Every solve therefore used the comphs credit limit whatever
+group it was for, while the forward pass (`simulate`) used the group's own.
+Found while testing §24.1, whose zero-credit households kept borrowing to
+-$31,000.
+
+**Affected:** every somehs and compco solve — the Phase 4 per-group, pooled
+(`marg`) and conditioned (`cond`) models, and figures 11-14. somehs should have
+almost no credit (`c0_credit` 0.0006 against comphs' 0.167) and compco more than
+double (0.42). **Unaffected:** everything comphs, since comphs is the default —
+the headline, §19-§23, figures 08-10 and 15. Confirmed: the calibration
+self-check and all GPU tests pass unchanged after the fix.
+
+**Why the tests missed it.** The bundle tests checked that the credit limit
+*differs* between groups, and that a group's *solution* differs from comphs —
+which it does anyway, because income differs. New tests pin the limit inside the
+solver: a zero-credit bundle must produce no liquid position below zero, on CPU
+and GPU.
+
+**Consequence.** Every non-comphs result from Phase 4 on is from a model solved
+with the wrong borrowing limit and needs regenerating before it is reported.
+Their β and δ medians happen to sit close to comphs', but that cannot be
+assumed to survive the fix.

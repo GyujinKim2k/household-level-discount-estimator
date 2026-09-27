@@ -128,3 +128,44 @@ def test_forward_pass_uses_the_bundle_too(comphs_solution):
     q = simulate(comphs_solution, n_households=200, seed=1)
     # compco's income profile is much steeper (agecoeff 0.247 vs 0.135).
     assert np.median(p["income"][:, 15:25]) > np.median(q["income"][:, 15:25])
+
+
+# --- the credit limit must reach the SOLVER, not only the forward pass -------
+#
+# grids.liquid_grid once called credit_limit without the calibration, so every
+# solve used the comphs limit while simulate() used the group's own. The tests
+# above passed throughout: they check that the limit *differs* between groups,
+# and that a group's solution differs from comphs -- which it does anyway,
+# because income differs. These pin the limit itself inside the solver.
+
+def test_liquid_grid_follows_the_bundle_credit_limit():
+    x_c, feas_c = grids.liquid_grid(AGE, 1000.0, c=cal.COMPHS)
+    x_k, feas_k = grids.liquid_grid(AGE, 1000.0, c=cal.COMPCO)
+    assert x_k.min() < x_c.min()          # compco's limit is more than double
+    assert np.array_equal(grids.liquid_grid(AGE, 1000.0)[0], x_c)   # default
+
+
+def test_a_zero_credit_household_never_borrows():
+    """The load-bearing one: with no credit line, no liquid position below 0
+    may be chosen, in the policy or in the simulated panel."""
+    none = dataclasses.replace(cal.COMPHS, c0_credit=0.0, c1_credit=0.0,
+                               c2_credit=0.0)
+    sp = dataclasses.replace(COARSE, calib=none)
+    sol = solve(0.85, 0.99, 2.0, spec=sp)
+    assert sol.X.min() >= 0.0
+    p = simulate(sol, n_households=200, seed=2)
+    # liquid_assets is post-income cash minus income, so grid rounding can dip
+    # it below zero by at most one xjump; genuine borrowing would be far more.
+    assert p["liquid_assets"].min() > -sp.xjump
+
+
+def test_gpu_solver_uses_the_bundle_credit_limit():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA")
+    from hh_npe.simulator.twoasset_gpu import solve_batch
+    none = dataclasses.replace(cal.COMPHS, c0_credit=0.0, c1_credit=0.0,
+                               c2_credit=0.0)
+    sp = dataclasses.replace(COARSE, calib=none)
+    sol = solve_batch(np.array([[0.85, 0.99, 2.0]]), sp, theta_batch=1, chunk=8)[0]
+    assert sol.X.min() >= 0.0
