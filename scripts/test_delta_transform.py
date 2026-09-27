@@ -52,7 +52,14 @@ from hh_npe.npe.prior import (
     to_log1m,
 )
 from hh_npe.npe.train import train_npe
-from scripts.compare_windows import EMBEDDER, TRAINING, educ_by_draw, split_shards
+from scripts.compare_windows import (
+    EMBEDDER,
+    TRAINING,
+    anchor_log,
+    educ_by_draw,
+    mean_income_channel,
+    split_shards,
+)
 
 log = logging.getLogger("delta_transform")
 
@@ -108,6 +115,13 @@ def main() -> None:
     ap.add_argument("--embed_dim", type=int, default=EMBEDDER["output_dim"],
                    help="Embedder output width. RESULTS 19.6 adopts 64 with "
                         "--d_model 128 --n_layers 3.")
+    ap.add_argument("--anchor_log", action="store_true",
+                   help="As compare_windows --anchor_log (RESULTS 27-28).")
+    ap.add_argument("--mean_income_channel", action="store_true",
+                   help="As compare_windows --mean_income_channel (RESULTS 28).")
+    ap.add_argument("--static_norm_channels", nargs="+", default=None,
+                   help="As compare_windows: only these channels get the "
+                        "training set's fixed standardisation.")
     ap.add_argument("--out", type=Path, default=Path("outputs/test_delta"))
     args = ap.parse_args()
 
@@ -128,16 +142,38 @@ def main() -> None:
     th_ho, x_ho = th_ho[m_ho][: args.n_heldout], x_ho[m_ho][: args.n_heldout]
     log.info(f"{args.educ_group}: {len(th_tr)} train rows, {len(th_ho)} held out")
 
+    # Input transforms, in compare_windows' order: the level channel is taken
+    # from dollar levels before anchoring replaces them.
+    feats = tuple(FEATURES_TWOASSET_AGE)
+    if args.mean_income_channel:
+        base = feats
+        x_tr, feats = mean_income_channel(x_tr, base)
+        x_ho, _ = mean_income_channel(x_ho, base)
+    if args.anchor_log:
+        x_tr, x_ho = anchor_log(x_tr, feats), anchor_log(x_ho, feats)
+    log.info(f"input channels: {list(feats)}")
+
     use = args.transform == "log1m"
     box = log1m_box(PHASE3) if use else PHASE3
     th_fit = to_log1m(th_tr) if use else th_tr
     log.info(f"transform={args.transform}  delta range in fit space: "
              f"[{th_fit[:,1].min():.3f}, {th_fit[:,1].max():.3f}]")
 
-    skip = tuple(i for i, f in enumerate(FEATURES_TWOASSET_AGE) if f == "age")
+    skip = tuple(i for i, f in enumerate(feats)
+                 if f in ("age", "log_mean_income"))
+    f_mean, f_std = x_tr.mean(dim=(0, 1)), x_tr.std(dim=(0, 1))
+    if args.static_norm_channels is not None:
+        unknown = set(args.static_norm_channels) - set(feats)
+        if unknown:
+            raise SystemExit(f"--static_norm_channels names unknown channels "
+                             f"{sorted(unknown)}; have {list(feats)}")
+        keep = torch.tensor([f in args.static_norm_channels for f in feats])
+        f_mean = torch.where(keep, f_mean, torch.zeros_like(f_mean))
+        f_std = torch.where(keep, f_std, torch.ones_like(f_std))
+        log.info(f"static normalisation only for {args.static_norm_channels}")
     emb = TrajectoryTransformer(
         n_features=x_tr.shape[-1], seq_len=7,
-        feature_mean=x_tr.mean(dim=(0, 1)), feature_std=x_tr.std(dim=(0, 1)),
+        feature_mean=f_mean, feature_std=f_std,
         per_sequence=False, per_sequence_skip=skip,
         **{**EMBEDDER, "d_model": args.d_model, "n_heads": args.n_heads,
            "n_layers": args.n_layers, "output_dim": args.embed_dim})
@@ -171,6 +207,10 @@ def main() -> None:
             "educ_group": args.educ_group, "condition_educ": False,
             "log_features": False, "derived_features": False,
             "delta_transform": use, "train_seed": args.train_seed,
+            "anchor_log": args.anchor_log,
+            "mean_income_channel": args.mean_income_channel,
+            "household_ratios": False,
+            "static_norm_channels": args.static_norm_channels,
             "d_model": args.d_model, "n_layers": args.n_layers,
             "embed_dim": args.embed_dim,
         },
