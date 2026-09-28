@@ -64,6 +64,12 @@ def main() -> None:
     ap.add_argument("--pool", type=int, default=300)
     ap.add_argument("--n_draws", type=int, default=1000,
                     help="Draws per ensemble member.")
+    ap.add_argument("--anchor_level", action="store_true",
+                    help="The models take anchor + level inputs (RESULTS 28-29): "
+                         "log(mean income) appended, then the dollar features "
+                         "anchored. Applied to the held-out x before sampling.")
+    ap.add_argument("--model_label", default="current model (wide embedder, "
+                    "log(1-δ) target)")
     ap.add_argument("--out", type=Path,
                     default=Path("figures/10_simulated_household_posterior.png"))
     args = ap.parse_args()
@@ -76,6 +82,11 @@ def main() -> None:
                                 with_age=True)
     comphs = educ_by_draw(shard_files)[pid.numpy()] == EDUC_GROUPS.index("comphs")
     th, x = th[comphs][: args.pool].numpy(), x[comphs][: args.pool]
+    if args.anchor_level:
+        from hh_npe.data.waves import FEATURES_TWOASSET_AGE
+        from scripts.compare_windows import anchor_log, mean_income_channel
+        x, feats = mean_income_channel(x, FEATURES_TWOASSET_AGE)
+        x = anchor_log(x, feats)
 
     posts = [load_posterior(r / "posterior_7w.pt")["posterior"] for r in args.run_dirs]
     dev = next(posts[0].posterior_estimator.parameters()).device
@@ -117,7 +128,7 @@ def main() -> None:
         reflect_axes=("delta",),
         path=args.out,
         title="One held-out simulated comphs household: posterior vs. truth\n"
-              "current model (wide embedder, log(1-δ) target); 7 waves",
+              f"{args.model_label}; 7 waves",
     )
     np.savez(args.out.with_suffix(".npz"), draws=d, truth=truth, estimate=est,
              pool_error=err, pick=pick)

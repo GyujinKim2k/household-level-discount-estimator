@@ -1,6 +1,6 @@
 # Household-level preference estimation from PSID — summary for review
 
-*Prepared 2026-09-26. Detailed record: `RESULTS.md` (section numbers below refer to it).*
+*Prepared 2026-09-26; updated 2026-09-28 to the adopted configuration. Detailed record: `RESULTS.md` (section numbers below refer to it).*
 
 ## What the project does
 
@@ -20,10 +20,14 @@ The data differ from Laibson et al.'s — PSID panel with consumption versus SCF
 cross-section without it — so different estimates are expected and are not by
 themselves evidence of error.
 
-**Current model.** Transformer summary network (width 128, 3 layers, 64-number
-summary) feeding a neural-spline normalising flow; δ estimated as
-`log(1 − δ)` so the posterior cannot put mass at or above 1; five independently
-trained networks averaged (ensemble). Trained on 65,536 simulated parameter draws
+**Current model (adopted 2026-09-28).** Transformer summary network (width
+128, 3 layers, 64-number summary) feeding a neural-spline normalising flow; δ
+estimated as `log(1 − δ)` so the posterior cannot put mass at or above 1; five
+independently trained networks averaged (ensemble). **Inputs are anchor +
+level:** each household's four dollar series are divided by its own mean income
+(then logged), and log mean income is added as one extra number. Only age and
+that level channel are scaled with training-set constants; the anchored series
+enter as computed. Trained on 65,536 simulated parameter draws
 × 8 households each; results below are for high-school-complete households
 (`comphs`, 889 in PSID) unless stated.
 
@@ -42,16 +46,17 @@ credible interval. A well-calibrated posterior covers 90% of the time.
 
 ```
                       90% coverage    rank-uniformity test (p)
-beta                     0.896              0.21
-delta                    0.842              0.007   <- under-covers
-rho                      0.899              0.17
+beta                     0.901              0.25
+delta                    0.860              0.048   <- slightly under-covers
+rho                      0.910              0.08
 ```
 
-β and ρ are essentially exactly calibrated. **δ under-covers**: its intervals are
-somewhat too narrow, and the rank test rejects uniformity. This is the cost of
-the `log(1 − δ)` parameterisation (§20.3): it removes an artefact at δ = 1 on
-real data but makes δ harder for the network to represent across the whole prior
-range. The binomial standard error of these coverage figures is ±0.016.
+β and ρ are essentially exactly calibrated. **δ slightly under-covers**: its
+intervals are a little too narrow and the rank test is borderline. This is a
+residual cost of the `log(1 − δ)` parameterisation (§20.3), which removes an
+artefact at δ = 1 on real data but makes δ harder to represent across the whole
+prior range. The anchor + level inputs roughly halve that cost (coverage 0.842 →
+0.860, rank test p 0.007 → 0.048; §29). The binomial standard error of these coverage figures is ±0.016.
 
 ### Choices behind the configuration (§19)
 
@@ -62,7 +67,15 @@ Each change was tested against a matched baseline, five seeds each:
 Phase 4 baseline                5.095              0.027
 + wider summary network         5.130              0.015
 + log(1 - delta) target           —                0.021   (log q not comparable)
++ anchor + level inputs           —                0.017   (adopted)
 ```
+
+- **Input representation (§27–§29).** Normalising each household's series
+  separately loses the ratios between features (saving rate, wealth-to-income)
+  that identify the parameters. Dividing all features by one household anchor
+  (mean income) keeps them; adding the income level back as one number recovers
+  the rest. Anchor + level carries the same information as raw dollars, with
+  better calibration and no training-set constants on the dollar series.
 
 - Enlarging the **flow** (the density part) made every metric worse — it
   over-fits. Enlarging the **summary network** improved every metric: the
@@ -82,9 +95,9 @@ networks:
 
 ```
                correlation(true, estimate)   mean abs error   no-model error*
-beta                    0.79                      0.094            0.175
+beta                    0.79                      0.095            0.175
 delta                   0.79                      0.020            0.038
-rho                     0.86                      0.411            1.125
+rho                     0.85                      0.417            1.125
 ```
 
 \* Error from always guessing the middle of the prior range. The model removes
@@ -92,9 +105,9 @@ roughly half the error for β and δ and two thirds for ρ.
 
 ### One household in detail
 
-![posterior for one simulated household](figures/10_simulated_household_posterior.png)
+![posterior for one simulated household](figures/25_simulated_household_adopted.png)
 
-`figures/10_simulated_household_posterior.png` — one held-out simulated
+`figures/25_simulated_household_adopted.png` — one held-out simulated
 household. Chosen by rule, not by eye: among 162 households whose true values
 are away from the prior edges, the one with the **median** estimation error.
 Shaded region = 68% credible region, dashed = 95%; red star = true parameters;
@@ -102,9 +115,9 @@ black cross = posterior mean (the point estimate).
 
 ```
           true    estimate    90% interval          covers truth
-beta     0.551     0.548      [0.405, 0.700]         yes
-delta    0.978     0.983      [0.964, 0.994]         yes
-rho      3.496     2.835      [1.903, 3.723]         yes
+beta     0.620     0.539      [0.376, 0.718]         yes
+delta    0.984     0.987      [0.979, 0.994]         yes
+rho      2.754     2.983      [2.112, 3.686]         yes
 ```
 
 What the figure shows: β and δ are pinned down well; **β and δ trade off**
@@ -141,37 +154,38 @@ posteriors.)
 
 ```
                           beta      delta      rho
-median household         0.840     0.994     4.454
-spread across households 0.099     0.023     0.889
+median household         0.852     0.992     4.498
+spread across households 0.100     0.023     0.671
 
 Laibson et al. (population) 0.531  0.989     1.936
 ```
 
-![PSID comphs against the literature](figures/08_adopted_literature_comparison.png)
+![PSID comphs against the literature](figures/23_anchor_level_log1m_literature_comparison.png)
 
-`figures/08` — each household's posterior mean summarised as 68%/95% regions,
+`figures/23` — each household's posterior mean summarised as 68%/95% regions
+(blue: adopted model; orange: the previous configuration, for comparison),
 against published ranges (grey) and Laibson et al.'s estimate (star, tan box =
 their 95% interval).
 
 ### One real household in detail
 
-![posterior for one PSID household](figures/15_psid_household_posterior.png)
+![posterior for one PSID household](figures/24_psid_household_anchor_level_log1m.png)
 
-`figures/15_psid_household_posterior.png` — the counterpart of figure 10 on real
+`figures/24_psid_household_anchor_level_log1m.png` — the counterpart of figure 25 on real
 data. There is no true θ, so the panel shows the posterior, its mean (black
 cross), Laibson et al.'s population estimate (red star) and the published ranges
 (grey). Chosen by rule: the **typical** comphs household, whose posterior mean is
 closest to the median across all 889.
 
-The household, ages 35–47: income $49–89k, consumption $34–67k, card debt of
-about $7k paid down to +$30k liquid savings by the last wave, illiquid wealth
-$59–131k.
+The household, ages 42–54: income $53–72k (falling to $35k in the last wave),
+consumption $26–43k, liquid wealth between +$9k and −$6k of card debt, illiquid
+wealth drawn down from $111k to $12k.
 
 ```
           estimate    90% interval        population median
-beta       0.829     [0.523, 0.983]            0.840
-delta      0.993     [0.976, 0.999]            0.994
-rho        4.462     [4.378, 4.550]            4.454
+beta       0.850     [0.558, 0.992]            0.852
+delta      0.994     [0.977, 0.999]            0.992
+rho        4.528     [4.404, 4.645]            4.498
 ```
 
 How to read it:
@@ -190,7 +204,7 @@ How to read it:
 90% interval width (median)      beta     delta     rho
 simulated, all households        0.357    0.064    1.48
 simulated, true rho > 4            —        —      0.29
-PSID                             0.457    0.018    0.22
+PSID (adopted model)             0.428    0.025    0.22
 ```
 
 ### Comparison with the literature
@@ -200,14 +214,14 @@ the primary benchmark is the published range of estimates:
 
 | | our median | published range | households inside |
 |---|---|---|---|
-| β | 0.840 | 0.66–0.94 (convex-time-budget meta-analyses; Imai et al. pooled 0.82) | 90.7% |
-| δ | 0.994 | 0.95–1.00 (Carroll et al., heterogeneous discount factors) | 89.3% |
-| ρ | 4.45 | 1–7 (Elminejad et al.: ≈1 in consumption studies, 2–7 in finance) | 99.8% |
+| β | 0.852 | 0.66–0.94 (convex-time-budget meta-analyses; Imai et al. pooled 0.82) | 89.5% |
+| δ | 0.992 | 0.95–1.00 (Carroll et al., heterogeneous discount factors) | 89.5% |
+| ρ | 4.50 | 1–7 (Elminejad et al.: ≈1 in consumption studies, 2–7 in finance) | 99.7% |
 
-- **β = 0.84 agrees with the experimental literature.** Laibson et al.'s 0.53 is
+- **β = 0.85 agrees with the experimental literature.** Laibson et al.'s 0.53 is
   below it.
 - **δ agrees** with both Laibson et al. and Carroll et al.
-- **ρ = 4.45 is the weak result.** It is only inside the range because finance
+- **ρ = 4.50 is the weak result.** It is only inside the range because finance
   estimates reach 7; consumption-based estimates are near 1. Separate checks
   (§15, §18) show the model cannot match PSID's wealth levels and its
   consumption comovement at the same time, and ρ absorbs that misfit — wealth
@@ -248,7 +262,7 @@ rho              not identified — see below
 
 | | N | median β | median δ | median ρ | all three inside published ranges |
 |---|---|---|---|---|---|
-| comphs | 889 | 0.840 | 0.994 | 4.45 | 82.7% |
+| comphs | 889 | 0.852 | 0.992 | 4.50 | 81.2% |
 | somehs | 211 | 0.808 | 0.975 | 4.70 | 67.3% |
 | compco | 527 | 0.797 | 0.998 | 4.17 | 78.2% |
 

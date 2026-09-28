@@ -1,10 +1,12 @@
 # Phase 4 — PSID empirical results
 
-**Status:** Phase 4 complete, plus the training-side sweep of §19 and its
-application to PSID in §20. The headline below is the §19.6 configuration — a
-wider embedder and `log(1 - δ)` as the estimation target — and supersedes the
-Phase 4 numbers, which are kept in §20 for comparison.
-**Last updated:** 2026-09-26.
+**Status:** Phase 4 complete, plus the training-side work of §19–§29. The
+headline below is the §29 configuration — wider embedder, `log(1 - δ)` target,
+and anchor + level inputs (dollar features divided by household mean income,
+plus log mean income as one channel) — adopted 2026-09-28. The §20
+configuration it replaces gives essentially the same answers with worse δ
+calibration; its numbers are kept in §20 and §29.
+**Last updated:** 2026-09-28.
 
 Per-household posteriors over (β, δ, ρ) for 889 PSID households observed in
 seven biennial waves, 2011–2023, against Laibson, Lee, Maxted, Repetto &
@@ -14,30 +16,31 @@ Tobacman's single population MSM estimate.
 
 ## 1. Headline
 
-**Current** (§19.6 configuration: `M=8`, corrected window, wider embedder,
-`log(1 - δ)` target, 5-member ensemble, 889 comphs households).
+**Current** (§29 configuration: `M=8`, corrected window, wider embedder,
+`log(1 - δ)` target, anchor + level inputs, 5-member ensemble, 889 comphs
+households).
 
 ```
                           beta       delta        crra
-median of means         0.8399      0.9942      4.4538
-mean of means           0.8122      0.9830      4.0855
-sd across households    0.0985      0.0229      0.8885
-median posterior sd     0.1483      0.0085      0.1333
+median of means         0.8518      0.9919      4.4978
+mean of means           0.8234      0.9816      4.2935
+sd across households    0.0999      0.0233      0.6706
+median posterior sd     0.1395      0.0099      0.1030
 
 Laibson et al. MSM      0.5305      0.9891      1.9355
   their std error       0.1140      0.0051      0.4350
 
 share of households whose 90% CI covers their estimate:
-  beta 0.496    delta 0.559    crra 0.264
+  beta 0.431    delta 0.623    crra 0.169
 ```
 
-**δ replicates** — 0.9942 against their 0.9891. **β and ρ are both
+**δ replicates** — 0.9919 against their 0.9891. **β and ρ are both
 substantially higher**, and β's gap is not explained by education composition:
 it is 0.81 / 0.79 / 0.79 across comphs / somehs / compco (§10.13, on the Phase 4
 arm).
 
-Their estimate is not *excluded*: 49.6% of households' 90% intervals cover their
-β and 26.4% cover their ρ, and in `figures/05_phase4_per_group.png` their point
+Their estimate is not *excluded*: 43.1% of households' 90% intervals cover their
+β and 16.9% cover their ρ, and in `figures/05_phase4_per_group.png` their point
 sits outside every group's 68% contour but inside the 95% ones.
 
 The between/within ratio this table used to carry has been removed on purpose —
@@ -52,14 +55,14 @@ instead against published ranges (§14, `figures/07_literature_comparison.png`):
 
 ```
 param   our median    meta-analytic band   inside    Laibson 95% CI   inside
-beta        0.8399          [0.66, 0.94]    90.7%    [0.307, 0.754]    22.2%
-delta       0.9942          [0.95, 1.00]    89.3%    [0.979, 0.999]    68.7%
-crra        4.4538             [1, 7]       99.8%    [1.083, 2.788]     9.7%
+beta        0.8518          [0.66, 0.94]    89.5%    [0.307, 0.754]    21.6%
+delta       0.9919          [0.95, 1.00]    89.5%    [0.979, 0.999]    68.4%
+crra        4.4978             [1, 7]       99.7%    [1.083, 2.788]     5.4%
 
-all three jointly inside the meta-analytic band: 82.7%
+all three jointly inside the meta-analytic band: 81.2%
 ```
 
-**Our β of 0.840 sits close to Imai, Rutter & Camerer's pooled estimate of
+**Our β of 0.852 sits close to Imai, Rutter & Camerer's pooled estimate of
 0.82** (95% CI [0.74, 0.90]; 220 estimates from 28 convex-time-budget studies).
 The project's recurring finding — "β is 0.81 against their 0.53" — has been read
 throughout as a discrepancy needing explanation. Against the wider literature it
@@ -67,7 +70,7 @@ reads the other way: **our estimate matches the experimental consensus, and
 0.5305 is the outlier**, below even the non-monetary lower bound of both CTB
 meta-analyses.
 
-**ρ is now the parameter that needs explaining.** At 4.45 it is far above the
+**ρ is now the parameter that needs explaining.** At 4.50 it is far above the
 consumption-Euler consensus of roughly 1 and only inside the band because
 finance-context estimates reach 7. §7.1's account — high ρ as the only channel
 this model has for precautionary saving — remains the live hypothesis.
@@ -83,26 +86,28 @@ share of replicates at or below zero.
 
 ```
           Var(true)              95% CI      P<=0   implied between-hh sd
-beta       -0.01391  [-0.01514, -0.01263]   1.000   none detectable
-delta      +0.00019  [+0.00012, +0.00026]   0.000   0.0138
-crra       +0.30606  [+0.19070, +0.42363]   0.000   0.553  (NOT identified)
+beta       -0.01113  [-0.01234, -0.00986]   1.000   none detectable
+delta      +0.00019  [+0.00012, +0.00027]   0.000   0.0138
+crra       +0.09655  [+0.01290, +0.18510]   0.012   (NOT identified)
 ```
 
 - **β heterogeneity is not demonstrated, and that is now well established.**
   `Var(true β)` is negative in every run, every education group and every
-  configuration tried — the Phase 3 baseline, Phase 4, and both §20 arms — at
-  `P = 1.000` throughout. It survives correcting for β's known over-coverage
+  configuration tried — the Phase 3 baseline, Phase 4, the §20 arms and every
+  input representation of §27–§29 — at `P = 1.000` throughout. It survives correcting for β's known over-coverage
   (§11.2) and replicates in all three education groups (§10.13). **This is a
   finding about the project's own premise and belongs in any writeup.**
 - **δ heterogeneity is real and small.** `Var(true δ)` is positive at
-  `P = 0.000` in all three configurations of §20, with an implied
+  `P = 0.000` in every configuration that uses dollar levels or the income
+  level (§20, §28, §29), with an implied
   between-household sd of about **0.0138** — 1.4 percentage points in the annual
   discount factor. The censoring that qualified this before is **gone**: under
-  the `log(1 - δ)` target only 0.4% of comphs households have a δ interval at
-  the 1.0 bound, against 24.6% without it (§20.1).
-- **ρ heterogeneity is NOT identified.** §20.2: its sign flips across three
-  configurations that are all defensible and all at least as good as the
-  baseline on simulated data, with non-overlapping confidence intervals. It
+  the `log(1 - δ)` target 0.0–0.4% of comphs households have a δ interval at
+  the 1.0 bound, against 24.6% without it (§20.1, §29).
+- **ρ heterogeneity is NOT identified.** §20.2, §28, §29: its estimate moves
+  from -0.07 to +0.31 across configurations that are all defensible and all at
+  least as good as the baseline on simulated data, often with non-overlapping
+  confidence intervals. It
   tracks whatever ρ's posterior width happens to be, which is a modelling
   artefact. The "ρ heterogeneity is real (5.4×)" this section previously
   reported does not survive.
