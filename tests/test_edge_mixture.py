@@ -75,3 +75,48 @@ def test_many_more_training_draws_near_delta_one():
     th = MIX.sample(2 ** 15, seed=0)
     uni = sample_sobol(2 ** 15, PHASE3, seed=0)
     assert (th[:, 1] > 0.998).mean() > 5 * (uni[:, 1] > 0.998).mean()
+
+
+# --- RESULTS 32.2: the switched proposal (pilot kept, widened region after) ---
+
+from hh_npe.npe.prior import EDGE_WIDENED, SwitchedProposal  # noqa: E402
+
+SW = SwitchedProposal()
+
+
+def test_switched_reproduces_the_pilot_draws_exactly():
+    """The load-bearing one: the pilot's 4,096 stored draws must be what the
+    switched sampler generates at those indices."""
+    np.testing.assert_array_equal(SW.sample(32768, seed=0)[:4096],
+                                  EdgeMixture().sample(4096, seed=0))
+    np.testing.assert_array_equal(SW.sample(4096, seed=0),
+                                  EdgeMixture().sample(4096, seed=0))
+
+
+def test_switched_is_prefix_stable_beyond_the_switch():
+    np.testing.assert_array_equal(SW.sample(49152, seed=0)[:32768],
+                                  SW.sample(32768, seed=0))
+
+
+def test_second_part_is_the_widened_mixture():
+    th = SW.sample(8192, seed=0)[4096:]
+    np.testing.assert_array_equal(th, EdgeMixture(**EDGE_WIDENED).sample(4096, seed=10))
+    w = EdgeMixture(**EDGE_WIDENED)
+    assert (w._concentrated_density(th[1::2]) > 0).all()
+
+
+@pytest.mark.parametrize("n", [4096, 20000, 32768])
+def test_switched_weights_are_bounded_and_recover_the_prior(n):
+    th = SW.sample(n, seed=0)
+    lw = SW.log_weight(th, n)
+    assert np.exp(lw).max() <= 2.0 + 1e-12
+    w = np.exp(lw); w /= w.sum()
+    for j in range(3):
+        lo, hi = PHASE3.low[j], PHASE3.high[j]
+        assert (w * th[:, j]).sum() == pytest.approx((lo + hi) / 2, rel=4e-3)
+    assert (w * (th[:, 1] > 0.99)).sum() == pytest.approx(0.0667, abs=0.006)
+
+
+def test_switched_weight_with_only_pilot_draws_equals_the_first_mixture():
+    th = SW.sample(2048, seed=0)
+    np.testing.assert_allclose(SW.log_weight(th, 2048), EdgeMixture().log_weight(th))

@@ -279,6 +279,62 @@ class EdgeMixture:
         return out
 
 
+#: RESULTS.md 32.2: the concentrated region widened so it covers where PSID
+#: households sit once R_gamma is free (85-87% of household posterior means,
+#: against 39-67% for the original region).
+EDGE_WIDENED = dict(beta_lo=0.60, one_minus_delta_hi=0.08, crra_lo=3.0)
+
+
+@dataclass(frozen=True)
+class SwitchedProposal:
+    """Two EdgeMixtures in sequence: the original for the first ``n_first``
+    draws (the R_gamma pilot, already generated), the widened one after.
+
+    The pilot's draws are kept, not regenerated (RESULTS.md 32.2). Draws
+    ``[0, n_first)`` reproduce ``EdgeMixture().sample`` exactly; draws from
+    ``n_first`` on are ``EdgeMixture(**EDGE_WIDENED).sample`` with their own
+    seed.
+
+    **Weights depend on the training-set size.** A network trained on the first
+    ``n`` draws learns the posterior under their empirical theta density,
+    ``(n1/n) q1 + (1 - n1/n) q2`` with ``n1 = min(n, n_first)``, so
+    :meth:`log_weight` takes ``n``. Both parts are half uniform, so every weight
+    stays in (0, 2].
+    """
+
+    n_first: int = 4096
+    second_seed_offset: int = 10
+
+    @property
+    def first(self) -> EdgeMixture:
+        return EdgeMixture()
+
+    @property
+    def second(self) -> EdgeMixture:
+        return EdgeMixture(**EDGE_WIDENED)
+
+    def sample(self, n: int, seed: int = 0) -> np.ndarray:
+        n1 = min(n, self.n_first)
+        # EdgeMixture.sample is prefix-stable, so sample(n1) is exactly the
+        # first n1 draws the pilot generated with sample(n_first).
+        parts = [self.first.sample(self.n_first, seed=seed)[:n1]]
+        if n > n1:
+            parts.append(self.second.sample(n - n1, seed=seed + self.second_seed_offset))
+        return np.concatenate(parts)
+
+    def log_weight(self, theta, n: int) -> np.ndarray:
+        """``log p(theta) - log q_n(theta)`` for a network trained on the first
+        ``n`` draws. Only (beta, delta, rho) matter; a 4th column is ignored."""
+        th = np.asarray(theta, dtype=float)[:, :3]
+        f1 = min(n, self.n_first) / n
+        pu = self.first._uniform_density()
+
+        def dens(m: EdgeMixture) -> np.ndarray:
+            return (1.0 - m.frac) * pu + m.frac * m._concentrated_density(th)
+
+        return np.log(pu) - np.log(f1 * dens(self.first) + (1 - f1) * dens(self.second))
+
+
 def make_sbi_prior(box: PriorBox = PriorBox(),
                    device: str = "cpu") -> "BoxUniform":
     """Return an sbi-compatible ``BoxUniform`` prior on the same ``box``.

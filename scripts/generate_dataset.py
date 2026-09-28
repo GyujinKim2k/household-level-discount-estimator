@@ -98,6 +98,9 @@ def _check_config(shard_dir: Path, cfg: dict, log_fn) -> None:
         marker.write_text(json.dumps(cfg, indent=2, sort_keys=True))
         return
     old = json.loads(marker.read_text())
+    # Keys starting with "_" are documentation (e.g. a note recording a
+    # deliberate, verified change), not settings, and are not compared.
+    old = {k: v for k, v in old.items() if not k.startswith("_")}
     if old == cfg:
         return
     diff = {k: (old.get(k), cfg.get(k)) for k in set(old) | set(cfg)
@@ -287,7 +290,8 @@ def main() -> None:
                              "equal draws per group support a separate per-group "
                              "model, and a representative result is recovered by "
                              "reweighting.")
-    parser.add_argument("--proposal", choices=["uniform", "edge_mixture"],
+    parser.add_argument("--proposal",
+                        choices=["uniform", "edge_mixture", "edge_mixture_switched"],
                         default="uniform",
                         help="How theta is drawn for training. 'uniform' is the "
                              "prior itself (every run before RESULTS 30). "
@@ -295,7 +299,11 @@ def main() -> None:
                              "half the draws near the upper edges where PSID "
                              "households sit; inference must then reweight by "
                              "EdgeMixture.log_weight to keep the uniform prior. "
-                             "Theta is stored in every shard either way.")
+                             "Theta is stored in every shard either way. "
+                             "'edge_mixture_switched' (SwitchedProposal) keeps the "
+                             "first 4,096 edge_mixture draws -- the R_gamma pilot "
+                             "-- and draws the rest from the widened region "
+                             "(RESULTS 32.2).")
     parser.add_argument("--rgamma_range", type=float, nargs=2, default=None,
                         metavar=("LOW", "HIGH"),
                         help="Estimate the illiquid return R_gamma as a 4th "
@@ -326,6 +334,9 @@ def main() -> None:
     if args.proposal == "edge_mixture":
         from hh_npe.npe.prior import EdgeMixture
         theta_np = EdgeMixture(box=box).sample(args.n_samples, seed=args.seed)
+    elif args.proposal == "edge_mixture_switched":
+        from hh_npe.npe.prior import SwitchedProposal
+        theta_np = SwitchedProposal().sample(args.n_samples, seed=args.seed)
     else:
         theta_np = sample_sobol(args.n_samples, box, seed=args.seed)
     # Drawn once, from the run seed, so it is identical on every resume: a

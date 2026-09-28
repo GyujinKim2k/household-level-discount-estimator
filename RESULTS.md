@@ -3771,3 +3771,48 @@ columns, R_gamma constant within blocks and inside the range.
 **Recommendation: continue.** The pilot's 8 shards are the first 4,096 draws of
 the full run; `run_optionA_generation.sh` runs the SBC simulations (~3.5 h),
 then resumes generation to 32,768 draws (~4.1 more GPU-days).
+
+### 32.2 The concentrated region, re-aimed with R_gamma free
+
+The edge mixture's concentrated half (§30.2) was aimed at where PSID households
+sat with R_gamma fixed. With R_gamma free they may move, so the pilot's
+four-parameter model was applied to PSID (importance-weighted to the uniform
+prior; `rgamma_pilot.py --psid_check`):
+
+```
+                               pilot (R_gamma free)   3-param headline
+median beta / delta / rho      0.753 0.976 4.56        0.852 0.992 4.50
+households beta >= 0.75            51%                     80%
+households delta >= 0.95           77%                     90%
+households rho >= 3.5              89%                     91%
+```
+
+ρ does not move. β and δ move down — partly real (a free return can carry some
+of what patience carried), partly the pilot's shrinkage toward the prior centre
+at 4,096 draws. Per household, PSID says little about R_gamma yet: posterior sd
+0.0127 against the prior's 0.0144.
+
+```
+concentrated region                        prior volume   households inside (pilot / 3-param)
+beta >= 0.75, delta >= 0.95, rho >= 3.5         4.0%              39% / 67%
+beta >= 0.60, delta >= 0.92, rho >= 3.0        13.5%              85% / 87%
+```
+
+**Widened.** Still 50/50: the widened region is ~4x denser than uniform instead of
+~13x, but covers 85-87% of households instead of 39-67%. The δ edge fix survives
+— within the region δ is log-uniform, and 45% of its δ draws still land above
+0.998 (48% before).
+
+**The pilot draws are kept.** `SwitchedProposal`: the original mixture for draws
+0-4,095, the widened one after. Verified against all 8 pilot shards (θ including
+R_gamma, and the card type, reproduced exactly). Inference weights use the
+empirical mix of the draws actually trained on, so `log_weight` takes the
+training-set size; both parts are half uniform, so every weight stays in (0, 2]
+(tested at n = 4,096, 20,000 and 32,768, recovering the uniform prior's moments).
+The run's recorded config now names the switched proposal, with a `_note`
+recording why; the resume check ignores `_`-prefixed documentation keys and was
+dry-run against the real configuration.
+
+The widened part holds 28,672 draws, not a power of two, so Sobol's strict
+balance guarantee is weakened slightly (a 36,864-draw run would restore it, at
+~14 more GPU-hours; not needed).

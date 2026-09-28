@@ -6,10 +6,12 @@
 # Two stages, chained as in Phase 4:
 #   1. SBC simulations (~3.5 h): 1000 draws, same generative process (comphs,
 #      card types 50/50). Runs first so a defect costs hours, not days.
-#   2. Generation (~4.7 days): 32,768 draws from the edge-mixture proposal
-#      (RESULTS 30; half uniform, half near the upper edges), M = 16
-#      households each, card type drawn 50/50 per draw and stored as `card`,
-#      theta stored per draw. Measured 12.4 s per
+#   2. Generation (~4.1 more days): resumes from the 4,096-draw R_gamma pilot
+#      to 32,768 draws. Proposal: SwitchedProposal -- the pilot's edge mixture
+#      for draws 0-4,095, the widened region after (RESULTS 30, 32.2); half
+#      uniform, half concentrated. R_gamma on [1.025, 1.075] and the card type
+#      drawn per block of 16 (RESULTS 32). M = 16 households per draw; theta,
+#      card and full annual panels stored per draw. Measured 12.4 s per
 #      draw on the V100 (32-draw smoke test, 2026-09-27).
 #
 # Uses the RESULTS 25-fixed solvers, so each draw's credit line reaches the
@@ -47,7 +49,7 @@ echo "$(date -u '+%F %T UTC') stage 2/2: generation (32768 draws, M=16, card typ
 PYTHONPATH=. .venv/bin/python scripts/generate_dataset.py \
     --simulator twoasset --grid full --device cuda \
     --n_samples 32768 --block 512 --theta_batch 16 --chunk 16 \
-    --n_households 16 --card_types --proposal edge_mixture \
+    --n_households 16 --card_types --proposal edge_mixture_switched \
     --rgamma_range 1.025 1.075 \
     --n_waves 7 --wave_years 2 --start_age 30 --seed 0 \
     --out "$OUT" >> logs/optionA_generation.log 2>&1

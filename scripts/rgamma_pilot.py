@@ -143,8 +143,69 @@ def main() -> None:
     ap.add_argument("--n_heldout", type=int, default=1024)
     ap.add_argument("--n_post", type=int, default=500)
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--psid_check", action="store_true",
+                    help="Where PSID households land with R_gamma free, against "
+                         "the edge mixture's concentrated region (RESULTS 32.2).")
     a = ap.parse_args()
-    report() if a.report else train(a.seed, a.shards, a.n_heldout, a.n_post)
+    if a.psid_check:
+        psid_check()
+    elif a.report:
+        report()
+    else:
+        train(a.seed, a.shards, a.n_heldout, a.n_post)
+
+
+
+def psid_check(n_draws: int = 400) -> None:
+    """Where do PSID households land when R_gamma is free (RESULTS 32.2)?
+
+    The edge mixture's concentrated half (beta 0.75-1, 1-delta in [1e-4, 0.05],
+    rho 3.5-5) was aimed at where PSID posteriors sat with R_gamma fixed. This
+    applies the pilot's four-parameter model to PSID and measures posterior
+    mass inside that region. Draws are importance-weighted by
+    EdgeMixture.log_weight, so the result reflects the uniform prior.
+    """
+    from hh_npe.npe.prior import EdgeMixture
+    from hh_npe.npe.train import load_posterior
+    from hh_npe.simulator.laibson_calibration import EDUC_GROUPS
+
+    d = torch.load("data/processed/psid_x_educ_rental.pt", weights_only=False)
+    x = d["x"][d["educ"] == EDUC_GROUPS.index("comphs")].float()
+    x, feats = mean_income_channel(x, FEATURES_TWOASSET_AGE)
+    x = anchor_log(x, feats)
+    posts = [load_posterior(f)["posterior"] for f in sorted(OUT.glob("s*/posterior.pt"))]
+    dev = next(posts[0].posterior_estimator.parameters()).device
+    box, mix = log1m_box(PHASE3_RGAMMA), EdgeMixture()
+    lo, hi = box.low, box.high
+    means, in_region, rg_sd = [], [], []
+    torch.manual_seed(0)
+    with torch.no_grad():
+        for b0 in range(0, len(x), 256):
+            xb = x[b0:b0 + 256].to(dev)
+            s = torch.cat([p.posterior_estimator.sample((n_draws,), condition=xb)
+                           for p in posts]).cpu().numpy()          # (S, B, 4)
+            for j in range(s.shape[1]):
+                k = s[:, j][((s[:, j] >= lo) & (s[:, j] <= hi)).all(1)]
+                k = from_log1m(k, PHASE3_RGAMMA)
+                w = np.exp(mix.log_weight(k)); w /= w.sum()
+                means.append((w[:, None] * k).sum(0))
+                in_region.append(float((w * (mix._concentrated_density(k[:, :3]) > 0)).sum()))
+                rg_sd.append(float(np.sqrt((w * (k[:, 3] - means[-1][3]) ** 2).sum())))
+    m, r = np.array(means), np.array(in_region)
+    print(f"{len(posts)} pilot members, {len(m)} comphs households (importance-weighted)")
+    print(f"median posterior mean  beta {np.median(m[:,0]):.3f}  delta {np.median(m[:,1]):.4f}  "
+          f"rho {np.median(m[:,2]):.3f}  R_gamma {np.median(m[:,3]):.4f}")
+    print(f"R_gamma: posterior-mean spread across households {m[:,3].std():.4f}; "
+          f"median posterior sd {np.median(rg_sd):.4f} (prior sd {0.05/np.sqrt(12):.4f})")
+    print(f"posterior mass inside the concentrated region: median {np.median(r):.2f}, "
+          f"share of households with >50% inside {np.mean(r > 0.5):.1%}")
+    print("share of household posterior means inside each band of the region:")
+    print(f"  beta >= 0.75: {np.mean(m[:,0] >= 0.75):.1%}   1-delta <= 0.05: "
+          f"{np.mean(1 - m[:,1] <= 0.05):.1%}   rho >= 3.5: {np.mean(m[:,2] >= 3.5):.1%}")
+    for q in (10, 25, 50, 75, 90):
+        print(f"  rho p{q}: {np.percentile(m[:,2], q):.2f}", end="")
+    print()
+    np.savez(OUT / "psid_check.npz", mean=m, in_region=r)
 
 
 if __name__ == "__main__":
