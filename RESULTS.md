@@ -3699,3 +3699,43 @@ answer comes from the joint model, where 83% of households' intervals exclude
   pushes β toward 1. The panel is consistent with either high risk aversion and
   mild present bias (the joint estimate) or low risk aversion and almost none —
   never with Laibson et al.'s strong present bias at their ρ.
+
+---
+
+## 32. R_gamma as a fourth estimated parameter — pilot
+
+**Proposed 2026-09-28; pilot running.** The illiquid return R_gamma, fixed at
+1.05 so far, estimated per household on [1.025, 1.075] (above R_free = 1.0203,
+below which the illiquid asset is dominated, §18).
+
+**Why per block, not per draw.** The GPU solver's main efficiency is computing
+each state's consumption options once and sharing them across the 16 draws
+solved together; the illiquid dividend `(R_gamma - 1) Z` is part of that shared
+tensor. Per-draw R_gamma would break the sharing (16x the largest array). So
+R_gamma is drawn per block of 16 consecutive draws from its own Sobol stream,
+and the card type per block too, keeping every batch full: **no extra GPU time
+per draw**, and 2,048 distinct R_gamma values over 32,768 draws.
+
+**Cost.** 12.4 s per draw regardless. A fourth parameter needs more draws for
+the same per-parameter precision: ~32,768 (4.7 GPU-days, somewhat worse than the
+three-parameter plan), ~49,152 (7.0), ~65,536 (9.4).
+
+**The real risk is identification.** Patience and the return enter the Euler
+equation roughly as δ·R_gamma; only the liquid/illiquid split separates them.
+The ρ-conditioned test (§31.3) showed a confounded parameter can cost a lot
+(β recovery 0.88 with ρ known, 0.79 with ρ estimated).
+
+**Pilot.** The first 4,096 draws of the full run (~14 h), written into the final
+shard directory with the final flags — the samplers are prefix-stable (tested),
+so the full run continues from them. A four-parameter model (adopted
+configuration) then reports held-out recovery of all four parameters and the
+correlation between δ and R_gamma estimation errors (`scripts/rgamma_pilot.py`).
+If R_gamma recovers, continue to the full size; if not, drop it and restart
+with the three-parameter design, losing only the pilot.
+
+**Implemented:** `PriorBox` gains optional `rgamma_low/high` (appended last, so
+β/δ/ρ columns are unchanged; `PHASE3_RGAMMA`); `generate_dataset.py
+--rgamma_range`; per-draw `r_gamma` in the GPU dispatch (a draw at 1.05 is
+bit-identical to the old default; a higher return raises illiquid holdings);
+SBC simulations with per-block R_gamma. **Pending:** the SBC smoke test waits
+for the GPU (the pilot holds 15.4 of 16 GB).

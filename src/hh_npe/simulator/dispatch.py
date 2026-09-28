@@ -70,6 +70,7 @@ def simulate_batch_twoasset_gpu(
     wave_years: int, grid: str = "full", theta_batch: int = 16, chunk: int = 16,
     return_panels: bool = False, n_households: int = 1,
     educ: np.ndarray | None = None, card: np.ndarray | None = None,
+    r_gamma: np.ndarray | None = None,
 ) -> tuple[np.ndarray, ...]:
     """Phase 3 on the GPU: many draws per backward induction, one panel each.
 
@@ -107,6 +108,11 @@ def simulate_batch_twoasset_gpu(
     (RESULTS.md 24.1, 26). Draws are grouped by (education, card) pair, for the
     same reason as by education alone.
 
+    ``r_gamma`` gives each draw its own illiquid return (RESULTS.md 32). The
+    solver shares one consumption tensor across a batch, so draws are grouped
+    by R_gamma value too; generation assigns it per block of theta_batch draws
+    so each group is exactly one full batch. ``thetas`` stays (beta, delta, rho).
+
     The forward pass and wave aggregation stay on the CPU and are shared with
     :func:`simulate_one_twoasset` verbatim; only the solver differs.
     """
@@ -126,6 +132,10 @@ def simulate_batch_twoasset_gpu(
     if card is not None and len(card) != len(thetas):
         raise ValueError(
             f"card has {len(card)} entries for {len(thetas)} thetas")
+    if r_gamma is not None and len(r_gamma) != len(thetas):
+        raise ValueError(
+            f"r_gamma has {len(r_gamma)} entries for {len(thetas)} thetas")
+    thetas = np.asarray(thetas)[:, :3]
 
     # Consume each sub-batch before solving the next: a Solution holds ~58 MB of
     # policy arrays, so accumulating a whole large block would exhaust host RAM.
@@ -138,17 +148,24 @@ def simulate_batch_twoasset_gpu(
     panels: list[dict | None] = [None] * n
     e_arr = np.zeros(n, int) if educ is None else np.asarray(educ, int)
     c_arr = np.ones(n, int) if card is None else np.asarray(card, int)
-    groups = {(g, c): np.flatnonzero((e_arr == g) & (c_arr == c))
-              for g in np.unique(e_arr) for c in np.unique(c_arr)}
-    groups = {k: v for k, v in groups.items() if len(v)}
+    r_arr = (np.full(n, np.nan) if r_gamma is None
+             else np.asarray(r_gamma, dtype=float))
+    groups: dict = {}
+    for j in range(n):
+        key = (int(e_arr[j]), int(c_arr[j]),
+               None if np.isnan(r_arr[j]) else float(r_arr[j]))
+        groups.setdefault(key, []).append(j)
+    groups = {k: np.array(v) for k, v in groups.items()}
 
-    for (g, c), idx in groups.items():
+    for (g, c, rg), idx in groups.items():
         # educ=None keeps GRIDS[grid]'s own calibration, exactly as before.
         calib = GRIDS[grid].calib if educ is None else cal.bundle(int(g))
         if c == 0:
             calib = dataclasses.replace(calib, c0_credit=0.0, c1_credit=0.0,
                                         c2_credit=0.0)
         spec = dataclasses.replace(GRIDS[grid], calib=calib)
+        if rg is not None:
+            spec = dataclasses.replace(spec, R_gamma=rg)
         for s0 in range(0, len(idx), theta_batch):
             sel = idx[s0:s0 + theta_batch]
             sols = solve_batch(thetas[sel], spec,

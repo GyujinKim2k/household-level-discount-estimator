@@ -82,7 +82,8 @@ def _solver_config(args) -> dict:
            "wave_years": args.wave_years, "seed": args.seed,
            "store_panel": _stores_panel(args),
            "n_households": args.n_households, "educ": args.educ,
-           "card_types": args.card_types, "proposal": args.proposal}
+           "card_types": args.card_types, "proposal": args.proposal,
+           "rgamma_range": args.rgamma_range}
     if args.device == "cuda":
         import torch
         cfg |= {"theta_batch": args.theta_batch, "chunk": args.chunk,
@@ -108,6 +109,33 @@ def _check_config(shard_dir: Path, cfg: dict, log_fn) -> None:
         + "\nMove the directory aside to start a fresh dataset, or restore the "
           "original settings to continue this one."
     )
+
+
+def _per_block_rgamma(theta_np, card_np, args):
+    """Append R_gamma as a 4th column, one value per block of theta_batch draws.
+
+    Blocks get values from their own scrambled Sobol stream (seed + 2), so the
+    R_gamma marginal is uniform on the range and any prefix of blocks is
+    balanced -- a pilot of the first N draws is exactly the start of the full
+    run. The card type, if drawn, is re-drawn per block the same way (seed + 1),
+    because a batch must share one calibration to stay full.
+    """
+    from scipy.stats import qmc
+
+    tb = args.theta_batch
+    if args.block % tb:
+        raise SystemExit(f"--block ({args.block}) must be a multiple of "
+                         f"--theta_batch ({tb}) so R_gamma blocks never straddle "
+                         f"a shard")
+    n_blocks = -(-args.n_samples // tb)
+    lo, hi = args.rgamma_range
+    u = qmc.Sobol(d=1, scramble=True, seed=args.seed + 2).random(
+        1 << int(np.ceil(np.log2(max(n_blocks, 2)))))[:n_blocks, 0]
+    rg = np.repeat(lo + u * (hi - lo), tb)[: args.n_samples]
+    if card_np is not None:
+        card_np = np.repeat(np.random.default_rng(args.seed + 1).integers(
+            0, 2, size=n_blocks), tb)[: args.n_samples]
+    return np.column_stack([theta_np, rg]), card_np
 
 
 def assemble(out: Path, theta_np: np.ndarray, log_fn, window: dict | None = None) -> bool:
@@ -268,6 +296,15 @@ def main() -> None:
                              "households sit; inference must then reweight by "
                              "EdgeMixture.log_weight to keep the uniform prior. "
                              "Theta is stored in every shard either way.")
+    parser.add_argument("--rgamma_range", type=float, nargs=2, default=None,
+                        metavar=("LOW", "HIGH"),
+                        help="Estimate the illiquid return R_gamma as a 4th "
+                             "parameter, uniform on [LOW, HIGH] (RESULTS 32). "
+                             "Drawn per BLOCK of --theta_batch consecutive draws, "
+                             "not per draw: the GPU solver shares its consumption "
+                             "tensor across a batch, which requires one R_gamma "
+                             "per batch. With --card_types the card type is also "
+                             "drawn per block, so every batch stays full.")
     parser.add_argument("--card_types", action="store_true",
                         help="Draw a card-access type per Sobol draw, 50/50: "
                              "cardholder (the bundle's credit line) or no card "
@@ -301,6 +338,8 @@ def main() -> None:
     # draws of the same seed unchanged.
     card_np = (np.random.default_rng(args.seed + 1).integers(
                    0, 2, size=args.n_samples) if args.card_types else None)
+    if args.rgamma_range is not None:
+        theta_np, card_np = _per_block_rgamma(theta_np, card_np, args)
     window = {"start_age": args.start_age, "n_waves": args.n_waves,
               "wave_years": args.wave_years}
 
@@ -367,6 +406,7 @@ def main() -> None:
                 args.chunk, store_panel, args.n_households,
                 None if educ_np is None else educ_np[lo:hi],
                 None if card_np is None else card_np[lo:hi],
+                None if args.rgamma_range is None else theta_np[lo:hi, 3],
             )
             xb, ab = out_batch[0], out_batch[1]
             if store_panel:

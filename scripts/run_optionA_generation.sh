@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 from scripts.compare_windows import simulate_sbc_once
 cfg = {"grid": "full", "theta_batch": 16, "chunk": 16, "device": "cuda"}
 simulate_sbc_once(1000, 20260822, cfg, cache=Path("outputs/optionA/sbc_sims.pt"),
-                  educ="comphs", card_types=True)
+                  educ="comphs", card_types=True, rgamma_range=(1.025, 1.075))
 print("SBC simulations complete")
 PY
 rc=$?
@@ -48,6 +48,7 @@ PYTHONPATH=. .venv/bin/python scripts/generate_dataset.py \
     --simulator twoasset --grid full --device cuda \
     --n_samples 32768 --block 512 --theta_batch 16 --chunk 16 \
     --n_households 16 --card_types --proposal edge_mixture \
+    --rgamma_range 1.025 1.075 \
     --n_waves 7 --wave_years 2 --start_age 30 --seed 0 \
     --out "$OUT" >> logs/optionA_generation.log 2>&1
 echo "$(date -u '+%F %T UTC') stage 2 exited rc=$?"

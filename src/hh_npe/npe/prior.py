@@ -32,6 +32,10 @@ class PriorBox:
     adds ``beta`` as a third estimated parameter and puts it **first**, matching
     Laibson et al.'s ``prefs`` ordering ``[beta delta rho]``.
 
+    Setting ``rgamma_low``/``rgamma_high`` adds the illiquid return ``R_gamma``
+    as a further estimated parameter, placed **last** so every existing column
+    index (beta 0, delta 1, rho 2) is unchanged (RESULTS.md 32).
+
     Pinned values match SIMULATOR_SPEC.md.
     """
 
@@ -41,6 +45,8 @@ class PriorBox:
     crra_high: float = 5.0
     beta_low: float | None = None
     beta_high: float | None = None
+    rgamma_low: float | None = None
+    rgamma_high: float | None = None
 
     def __post_init__(self) -> None:
         if (self.beta_low is None) != (self.beta_high is None):
@@ -48,6 +54,9 @@ class PriorBox:
                 "beta_low and beta_high must both be set or both be None; got "
                 f"{self.beta_low} and {self.beta_high}"
             )
+        if (self.rgamma_low is None) != (self.rgamma_high is None):
+            raise ValueError("rgamma_low and rgamma_high must both be set or "
+                             "both be None")
         for lo, hi, name in zip(self.low, self.high, self.names):
             if not lo < hi:
                 raise ValueError(f"{name}: need low < high, got {lo} >= {hi}")
@@ -57,18 +66,25 @@ class PriorBox:
         return self.beta_low is not None
 
     @property
+    def estimates_rgamma(self) -> bool:
+        return self.rgamma_low is not None
+
+    @property
     def low(self) -> np.ndarray:
         base = [self.delta_low, self.crra_low]
-        return np.array(([self.beta_low] if self.estimates_beta else []) + base)
+        return np.array(([self.beta_low] if self.estimates_beta else []) + base
+                        + ([self.rgamma_low] if self.estimates_rgamma else []))
 
     @property
     def high(self) -> np.ndarray:
         base = [self.delta_high, self.crra_high]
-        return np.array(([self.beta_high] if self.estimates_beta else []) + base)
+        return np.array(([self.beta_high] if self.estimates_beta else []) + base
+                        + ([self.rgamma_high] if self.estimates_rgamma else []))
 
     @property
     def names(self) -> tuple[str, ...]:
-        return (("beta",) if self.estimates_beta else ()) + ("delta", "crra")
+        return ((("beta",) if self.estimates_beta else ()) + ("delta", "crra")
+                + (("R_gamma",) if self.estimates_rgamma else ()))
 
     @property
     def n_params(self) -> int:
@@ -77,6 +93,12 @@ class PriorBox:
 
 #: Phase 3 prior: present bias unlocked (configs/npe/phase3.yaml).
 PHASE3 = PriorBox(beta_low=0.30, beta_high=1.00)
+
+#: RESULTS.md 32: the illiquid return estimated as a fourth parameter. The lower
+#: bound sits above R_free = 1.0203 -- below it the illiquid asset is dominated
+#: and never held (§18) -- and the range brackets Laibson et al.'s 1.05.
+PHASE3_RGAMMA = PriorBox(beta_low=0.30, beta_high=1.00,
+                         rgamma_low=1.025, rgamma_high=1.075)
 
 
 #: ``delta = 1`` is unreachable under the log transform below, so the
@@ -138,7 +160,8 @@ def log1m_box(box: PriorBox = PHASE3) -> PriorBox:
     return PriorBox(beta_low=box.beta_low, beta_high=box.beta_high,
                     delta_low=float(np.log(LOG1M_EPS)),
                     delta_high=float(np.log(1.0 - box.delta_low)),
-                    crra_low=box.crra_low, crra_high=box.crra_high)
+                    crra_low=box.crra_low, crra_high=box.crra_high,
+                    rgamma_low=box.rgamma_low, rgamma_high=box.rgamma_high)
 
 
 def sample_sobol(
@@ -192,6 +215,10 @@ class EdgeMixture:
             object.__setattr__(self, "box", PHASE3)
         if not self.box.estimates_beta:
             raise ValueError("EdgeMixture is defined for the (beta, delta, rho) box")
+        if self.box.estimates_rgamma:
+            raise ValueError("EdgeMixture samples (beta, delta, rho) only; R_gamma "
+                             "is drawn per block by the generator (RESULTS 32). "
+                             "Pass the 3-parameter box.")
         if not 0.0 < self.frac < 1.0:
             raise ValueError(f"frac must be in (0, 1); got {self.frac}")
 
@@ -217,7 +244,9 @@ class EdgeMixture:
     def log_weight(self, theta) -> np.ndarray:
         """``log p(theta) - log p~(theta)``: the importance weight restoring the
         uniform prior. Bounded above by ``log(1 / (1 - frac))``."""
-        th = np.asarray(theta, dtype=float)
+        # Only (beta, delta, rho) differ between proposal and prior. A 4th
+        # column (R_gamma, RESULTS 32) is uniform under both, so its ratio is 1.
+        th = np.asarray(theta, dtype=float)[:, :3]
         pu = self._uniform_density()
         mix = (1.0 - self.frac) * pu + self.frac * self._concentrated_density(th)
         return np.log(pu) - np.log(mix)

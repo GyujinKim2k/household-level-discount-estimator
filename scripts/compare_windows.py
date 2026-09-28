@@ -291,7 +291,8 @@ def split_shards(shard_files: list[Path], train_n: int):
 
 def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
                       cache: Path | None = None, educ: str = "comphs",
-                      card_types: bool = False):
+                      card_types: bool = False,
+                      rgamma_range: tuple[float, float] | None = None):
     """One GPU pass; the panels are re-windowed per window afterwards.
 
     Cached to disk because this is hours of GPU and everything downstream is
@@ -309,13 +310,23 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
     --card_types``): 50/50 cardholder / no card, from its own stream
     (seed + 1). Also part of the cache key. The per-draw type is stored in the
     cache as ``card_idx`` (1 = cardholder).
+
+    ``rgamma_range`` adds R_gamma as a fourth parameter (RESULTS.md 32), uniform
+    on the range, drawn per block of ``theta_batch`` draws exactly as generation
+    does -- the solver needs one R_gamma per batch -- with the card type then
+    also per block. Returned thetas have four columns. Draws within a block share
+    R_gamma, so the R_gamma rank test has ~n_sbc / theta_batch independent
+    values; its coverage estimate is unaffected, its KS p-value optimistic.
     """
     if cache is not None and cache.exists():
         d = torch.load(cache, weights_only=False)
         cached_educ = d.get("educ", "comphs")
         cached_card = d.get("card_types", False)
+        cached_rg = d.get("rgamma_range")
         if (d["n_sbc"] == n_sbc and d["seed"] == seed and cached_educ == educ
-                and cached_card == card_types):
+                and cached_card == card_types
+                and (None if cached_rg is None else tuple(cached_rg))
+                == (None if rgamma_range is None else tuple(rgamma_range))):
             log.info(f"Reusing {n_sbc} cached SBC simulations from {cache}")
             return d["thetas"], d["panels"], d.get("educ_idx")
         log.warning(f"{cache} holds n_sbc={d['n_sbc']} seed={d['seed']} "
@@ -330,6 +341,16 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
                     0, len(cal.EDUC_GROUPS), size=n_sbc))
     card_idx = (np.random.default_rng(seed + 1).integers(0, 2, size=n_sbc)
                 if card_types else None)
+    r_gamma = None
+    if rgamma_range is not None:
+        tb = int(solver_config["theta_batch"])
+        n_blocks = -(-n_sbc // tb)
+        rng = np.random.default_rng(seed + 2)
+        lo, hi = rgamma_range
+        r_gamma = np.repeat(rng.uniform(lo, hi, size=n_blocks), tb)[:n_sbc]
+        if card_types:
+            card_idx = np.repeat(np.random.default_rng(seed + 1).integers(
+                0, 2, size=n_blocks), tb)[:n_sbc]
     t0 = time.time()
     # n_waves here only sizes the throwaway `x`; the panels are what we keep,
     # and they get windowed per arm afterwards.
@@ -338,15 +359,18 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
         grid=solver_config.get("grid", "full"),
         theta_batch=solver_config["theta_batch"],
         chunk=solver_config["chunk"],
-        return_panels=True, educ=educ_idx, card=card_idx,
+        return_panels=True, educ=educ_idx, card=card_idx, r_gamma=r_gamma,
     )
+    if r_gamma is not None:
+        thetas = torch.cat([thetas, torch.as_tensor(r_gamma, dtype=thetas.dtype)[:, None]], 1)
     log.info(f"SBC simulations done in {(time.time() - t0) / 3600:.2f} h")
     if cache is not None:
         cache.parent.mkdir(parents=True, exist_ok=True)
         torch.save({"thetas": thetas, "panels": panels, "n_sbc": n_sbc,
                     "seed": seed, "solver_config": solver_config,
                     "educ": educ, "educ_idx": educ_idx,
-                    "card_types": card_types, "card_idx": card_idx}, cache)
+                    "card_types": card_types, "card_idx": card_idx,
+                    "rgamma_range": rgamma_range}, cache)
         log.info(f"Cached SBC simulations to {cache}")
     return thetas, panels, educ_idx
 
