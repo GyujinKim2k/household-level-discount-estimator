@@ -43,6 +43,12 @@ def main() -> None:
     ap.add_argument("--x", type=Path,
                     default=Path("data/processed/psid_x_educ_rental.pt"))
     ap.add_argument("--n_draws", type=int, default=1000)
+    ap.add_argument("--household", type=int, default=None,
+                    help="Plot this household index instead of re-picking the "
+                         "typical one -- to show the SAME household under two "
+                         "data versions (e.g. with and without pensions).")
+    ap.add_argument("--data_label", default=None,
+                    help="Extra title text naming the data version.")
     ap.add_argument("--linear_delta", action="store_true",
                     help="The models were trained on delta itself, not "
                          "log(1 - delta).")
@@ -66,7 +72,7 @@ def main() -> None:
     prior_sd = (PHASE3.high - PHASE3.low) / np.sqrt(12)
     dist = np.sqrt((((m - med) / prior_sd) ** 2).sum(1))
     dist[~ok] = np.inf
-    pick = int(np.argmin(dist))
+    pick = int(np.argmin(dist)) if args.household is None else args.household
 
     d = torch.load(args.x, weights_only=False)
     x = d["x"][d["educ"] == EDUC_GROUPS.index("comphs")].float()
@@ -86,7 +92,9 @@ def main() -> None:
 
     feats = list(d["features"])
     age = x[pick, :, feats.index("age")].int().tolist()
-    print(f"household #{pick} of {len(x)} (typical: nearest the population median)")
+    how = ("typical: nearest the population median" if args.household is None
+           else "chosen by index")
+    print(f"household #{pick} of {len(x)} ({how})")
     print(f"  ages {age[0]}-{age[-1]}")
     for f in ("income", "consumption", "liquid_assets", "illiquid_assets"):
         v = x[pick, :, feats.index(f)].numpy()
@@ -106,9 +114,9 @@ def main() -> None:
         bands={"meta-analytic range (lit.)": META},
         reflect_axes=("delta",),
         path=args.out,
-        title=f"One real PSID comphs household (typical: nearest the median), "
-              f"ages {age[0]}-{age[-1]}\n{args.model_label}; no true θ "
-              "exists for real data",
+        title=(f"One real PSID comphs household (#{pick}), ages {age[0]}-{age[-1]}"
+               + (f", {args.data_label}" if args.data_label else "")
+               + f"\n{args.model_label}; no true θ exists for real data"),
     )
     np.savez(args.out.with_suffix(".npz"), draws=s, estimate=est, pick=pick)
     print(f"wrote {args.out}")
