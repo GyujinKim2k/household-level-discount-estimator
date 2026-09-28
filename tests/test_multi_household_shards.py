@@ -134,3 +134,19 @@ def test_education_index_is_stored_per_draw(tmp_path):
     np.testing.assert_array_equal(d["educ"], educ)
     assert len(d["educ"]) == int(d["hi"]) - int(d["lo"])
     assert int(d["n_households"]) == 4
+
+
+def test_stored_theta_must_match_the_theta_passed_in(tmp_path):
+    """RESULTS 30: shards now store theta. A caller re-deriving theta from the
+    wrong sampler would pair every simulation with the wrong parameters; the
+    guard must refuse rather than train on it."""
+    p = tmp_path / "shard_00000.npz"
+    _write_shard(p, 0, N_DRAWS, 2)
+    theta = np.random.default_rng(7).random((N_DRAWS, 3))
+    d = dict(np.load(p)); d["theta"] = theta
+    np.savez(p, **d)
+    build_windowed([p], theta, k=1, n_waves=7, fixed_start=30,
+                   features=FEATURES_TWOASSET_AGE)            # matching: fine
+    with pytest.raises(SystemExit, match="does not match"):
+        build_windowed([p], theta + 0.01, k=1, n_waves=7, fixed_start=30,
+                       features=FEATURES_TWOASSET_AGE)

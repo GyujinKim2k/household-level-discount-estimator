@@ -191,6 +191,17 @@ def build_windowed(
     for sf in shard_files:
         d = np.load(sf)
         lo, hi = int(d["lo"]), int(d["hi"])
+        # Shards written since RESULTS 30 store the theta each draw was solved
+        # at. Callers still re-derive theta from a sampler; if that sampler is
+        # not the one generation used (a uniform Sobol call against an
+        # edge-mixture run, say), every simulation would be paired with the
+        # wrong theta and nothing downstream would notice. Refuse instead.
+        if "theta" in d.files and not np.allclose(
+                d["theta"], theta_all[lo:hi], rtol=0, atol=1e-9):
+            raise SystemExit(
+                f"{sf.name}: the theta passed in does not match the theta the "
+                f"shard was generated at. Use the generation's proposal (see "
+                f"its solver_config.json) or read theta from the shards.")
         panel = _panel_of(d)
         if not panel:
             raise SystemExit(

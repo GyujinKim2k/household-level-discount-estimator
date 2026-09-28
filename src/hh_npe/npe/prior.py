@@ -159,6 +159,97 @@ def sample_sobol(
     return qmc.scale(u, box.low, box.high)
 
 
+@dataclass(frozen=True)
+class EdgeMixture:
+    """Training proposal: half uniform on the prior box, half concentrated where
+    PSID households sit (RESULTS.md 30).
+
+    Under the uniform prior only 6.7% of draws have delta > 0.99 while 54% of
+    PSID households' posteriors sit there, and SBC coverage collapses at the
+    upper edges (beta >= 0.95: ~0.52; delta >= 0.98: ~0.71). The concentrated
+    component puts training draws where they are needed:
+
+    - beta uniform on ``[beta_lo, box.beta_high]``
+    - ``1 - delta`` log-uniform on ``[one_minus_delta_lo, one_minus_delta_hi]``
+    - rho uniform on ``[crra_lo, box.crra_high]``
+
+    **The inference prior stays uniform.** A network trained on draws from this
+    proposal learns ``q(theta|x) ∝ p(x|theta) p~(theta)``; posterior draws are
+    reweighted by ``p(theta) / p~(theta)`` (:meth:`log_weight`). Because half the
+    proposal IS the prior, ``p~ >= 0.5 p`` everywhere and every weight lies in
+    ``(0, 2]`` -- the correction can never blow up.
+    """
+
+    box: PriorBox = None  # type: ignore[assignment]
+    frac: float = 0.5
+    beta_lo: float = 0.75
+    one_minus_delta_lo: float = 1e-4
+    one_minus_delta_hi: float = 0.05
+    crra_lo: float = 3.5
+
+    def __post_init__(self) -> None:
+        if self.box is None:
+            object.__setattr__(self, "box", PHASE3)
+        if not self.box.estimates_beta:
+            raise ValueError("EdgeMixture is defined for the (beta, delta, rho) box")
+        if not 0.0 < self.frac < 1.0:
+            raise ValueError(f"frac must be in (0, 1); got {self.frac}")
+
+    def _uniform_density(self) -> float:
+        return float(1.0 / np.prod(self.box.high - self.box.low))
+
+    def _concentrated_density(self, theta: np.ndarray) -> np.ndarray:
+        """Density of the concentrated component at each row (0 outside it)."""
+        b, d, r = theta[:, 0], theta[:, 1], theta[:, 2]
+        omd = 1.0 - d
+        lo, hi = self.one_minus_delta_lo, self.one_minus_delta_hi
+        inside = ((b >= self.beta_lo) & (b <= self.box.beta_high)
+                  & (omd >= lo) & (omd <= hi)
+                  & (r >= self.crra_lo) & (r <= self.box.crra_high))
+        f_b = 1.0 / (self.box.beta_high - self.beta_lo)
+        f_r = 1.0 / (self.box.crra_high - self.crra_lo)
+        # delta = 1 - exp(u), u uniform on [log lo, log hi]: f(delta) =
+        # 1 / ((1 - delta) * log(hi / lo)).
+        with np.errstate(divide="ignore"):
+            f_d = 1.0 / (np.maximum(omd, 1e-300) * np.log(hi / lo))
+        return np.where(inside, f_b * f_d * f_r, 0.0)
+
+    def log_weight(self, theta) -> np.ndarray:
+        """``log p(theta) - log p~(theta)``: the importance weight restoring the
+        uniform prior. Bounded above by ``log(1 / (1 - frac))``."""
+        th = np.asarray(theta, dtype=float)
+        pu = self._uniform_density()
+        mix = (1.0 - self.frac) * pu + self.frac * self._concentrated_density(th)
+        return np.log(pu) - np.log(mix)
+
+    def sample(self, n: int, seed: int = 0) -> np.ndarray:
+        """``n`` draws, uniform and concentrated components interleaved.
+
+        Each component is its own scrambled Sobol sequence, interleaved so that
+        every even-length prefix is exactly half and half and each half keeps
+        Sobol balance. Deterministic in ``seed`` -- the draws are also stored in
+        every shard, so training never has to re-derive them.
+        """
+        i = np.arange(n)
+        # Row i is concentrated when floor((i+1)*frac) steps up: exactly
+        # floor(n*frac) such rows, spread evenly (every other row at 0.5).
+        take_c = np.floor((i + 1) * self.frac) > np.floor(i * self.frac)
+        n_c = int(take_c.sum())
+        n_u = n - n_c
+        uni = sample_sobol(n_u, self.box, seed=seed)
+        u = qmc.Sobol(d=3, scramble=True, seed=seed + 1).random(n_c)
+        con = np.column_stack([
+            self.beta_lo + u[:, 0] * (self.box.beta_high - self.beta_lo),
+            1.0 - np.exp(np.log(self.one_minus_delta_lo)
+                         + u[:, 1] * np.log(self.one_minus_delta_hi
+                                            / self.one_minus_delta_lo)),
+            self.crra_lo + u[:, 2] * (self.box.crra_high - self.crra_lo),
+        ])
+        out = np.empty((n, 3))
+        out[take_c], out[~take_c] = con, uni
+        return out
+
+
 def make_sbi_prior(box: PriorBox = PriorBox(),
                    device: str = "cpu") -> "BoxUniform":
     """Return an sbi-compatible ``BoxUniform`` prior on the same ``box``.

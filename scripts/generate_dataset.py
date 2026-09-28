@@ -82,7 +82,7 @@ def _solver_config(args) -> dict:
            "wave_years": args.wave_years, "seed": args.seed,
            "store_panel": _stores_panel(args),
            "n_households": args.n_households, "educ": args.educ,
-           "card_types": args.card_types}
+           "card_types": args.card_types, "proposal": args.proposal}
     if args.device == "cuda":
         import torch
         cfg |= {"theta_batch": args.theta_batch, "chunk": args.chunk,
@@ -259,6 +259,15 @@ def main() -> None:
                              "equal draws per group support a separate per-group "
                              "model, and a representative result is recovered by "
                              "reweighting.")
+    parser.add_argument("--proposal", choices=["uniform", "edge_mixture"],
+                        default="uniform",
+                        help="How theta is drawn for training. 'uniform' is the "
+                             "prior itself (every run before RESULTS 30). "
+                             "'edge_mixture' (hh_npe.npe.prior.EdgeMixture) puts "
+                             "half the draws near the upper edges where PSID "
+                             "households sit; inference must then reweight by "
+                             "EdgeMixture.log_weight to keep the uniform prior. "
+                             "Theta is stored in every shard either way.")
     parser.add_argument("--card_types", action="store_true",
                         help="Draw a card-access type per Sobol draw, 50/50: "
                              "cardholder (the bundle's credit line) or no card "
@@ -277,7 +286,11 @@ def main() -> None:
     out = args.out or Path(f"data/processed/{args.simulator}_dataset.pt")
     fn = SIMULATORS[args.simulator]
     store_panel = _stores_panel(args)
-    theta_np = sample_sobol(args.n_samples, box, seed=args.seed)
+    if args.proposal == "edge_mixture":
+        from hh_npe.npe.prior import EdgeMixture
+        theta_np = EdgeMixture(box=box).sample(args.n_samples, seed=args.seed)
+    else:
+        theta_np = sample_sobol(args.n_samples, box, seed=args.seed)
     # Drawn once, from the run seed, so it is identical on every resume: a
     # shard written today and one written after an interruption must describe
     # the same draw. Uniform over the three groups.
@@ -384,6 +397,11 @@ def main() -> None:
         # whole reason for drawing it. Forgetting this makes the run unusable
         # for its stated purpose.
         extra = {} if educ_np is None else {"educ": educ_np[lo:hi]}
+        # The theta each draw was solved at. Without it, a consumer that
+        # re-derives theta from the wrong sampler pairs every simulation with
+        # the wrong parameters silently (RESULTS 30); with it, build_windowed
+        # refuses the mismatch.
+        extra["theta"] = theta_np[lo:hi]
         if card_np is not None:
             # Like education: unrecoverable afterwards, and needed to condition
             # on or reweight the card type.

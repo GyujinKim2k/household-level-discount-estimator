@@ -6,8 +6,10 @@
 # Two stages, chained as in Phase 4:
 #   1. SBC simulations (~3.5 h): 1000 draws, same generative process (comphs,
 #      card types 50/50). Runs first so a defect costs hours, not days.
-#   2. Generation (~4.7 days): 32,768 Sobol draws, M = 8 households each,
-#      card type drawn 50/50 per draw and stored as `card`. Measured 12.4 s per
+#   2. Generation (~4.7 days): 32,768 draws from the edge-mixture proposal
+#      (RESULTS 30; half uniform, half near the upper edges), M = 16
+#      households each, card type drawn 50/50 per draw and stored as `card`,
+#      theta stored per draw. Measured 12.4 s per
 #      draw on the V100 (32-draw smoke test, 2026-09-27).
 #
 # Uses the RESULTS 25-fixed solvers, so each draw's credit line reaches the
@@ -41,11 +43,11 @@ if [ $rc -ne 0 ] || [ ! -f "$SBC" ]; then
 fi
 echo "$(date -u '+%F %T UTC') stage 1 done -> $SBC"
 
-echo "$(date -u '+%F %T UTC') stage 2/2: generation (32768 draws, M=8, card types)"
+echo "$(date -u '+%F %T UTC') stage 2/2: generation (32768 draws, M=16, card types, edge mixture)"
 PYTHONPATH=. .venv/bin/python scripts/generate_dataset.py \
     --simulator twoasset --grid full --device cuda \
     --n_samples 32768 --block 512 --theta_batch 16 --chunk 16 \
-    --n_households 8 --card_types \
+    --n_households 16 --card_types --proposal edge_mixture \
     --n_waves 7 --wave_years 2 --start_age 30 --seed 0 \
     --out "$OUT" >> logs/optionA_generation.log 2>&1
 echo "$(date -u '+%F %T UTC') stage 2 exited rc=$?"

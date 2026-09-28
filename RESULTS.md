@@ -2278,7 +2278,7 @@ calibration.
 | 2a | Wider embedder (`d_model` 128, 3 layers, 64 out) | retrain | §19.3, §19.6 — improves log q, all six recovery measures and calibration together | **adopt** |
 | 2b | Derived moment channels (`card_debt`, two ratios) | retrain | §19.4 — best log q of any arm, but calibration unmoved; not additive with 2a | alternative to 2a |
 | 2c | Larger flow (`hidden_features`, `num_transforms`) | retrain | §19.2 — every increase loses log q and converges earlier | **refuted** |
-| 2e | Card-access types + gross liquid wealth (option A) | **regenerate** (~4.8 GPU-days, comphs) | §24, §24.1, §26 — closes most of the liquid-level misfit in simulation | **planned, next** |
+| 2e | Card-access types + gross liquid wealth + edge-concentrated draws (option A) | **regenerate** (~4.7 GPU-days, comphs) | §24, §24.1, §26, §30 — closes most of the liquid-level misfit in simulation; targets the edge under-coverage | **prepared, awaiting launch** |
 | 2d | Quasi-hyperbolic vs exponential (β ≡ 1) model comparison | **regenerate** (~2.5 GPU-days, 2 params, comphs) | §21 — out-of-sample, amortised model comparison, SBC, moment fit | **planned** |
 | 3 | Lower `R_gamma` | **regenerate** | §18 — no `R_gamma > R_free` matches both moments; §17.2's reading was wrong | **refuted** |
 | 4 | Income disruption | **regenerate** | §16 — fixes income tail, worsens wealth and ρ | not alone; pair with 3 |
@@ -3525,3 +3525,94 @@ training-set constants on the dollar channels. **Candidate to replace the
 headline configuration**; the difference is small enough that the headline
 numbers barely move either way. Figures 23 (literature comparison against the
 current headline) and 24 (one PSID household).
+
+---
+
+## 30. Pre-regeneration audit and the final option A design
+
+Done before committing ~4.7 GPU-days, to catch anything that must be decided at
+generation time. The rule applied: anything that only changes how stored
+simulations are *read* can be done later, because full annual panels are
+stored — input representation, the δ and β target transforms, the PSID
+liquid-wealth definition, observation noise, the $0 liquid mass. Only changes to
+*what is simulated* had to be decided now.
+
+### 30.1 The calibration failure is at the upper edges, where PSID households are
+
+SBC 90% coverage by true parameter value, adopted model (§29); the same pattern
+holds in every model tried:
+
+```
+beta   [0.30, 0.80) 0.949    [0.80, 0.95) 0.913    [0.95, 1.00) 0.516  (n=31)
+delta  [0.85, 0.95) 0.862    [0.95, 0.98) 0.952    [0.98, 1.00) 0.707  (n=41)
+rho    [0.5,  3.5)  0.936    [3.5,  4.5)  0.838    [4.5,  5.0)  0.893  (n=28)
+```
+
+The overall ~0.90 was an average of over-coverage in the interior and serious
+under-coverage at the upper edges. Those edges are where real households sit:
+
+```
+                      training draws (uniform)   PSID posterior means
+delta > 0.99                  6.7%                     54.2%
+delta > 0.998                 1.3%                     19.0%
+rho > 4.5                    11.1%                     48.9%
+beta 90% CI reaching 0.99       —                      55.7%
+```
+
+### 30.2 Fix: an edge-concentrated training proposal
+
+`hh_npe.npe.prior.EdgeMixture`: half the draws from the uniform prior, half from
+β ∈ [0.75, 1], `1 - δ` log-uniform on [1e-4, 0.05], ρ ∈ [3.5, 5]. The **inference
+prior stays uniform**: a network trained on these draws learns
+`q(θ|x) ∝ p(x|θ) p~(θ)`, and posterior draws are reweighted by `p/p~`
+(`EdgeMixture.log_weight`). Because half the proposal is the prior, every weight
+lies in (0, 2]. Tested: reweighted draws recover the uniform prior's moments and
+its 6.67% share above δ = 0.99; the concentrated density integrates to one,
+Jacobian included.
+
+```
+share of training draws    uniform   edge mixture
+delta > 0.998                1.3%       24.8%
+delta > 0.99                 6.7%       40.4%
+beta > 0.95                  7.1%       13.6%
+rho > 4.5                   11.1%       22.2%
+```
+
+β's edge gets only twice the draws, deliberately: β posteriors are wide, so its
+edge failure is more likely the flow's difficulty with the hard bound at 1 than
+too few draws. That calls for a training-side transform like `log(1 - δ)`,
+which needs no regeneration.
+
+**Required at training time:** importance reweighting in every sampler —
+`psid_posterior.sample_all`, `ensemble_eval` estimation and SBC ranks — with SBC
+simulations still drawn from the uniform prior, so they test the *corrected*
+posterior.
+
+### 30.3 Stored θ, and a guard against silent mispairing
+
+Shards did not store θ; training re-derived it from the uniform Sobol sampler.
+Under a new proposal, any script still calling that sampler would pair every
+simulation with the wrong θ and nothing would fail. Shards now store `theta`,
+and `build_windowed` refuses any θ that does not match it (tested both ways on a
+real smoke shard).
+
+### 30.4 Other simulation changes considered
+
+| change | decision |
+|---|---|
+| 16 households per draw instead of 8 | **adopted** — the solve dominates, so it costs nothing (0.11 h per 32 draws either way); benefit plausible but unmeasured |
+| card-access types, 50/50 | kept (§24.1, §26) |
+| all three education groups | deferred — comphs only; somehs/compco need regenerating after §25 anyway, later |
+| stochastic illiquid return (house prices) | not now — a new solver state variable, a large model change |
+| naive vs sophisticated present-bias type | not now — halves draws per type; a separate study |
+| exponential (β = 1) model | its own run (§21) |
+| lower `R_gamma`, income disruption, random initial wealth, wider priors | ruled out earlier (§16, §18, Gate 2); ρ's ceiling is not binding (2.8% of intervals reach 4.9) |
+
+### 30.5 Final design — prepared, not launched
+
+comphs; 32,768 draws from `EdgeMixture`; 16 households per draw; card type 50/50;
+the §25-fixed solvers; θ, card type and full annual panels stored per draw; SBC
+(1,000 draws, uniform prior, card types) first as a gate. ~4.7 GPU-days, ~2.1 GB.
+Smoke run (32 draws, full grid) passed every check. Launch:
+
+    nohup ./scripts/run_optionA_generation.sh > logs/optionA.log 2>&1 &
