@@ -115,6 +115,9 @@ def main() -> None:
     ap.add_argument("--embed_dim", type=int, default=EMBEDDER["output_dim"],
                    help="Embedder output width. RESULTS 19.6 adopts 64 with "
                         "--d_model 128 --n_layers 3.")
+    ap.add_argument("--features", default=None,
+                    help="Named feature set (hh_npe.data.waves.FEATURE_SETS); "
+                         "default twoasset_age. RESULTS 31 uses noilliq_age.")
     ap.add_argument("--anchor_log", action="store_true",
                    help="As compare_windows --anchor_log (RESULTS 27-28).")
     ap.add_argument("--mean_income_channel", action="store_true",
@@ -129,7 +132,11 @@ def main() -> None:
     shard_files = sorted(args.shards.glob("shard_*.npz"))
     train_sh, held_sh = split_shards(shard_files, args.train_n)
     theta_all = sample_sobol(65536, PHASE3, seed=0)
-    win = dict(start_low=24, start_high=45, wave_years=2, with_age=True)
+    from hh_npe.data.waves import FEATURE_SETS
+    base_feats = (FEATURE_SETS[args.features] if args.features
+                  else tuple(FEATURES_TWOASSET_AGE))
+    win = dict(start_low=24, start_high=45, wave_years=2, with_age=True,
+               features=base_feats)
 
     th_tr, x_tr, pid_tr = build_windowed(train_sh, theta_all, k=1, n_waves=7,
                                          seed=0, **win)
@@ -144,7 +151,7 @@ def main() -> None:
 
     # Input transforms, in compare_windows' order: the level channel is taken
     # from dollar levels before anchoring replaces them.
-    feats = tuple(FEATURES_TWOASSET_AGE)
+    feats = tuple(base_feats)
     if args.mean_income_channel:
         base = feats
         x_tr, feats = mean_income_channel(x_tr, base)
@@ -211,6 +218,7 @@ def main() -> None:
             "mean_income_channel": args.mean_income_channel,
             "household_ratios": False,
             "static_norm_channels": args.static_norm_channels,
+            "features": list(base_feats),
             "d_model": args.d_model, "n_layers": args.n_layers,
             "embed_dim": args.embed_dim,
         },

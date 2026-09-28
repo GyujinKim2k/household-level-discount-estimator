@@ -238,12 +238,16 @@ def anchor_log(x: torch.Tensor, features) -> torch.Tensor:
     f = list(features)
     ybar = _mean_income(x, f)
     out = x.clone()
+    # Only the dollar features present: a feature set may drop one (e.g.
+    # noilliq_age), and income must be there to be the anchor.
     for k in ("income", "consumption"):
-        i = f.index(k)
-        out[..., i] = torch.log((x[..., i] / ybar).clamp_min(0.01))
+        if k in f:
+            i = f.index(k)
+            out[..., i] = torch.log((x[..., i] / ybar).clamp_min(0.01))
     for k in ("liquid_assets", "illiquid_assets"):
-        i = f.index(k)
-        out[..., i] = torch.asinh(x[..., i] / ybar)
+        if k in f:
+            i = f.index(k)
+            out[..., i] = torch.asinh(x[..., i] / ybar)
     return out
 
 

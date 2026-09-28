@@ -68,8 +68,15 @@ FEATURES_TWOASSET_NOCONS_AGE: tuple[str, ...] = (
     FEATURES_TWOASSET_NOCONS + ("age",)
 )
 
+#: Without illiquid wealth (RESULTS.md 31): tests whether rho ~ 4.5 is driven by
+#: the illiquid-wealth level, which §15 found implies high rho on its own.
+FEATURES_TWOASSET_NOILLIQ_AGE: tuple[str, ...] = (
+    "income", "consumption", "liquid_assets", "age",
+)
+
 #: Named sets, for CLI selection. Order within each is load-bearing.
 FEATURE_SETS: dict[str, tuple[str, ...]] = {
+    "noilliq_age": FEATURES_TWOASSET_NOILLIQ_AGE,
     "mvp": FEATURES_MVP,
     "twoasset": FEATURES_TWOASSET,
     "twoasset_age": FEATURES_TWOASSET_AGE,

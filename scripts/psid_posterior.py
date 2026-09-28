@@ -144,9 +144,10 @@ def _apply_transforms(args, xt, educ_rows):
     dollar levels; the signed log follows and skips them; the education one-hot
     block is appended last so it is never rescaled as if it were dollars.
     """
-    from hh_npe.data.waves import FEATURES_TWOASSET_AGE
+    from hh_npe.data.waves import FEATURE_SETS, FEATURES_TWOASSET_AGE
 
-    feats = FEATURES_TWOASSET_AGE
+    feats = (FEATURE_SETS[args.features] if getattr(args, "features", None)
+             else FEATURES_TWOASSET_AGE)
     if args.derived_features:
         from scripts.compare_windows import derived_features
         xt, feats = derived_features(xt, feats)
@@ -192,6 +193,10 @@ def main() -> None:
                         "an indicator and two ratios are not dollars.")
     ap.add_argument("--anchor_log", action="store_true",
                    help="Matching a model trained with --anchor_log.")
+    ap.add_argument("--features", default=None,
+                   help="Named feature set the model was trained on "
+                        "(hh_npe.data.waves.FEATURE_SETS). The PSID columns are "
+                        "selected by name to match; default all five.")
     ap.add_argument("--household_ratios", action="store_true",
                    help="Matching a model trained with --household_ratios.")
     ap.add_argument("--mean_income_channel", action="store_true",
@@ -234,6 +239,11 @@ def main() -> None:
     d = torch.load(args.x, weights_only=False)
     x_raw = d["x"].numpy()
     print(f"empirical x: {x_raw.shape}  features {d['features']}")
+    if args.features:
+        from hh_npe.data.waves import FEATURE_SETS
+        want = FEATURE_SETS[args.features]
+        x_raw = x_raw[..., [list(d["features"]).index(f) for f in want]]
+        print(f"selected features {list(want)}: {x_raw.shape}")
 
     educ = d["educ"].numpy() if "educ" in d else None
     if (args.condition_educ or args.educ_group) and educ is None:
