@@ -39,8 +39,13 @@ def test_help_text_formats(path, monkeypatch):
     monkeypatch.setattr(argparse.ArgumentParser, "parse_args",
                         lambda self, *a, **kw: (_ for _ in ()).throw(SystemExit(0)))
 
+    import sys
+
     spec = importlib.util.spec_from_file_location(f"_help_{path.stem}", path)
     mod = importlib.util.module_from_spec(spec)
+    # Register it: a module-level @dataclass looks its module up in sys.modules
+    # while the class is being built, and fails on an unregistered module.
+    monkeypatch.setitem(sys.modules, spec.name, mod)
     try:
         spec.loader.exec_module(mod)
     except SystemExit:
