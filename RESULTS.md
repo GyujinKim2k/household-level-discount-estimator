@@ -3472,3 +3472,51 @@ dollar channels. It is not a fix for the misfit; option A (§26) still is. Like
 every arm in §27–§28 it uses linear δ, so if adopted for the headline it should
 be retrained with the `log(1 - δ)` target. Figures 21 (literature comparison
 against levels) and 22 (one PSID household).
+
+---
+
+## 29. Anchor + level with the log(1 − δ) target
+
+§28's anchor + level arm, retrained with the `log(1 - δ)` target and matched to
+the current headline model (levels + `log(1 - δ)`, wide embedder, comphs, same
+held-out and SBC draws). Static standardisation on age and `log(mean income)`
+only; the four anchored channels enter as computed.
+
+```
+HELD-OUT (δ space, 5 seeds)   corr b/d/r            mae b/d/r              cov b/d/r
+levels + log(1-δ)             0.792 0.788 0.855   0.0935 0.0200 0.4107   0.874 0.849 0.871
+anchor+level + log(1-δ)       0.789 0.792 0.853   0.0945 0.0199 0.4167   0.873 0.856 0.867
+
+SBC (ensemble)                cov b/d/r            ks_p b/d/r              |dev|
+levels + log(1-δ)             0.896 0.842 0.899   0.211 0.007 0.169        0.021
+anchor+level + log(1-δ)       0.901 0.860 0.910   0.247 0.048 0.081        0.017
+
+PSID (889 comphs)             median b/d/r         in-box   width b/d/r        δ p95 ≥ 0.9999
+levels + log(1-δ)             0.840 0.994 4.454    0.974    0.457 0.018 0.221      0.4%
+anchor+level + log(1-δ)       0.852 0.992 4.498    0.983    0.428 0.025 0.218      0.0%
+```
+
+**Recovery is unchanged** (every correlation within 0.004, every error within
+0.006).
+
+**δ calibration improves, partly.** §20.3 found the `log(1 - δ)` target costs δ
+rank uniformity. With anchor + level, δ coverage rises from 0.842 to 0.860, the
+ensemble rank test moves from p = 0.007 to p = 0.048, and member p-values from
+0.0001-0.004 to 0.0001-0.042. Better, and overall mean |deviation| falls from
+0.021 to 0.017, but δ still sits at the edge of rejection: the representation
+eases the shape defect of §20.3 without removing it. δ's PSID intervals are
+correspondingly a little wider (0.025 against 0.018), which is the honest
+direction for a parameter that was over-confident.
+
+**PSID is essentially the same.** Medians within 0.012 / 0.002 / 0.044, no δ
+truncation, slightly more mass in the box (0.983), slightly narrower β intervals.
+Heterogeneity: β none (P = 1.000), δ identical (+0.00019, P = 0.000), ρ
++0.097 (P = 0.012) against +0.306 — the same parameter moving again, consistent
+with §20.2.
+
+**Verdict.** A modest, consistent improvement at no cost: the same information
+and PSID answers, better calibration where the headline was weakest, and no
+training-set constants on the dollar channels. **Candidate to replace the
+headline configuration**; the difference is small enough that the headline
+numbers barely move either way. Figures 23 (literature comparison against the
+current headline) and 24 (one PSID household).
