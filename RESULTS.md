@@ -3616,3 +3616,86 @@ the §25-fixed solvers; θ, card type and full annual panels stored per draw; SB
 Smoke run (32 draws, full grid) passed every check. Launch:
 
     nohup ./scripts/run_optionA_generation.sh > logs/optionA.log 2>&1 &
+
+---
+
+## 31. Where does ρ ≈ 4.5 come from? Three tests
+
+Every model estimates ρ ≈ 4.5, far above the consumption-Euler consensus (~1)
+and Laibson et al.'s 1.94. Three tests, all on the adopted configuration (§29),
+comphs.
+
+### 31.1 Adding DC pension wealth to PSID: no effect
+
+Pension balances (Section P, §17.5) spliced into the headline tensor's illiquid
+wealth, so illiquid wealth is the only difference. (The separately built pension
+tensor's rental imputation had recalibrated its rent growth on the 889-household
+sample, 2.49% against 2.61% a year, shifting imputed consumption by up to $1,952;
+splicing removes that confound.)
+
+```
+                       median b/d/r       ρ CI covers 1.94   all 3 in lit.
+headline               0.852 0.992 4.498        16.9%            81.2%
+with DC pensions       0.848 0.993 4.494        18.0%            82.2%
+```
+
+The 480 households with pension balances move ρ by a median of -0.001. ρ is not
+an artefact of PSID omitting retirement wealth. Figures 27 (population) and 28
+(household #174, whose illiquid wealth rises by $29-54k from wave 3: δ 0.9935 to
+0.9968, β 0.854 to 0.819, ρ 4.53 to 4.51).
+
+### 31.2 Without illiquid wealth in the inputs: ρ stays high but loses its precision
+
+```
+                     held-out corr b/d/r   PSID median b/d/r   ρ 90% width   ρ CI covers 1.94
+adopted              0.789 0.792 0.853     0.852 0.992 4.498       0.22           16.9%
+no illiquid wealth   0.702 0.747 0.789     0.832 0.995 4.241       1.56           47.6%
+```
+
+**Illiquid wealth is what pins ρ down, not what sets it high.** Without it the
+median ρ is still 4.24 — the remaining series (income, consumption, liquid
+wealth) also point high — but the ρ interval widens sevenfold, and nearly half
+the households' intervals now include Laibson's 1.94. Recovery on simulated data
+falls for all three parameters, so illiquid wealth carries genuine information,
+not only misfit. δ heterogeneity is no longer detectable (P = 0.074). Figure 29.
+
+### 31.3 ρ fixed at a known value: the data do not imply Laibson's β
+
+A network trained with ρ as an input (log ρ, no training-set statistics)
+estimates only β and δ (`scripts/rho_conditioned.py`). Knowing ρ sharpens β a
+great deal on simulated data — held-out correlation 0.88 against 0.79 when ρ is
+estimated jointly — so β and ρ are substantially confounded.
+
+On PSID, per-household posterior means at each fixed ρ:
+
+```
+                         median β   median δ   β 90% width   β in lit.   δ in lit.
+ρ = 1                     0.931      0.9737       0.212        47.1%       84.4%
+ρ = 1.94 (Laibson)        0.901      0.9842       0.275        60.5%       85.0%
+ρ = 2                     0.900      0.9848       0.281        60.7%       84.9%
+ρ = 4.5 (joint estimate)  0.842      0.9960       0.429        85.9%       89.9%
+```
+
+**Lowering ρ toward Laibson's value moves β up, away from their 0.53, not
+toward it.** At their own ρ of 1.94, PSID households imply β ≈ 0.90 and δ ≈
+0.984: nearly no present bias. Less risk aversion means less precautionary
+saving, so the observed wealth has to be explained by more patience — higher β
+— rather than less. Their (β = 0.53, ρ = 1.94) combination is not what this
+panel implies at any fixed ρ tested. At ρ = 4.5 the conditional model reproduces
+the joint estimate (β 0.842 against 0.852), a consistency check.
+
+The in-box mass (0.986-0.991) does not discriminate between the fixed ρ values,
+so this test says what β and δ would be *given* ρ, not which ρ fits best; that
+answer comes from the joint model, where 83% of households' intervals exclude
+1.94. Figure 26.
+
+### 31.4 Reading
+
+- ρ ≈ 4.5 is **robust**: to pension wealth, to input representation (§27-§29),
+  and it survives removing illiquid wealth (4.24).
+- Illiquid wealth is its **main source of precision**, not the source of its
+  level.
+- Present bias and risk aversion **trade off**: fixing ρ at literature values
+  pushes β toward 1. The panel is consistent with either high risk aversion and
+  mild present bias (the joint estimate) or low risk aversion and almost none —
+  never with Laibson et al.'s strong present bias at their ρ.

@@ -154,7 +154,10 @@ def contour_corner(
         "ytick.direction": "in",
     })
     n = d - 1
-    fig, axes = plt.subplots(n, n, figsize=(3.4 * n, 3.4 * n), squeeze=False)
+    # One pair (two parameters) has no empty upper-right cell for the legend,
+    # so it gets a wider canvas with the legend beside the panel instead.
+    figsize = (9.0, 4.8) if n == 1 else (3.4 * n, 3.4 * n)
+    fig, axes = plt.subplots(n, n, figsize=figsize, squeeze=False)
     for a in axes.ravel():
         a.set_visible(False)
 
@@ -231,13 +234,18 @@ def contour_corner(
         leg_ax.legend(handles=handles, loc="center", frameon=False,
                       fontsize=11, handlelength=2.4)
     else:
-        leg_ax.legend(handles=handles, loc="best", frameon=False, fontsize=11)
+        leg_ax.legend(handles=handles, loc="center left", bbox_to_anchor=(1.04, 0.5),
+                      frameon=False, fontsize=11, handlelength=2.4)
     fig.tight_layout()
+    if n == 1:
+        fig.subplots_adjust(right=0.5)
     if title:
         fig.suptitle(title, fontsize=13)
-        # Reserve room per title line. A fixed 0.93 fits one line and lets a
-        # two-line title sit on top of the first row's axis.
-        fig.subplots_adjust(top=1.0 - 0.045 * (title.count("\n") + 1.5))
+        # Reserve ~0.3 in per title line, as a fraction of the figure height
+        # (0.045 on the 6.8 in two-pair canvas). A fixed fraction lets a
+        # two-line title sit on top of the first row's axis on shorter figures.
+        per_line = 0.3 / figsize[1]
+        fig.subplots_adjust(top=1.0 - per_line * (title.count("\n") + 1.5))
     if path:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(path, dpi=160, bbox_inches="tight")
