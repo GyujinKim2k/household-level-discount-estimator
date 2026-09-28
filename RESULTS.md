@@ -3739,3 +3739,35 @@ with the three-parameter design, losing only the pilot.
 bit-identical to the old default; a higher return raises illiquid holdings);
 SBC simulations with per-block R_gamma. **Pending:** the SBC smoke test waits
 for the GPU (the pilot holds 15.4 of 16 GB).
+
+### 32.1 Pilot result: R_gamma is identifiable
+
+First 4,096 draws of the option A run (14.7 h generation), four-parameter model
+in the adopted configuration, 3 seeds, held-out simulated households:
+
+```
+            corr     mae     mae / prior sd   90% coverage
+beta        0.621   0.1195       0.591           0.864
+delta       0.739   0.0211       0.487           0.859
+rho         0.689   0.5703       0.439           0.846
+R_gamma     0.636   0.0088       0.610           0.871
+error correlation, delta vs R_gamma: -0.157
+```
+
+- **R_gamma recovers about as well as β**: typical error 0.0088 on a 0.05-wide
+  range, 39% below the prior's, with calibration like the other parameters.
+- **δ–R_gamma confounding is mild**: error correlation -0.16, the expected sign,
+  far from the near-substitution the Euler-equation argument allowed for.
+- **Adding R_gamma costs β, δ, ρ little.** Correlations are not comparable to
+  earlier runs (half of these draws are concentrated near the edges, which
+  mechanically lowers correlation), so the fair comparison is error relative to
+  the prior width. There the pilot matches §19.5's three-parameter quarter-size
+  run almost exactly: β 0.59 against 0.57, δ 0.49 against 0.49, ρ 0.44 against
+  0.45.
+
+SBC simulations with per-block R_gamma smoke-tested once the GPU was free: four
+columns, R_gamma constant within blocks and inside the range.
+
+**Recommendation: continue.** The pilot's 8 shards are the first 4,096 draws of
+the full run; `run_optionA_generation.sh` runs the SBC simulations (~3.5 h),
+then resumes generation to 32,768 draws (~4.1 more GPU-days).
