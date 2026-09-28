@@ -165,6 +165,10 @@ def save_posterior(
     )
 
 
-def load_posterior(path: str | Path) -> dict:
-    """Load a checkpoint saved by :func:`save_posterior` (returns the raw dict)."""
-    return torch.load(Path(path), weights_only=False)
+def load_posterior(path: str | Path, map_location=None) -> dict:
+    """Load a checkpoint saved by :func:`save_posterior` (returns the raw dict).
+
+    ``map_location="cpu"`` loads a GPU-trained posterior onto the CPU, for use
+    while the GPU is occupied (e.g. by a long generation run).
+    """
+    return torch.load(Path(path), weights_only=False, map_location=map_location)

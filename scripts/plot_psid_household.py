@@ -47,6 +47,12 @@ def main() -> None:
                     help="Plot this household index instead of re-picking the "
                          "typical one -- to show the SAME household under two "
                          "data versions (e.g. with and without pensions).")
+    ap.add_argument("--device", default=None,
+                    help="'cpu' to sample on the CPU, leaving the GPU alone "
+                         "(e.g. while a generation run holds it).")
+    ap.add_argument("--features", default=None,
+                    help="Named feature set the model was trained on; the PSID "
+                         "columns are selected by name to match.")
     ap.add_argument("--data_label", default=None,
                     help="Extra title text naming the data version.")
     ap.add_argument("--linear_delta", action="store_true",
@@ -76,8 +82,17 @@ def main() -> None:
 
     d = torch.load(args.x, weights_only=False)
     x = d["x"][d["educ"] == EDUC_GROUPS.index("comphs")].float()
+    x_full = x          # all five columns, for describing the household
+    if args.features:
+        from hh_npe.data.waves import FEATURE_SETS
+        x = x[..., [list(d["features"]).index(f) for f in FEATURE_SETS[args.features]]]
     assert len(x) == len(m), "tensor and posterior file disagree on households"
-    posts = [load_posterior(r / "posterior_7w.pt")["posterior"] for r in args.run_dirs]
+    posts = [load_posterior(r / "posterior_7w.pt", map_location=args.device)["posterior"]
+             for r in args.run_dirs]
+    if args.device:
+        for p_ in posts:
+            p_.posterior_estimator.to(args.device)
+            p_._device = args.device
     dev = next(posts[0].posterior_estimator.parameters()).device
     torch.manual_seed(0)
     # Same transform chain, in the same order, as psid_posterior.
@@ -91,13 +106,13 @@ def main() -> None:
     q = np.percentile(s, [5, 95], axis=0)
 
     feats = list(d["features"])
-    age = x[pick, :, feats.index("age")].int().tolist()
+    age = x_full[pick, :, feats.index("age")].int().tolist()
     how = ("typical: nearest the population median" if args.household is None
            else "chosen by index")
     print(f"household #{pick} of {len(x)} ({how})")
     print(f"  ages {age[0]}-{age[-1]}")
     for f in ("income", "consumption", "liquid_assets", "illiquid_assets"):
-        v = x[pick, :, feats.index(f)].numpy()
+        v = x_full[pick, :, feats.index(f)].numpy()
         print(f"  {f:16s} " + " ".join(f"{int(round(a)):>8,d}" for a in v))
     print(f"\n{'':8s}{'estimate':>10s}{'90% interval':>22s}{'population median':>20s}")
     for j, n in enumerate(PHASE3.names):
