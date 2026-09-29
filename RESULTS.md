@@ -3816,3 +3816,26 @@ dry-run against the real configuration.
 The widened part holds 28,672 draws, not a power of two, so Sobol's strict
 balance guarantee is weakened slightly (a 36,864-draw run would restore it, at
 ~14 more GPU-hours; not needed).
+
+---
+
+## 33. Option A's PSID input: gross liquid wealth and DC pensions
+
+Decided 2026-09-29, while option A generates. DC pensions enter the **PSID
+data** the trained model is applied to, not training (which uses simulated
+households only).
+
+Reasons to include them: the model's illiquid asset carries an early-withdrawal
+penalty precisely to represent retirement accounts, so omitting DC balances
+under-measures exactly that quantity; Laibson et al.'s SCF wealth includes
+retirement accounts; §17.5 found they close about a fifth of the PSID-SCF wealth
+gap; and §31.1 found they barely move the estimates. Caveat: 480 of 889
+households report a DC balance — no plan is correctly zero, but under-reporting
+cannot be excluded.
+
+`data/processed/psid_x_comphs_optionA.pt` combines both data-side fixes as
+column splices on identical households (verified): liquid wealth on the gross
+definition (§24; changes 30.6% of household-waves) and illiquid wealth with DC
+pensions (§31.1; 22.7%). Income, consumption and age are identical to the
+headline tensor. Primary PSID input for option A; the headline tensor and each
+single-fix version remain available as robustness checks.
