@@ -120,6 +120,8 @@ def simulate_batch_twoasset_gpu(
 
     from hh_npe.simulator import laibson_calibration as cal
     from hh_npe.simulator.twoasset import GRIDS, simulate
+    import torch
+
     from hh_npe.simulator.twoasset_gpu import solve_batch
 
     if grid not in GRIDS:
@@ -184,6 +186,12 @@ def simulate_batch_twoasset_gpu(
                 if return_panels:
                     panels[j] = panel
             del sols
+            # Card types and the fixed credit limit give cardholder and no-card
+            # draws liquid grids of different sizes, so consecutive batches
+            # alternate tensor shapes and PyTorch's cache fragments: an SBC run
+            # died with 4.95 GB reserved but unallocated (RESULTS 26). Release
+            # it after every batch -- negligible next to a ~200 s solve.
+            torch.cuda.empty_cache()
 
     x_out = np.concatenate(xs) if n_households > 1 else np.stack([v[0] for v in xs])
     a_out = (np.concatenate(alives) if n_households > 1

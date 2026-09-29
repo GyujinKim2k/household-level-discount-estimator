@@ -27,7 +27,7 @@ SBC=outputs/optionA/sbc_sims.pt
 mkdir -p logs outputs/optionA
 
 echo "$(date -u '+%F %T UTC') stage 1/2: SBC simulations (comphs, card types)"
-PYTHONPATH=. .venv/bin/python - <<'PY' > logs/optionA_sbc.log 2>&1
+PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True .venv/bin/python - <<'PY' > logs/optionA_sbc.log 2>&1
 import logging
 from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -46,7 +46,7 @@ fi
 echo "$(date -u '+%F %T UTC') stage 1 done -> $SBC"
 
 echo "$(date -u '+%F %T UTC') stage 2/2: generation (32768 draws, M=16, card types, edge mixture)"
-PYTHONPATH=. .venv/bin/python scripts/generate_dataset.py \
+PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True .venv/bin/python scripts/generate_dataset.py \
     --simulator twoasset --grid full --device cuda \
     --n_samples 32768 --block 512 --theta_batch 16 --chunk 16 \
     --n_households 16 --card_types --proposal edge_mixture_switched \
