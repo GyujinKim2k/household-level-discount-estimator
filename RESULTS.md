@@ -3839,3 +3839,23 @@ definition (§24; changes 30.6% of household-waves) and illiquid wealth with DC
 pensions (§31.1; 22.7%). Income, consumption and age are identical to the
 headline tensor. Primary PSID input for option A; the headline tensor and each
 single-fix version remain available as robustness checks.
+
+---
+
+## 34. Training plan for option A: β stays linear
+
+Decided 2026-09-29. β is estimated on its linear scale. A `log(1 - β)` target
+(or a logit on [0.3, 1]) is held as a **last-resort strategy**, used only if β's
+upper-edge under-coverage (0.52 at β ≥ 0.95, §30.1) persists after training on
+the edge-concentrated draws.
+
+Reasons: the edge mixture already attacks that failure at its source, by
+putting more training draws near β = 1; and unlike δ's tight posteriors, β's are
+wide (sd ~0.14), so a log transform would turn them into long tails — the kind
+of badly-conditioned density that gave the `log(1 - δ)` target its shape defect
+(§20.3).
+
+**First check after training:** SBC coverage by region, as in §30.1 — whether
+β ≥ 0.95 and δ ≥ 0.98 now cover near 0.90. If β's edge still fails, test the β
+transform then, as three arms (linear, `log(1 - β)`, logit) judged on edge
+coverage, overall rank uniformity and held-out recovery.
