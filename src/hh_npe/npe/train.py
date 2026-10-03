@@ -151,24 +151,47 @@ def save_posterior(
     embedder: TrajectoryTransformer,
     box: PriorBox,
     path: str | Path,
+    proposal: dict | None = None,
 ) -> None:
-    """Persist the trained posterior + embedder state + prior box."""
+    """Persist the trained posterior + embedder state + prior box.
+
+    ``proposal`` (``{"name", "n_train"}``) records a non-uniform training
+    proposal, so the checkpoint itself says its draws need importance weights
+    (:func:`hh_npe.npe.prior.proposal_log_weight`); see :func:`load_posterior`.
+    """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "posterior": posterior,
-            "embedder_state_dict": embedder.state_dict(),
-            "box": box,
-        },
-        p,
-    )
+    ck = {
+        "posterior": posterior,
+        "embedder_state_dict": embedder.state_dict(),
+        "box": box,
+    }
+    if proposal is not None:
+        ck["proposal"] = dict(proposal)
+    torch.save(ck, p)
 
 
-def load_posterior(path: str | Path, map_location=None) -> dict:
+def load_posterior(path: str | Path, map_location=None,
+                   weighted_ok: bool = False) -> dict:
     """Load a checkpoint saved by :func:`save_posterior` (returns the raw dict).
 
     ``map_location="cpu"`` loads a GPU-trained posterior onto the CPU, for use
     while the GPU is occupied (e.g. by a long generation run).
+
+    A network trained on draws from a non-uniform proposal (RESULTS.md 30.2)
+    learns the posterior under that proposal; its raw draws are NOT the
+    posterior under the uniform prior, and every sampler that does not apply
+    the weights reports biased numbers without failing. So loading one is
+    refused unless the caller says it weights (``weighted_ok=True``), as
+    ``hh_npe.evaluation.weighted.sample_weighted`` does.
     """
-    return torch.load(Path(path), weights_only=False, map_location=map_location)
+    ck = torch.load(Path(path), weights_only=False, map_location=map_location)
+    prop = ck.get("proposal")
+    if prop is not None and prop["name"] != "uniform" and not weighted_ok:
+        raise SystemExit(
+            f"{path} was trained on draws from the {prop['name']!r} proposal "
+            f"(n_train={prop.get('n_train')}). Its raw draws are not the "
+            f"posterior under the uniform prior. Sample it through "
+            f"hh_npe.evaluation.weighted.sample_weighted, which applies the "
+            f"importance weights, and load with weighted_ok=True.")
+    return ck

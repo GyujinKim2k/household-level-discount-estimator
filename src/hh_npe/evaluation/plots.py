@@ -21,7 +21,8 @@ import numpy as np
 #: Colour-blind-safe and matching the reference figure's blue/orange/green.
 PALETTE = ["#3B75AF", "#EF8636", "#519E3E", "#C53A32", "#8D69B8", "#84584E"]
 
-_LABEL = {"beta": r"$\beta$", "delta": r"$\delta$", "crra": r"$\rho$"}
+_LABEL = {"beta": r"$\beta$", "delta": r"$\delta$", "crra": r"$\rho$",
+          "R_gamma": r"$R_\gamma$"}
 
 
 def _hpd_levels(density: np.ndarray, probs=(0.68, 0.95)) -> list[float]:

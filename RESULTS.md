@@ -3549,7 +3549,9 @@ rho    [0.5,  3.5)  0.936    [3.5,  4.5)  0.838    [4.5,  5.0)  0.893  (n=28)
 ```
 
 The overall ~0.90 was an average of over-coverage in the interior and serious
-under-coverage at the upper edges. Those edges are where real households sit:
+under-coverage at the upper edges. *(§35.1: much of this, β's especially, is
+what even an exact posterior shows when grouped by the true θ.)* Those edges
+are where real households sit:
 
 ```
                       training draws (uniform)   PSID posterior means
@@ -3859,3 +3861,116 @@ of badly-conditioned density that gave the `log(1 - δ)` target its shape defect
 β ≥ 0.95 and δ ≥ 0.98 now cover near 0.90. If β's edge still fails, test the β
 transform then, as three arms (linear, `log(1 - β)`, logit) judged on edge
 coverage, overall rank uniformity and held-out recovery.
+*Revised in §35.1: coverage by true-θ region is not a calibration test; the
+check is coverage by posterior-mean region.*
+
+---
+
+## 35. Option A training setup — prepared, not launched
+
+Prepared 2026-10-03 while the last generation shards finish.
+`scripts/optionA.py` (`verify`, `train`, `evaluate`, `psid`) and
+`scripts/run_optionA_training.sh`, which waits for generation to exit and
+refuses to train unless `verify` passes.
+
+**Configuration.** The adopted one (§29): anchor + level inputs, `log(1 - δ)`
+target, wide embedder, static standardisation on age and log mean income only.
+R_gamma is a fourth target. Five seeds, ensembled. Training uses draws
+0–31,743 (62 shards); the last 2 shards are held out.
+
+**θ is read from the shards and checked.** `verify` regenerates the
+`SwitchedProposal` sequence and requires the stored θ to equal it, since the
+weights are only right for those draws. It also checks R_gamma and card type
+are constant per block of 16, and that every panel is finite. It passes on the
+61 shards written so far: 31,232 draws, cardholder share 0.509, R_gamma
+1.0250–1.0750.
+
+**Importance weights everywhere, enforced.** Every summary is weighted back to
+the uniform prior (`hh_npe.evaluation.weighted`). Per draw the order is: reject
+in the flow's box, invert `log(1 - δ)`, then weight in θ space.
+
+- The checkpoint records its proposal and training size, and `load_posterior`
+  refuses to load it unless the caller weights. So no older script —
+  `psid_posterior`, `ensemble_eval`, the household figures, the OOS test — can
+  silently report the proposal's posterior.
+- The SBC rank becomes the weighted CDF at the truth.
+- Tested on a toy whose "network" is the exact posterior under a proposal:
+  weighted SBC is calibrated (coverage 0.90, KS passes), while unweighted SBC
+  fails (KS p < 1e-6).
+
+**Card type is marginalised.** The network never sees the card type; its
+posterior integrates over it at the 50/50 generation share. PSID has no
+card-access variable, and its only proxy (any reported card debt) adds nothing
+the network cannot see: a household that borrows shows negative liquid wealth,
+which no no-card household can. The proxy also misclassifies cardholders who
+never borrow, so conditioning on it would only add bias.
+
+### 35.1 Coverage by true-θ region is not a calibration test
+
+An exact Bayesian posterior is calibrated on average over the prior, and
+conditionally on any function of the data. It is **not** calibrated
+conditionally on the true θ. At a prior edge, a wide likelihood leaves the
+truth in the posterior's tail. A uniform-prior Gaussian toy, with exact
+posteriors at the widths of β and δ on uniform draws:
+
+```
+                       posterior sd   coverage | truth in edge   observed (§30.1)
+beta,  truth >= 0.95      0.09-0.15          0.62-0.74            0.516 (n=31)
+delta, truth >= 0.98      0.010-0.025        0.80-0.90            0.707 (n=41)
+by posterior-mean bin     any                0.90 in every bin
+```
+
+- **β:** roughly 55–75% of the shortfall that §30.1 reported is what an exact
+  posterior would show. The rest is about 1.5 binomial standard errors.
+- **δ:** perhaps a quarter to a half is inherent; a real shortfall likely
+  remains.
+
+The edge-concentrated proposal is still justified, since it puts training data
+where PSID households sit, but the planned check changes:
+
+- **The calibration check is coverage by posterior-mean region**, a function of
+  the data, which an exact posterior passes at 0.90 in every bin.
+- Coverage by true-θ region is still printed, for continuity, labelled as not a
+  calibration test.
+- The β-transform decision (§34) is made on the posterior-mean table.
+
+### 35.2 A held-out sampling flaw, fixed here
+
+`build_windowed` returns rows grouped by window start age, and earlier scripts
+scored a prefix of the held-out rows.
+
+- **Training scripts (first 1,024 rows):** in §29's comphs set these came from
+  only **171 distinct draws**, with start ages up to 40, never 41–45.
+- **`ensemble_eval` (first 2,048 rows):** 334 draws, covering all start ages.
+
+Comparisons between arms remain fair, because every arm used the same rows.
+But held-out recovery rests on fewer independent θ than the row count
+suggests, and the members' numbers come from younger windows only. The SBC sets were unaffected (one window per
+draw, at random ages). Option A scores **one random household per draw**.
+
+### 35.3 What `evaluate` and `psid` report
+
+- **SBC**, on the 1,000 uniform-prior simulations with weighted ranks: coverage
+  and rank uniformity per parameter, for the ensemble and each member.
+  - Recovery on the same draws (corr, mae / prior sd, contraction), comparable
+    to earlier models' uniform held-out draws.
+  - Coverage by posterior-mean and by true-θ region.
+- **Held-out proposal draws**, scored with the network's unweighted q:
+  recovery comparable to the pilot (§32.1), plus held-out log q.
+- **PSID**, both consumption arms, `psid_x_comphs_optionA.pt`:
+  - medians, spread and widths for all four parameters;
+  - shares in the meta-analytic ranges;
+  - interval coverage of Laibson et al.'s values (R_gamma: their calibrated
+    1.05);
+  - in-box mass and effective sample size (ESS);
+  - the 4-parameter figure.
+
+  Files keep `psid_posterior`'s format, plus `names`, so the heterogeneity test
+  (now 4-parameter) and figure 08's script read them.
+
+**Smoke test** on CPU passed end to end: 2 members, 2 epochs, 1,024 draws.
+Weighted ESS was 47–60% of kept draws for PSID households, hence 4,000 draws
+per household by default. Full test suite: 382 passed.
+
+**Expected cost:** ~0.5 M training rows, 3.3× §29's. Roughly 75–100 min per
+seed, about 5 h for five seeds run two at a time, plus ~30 min of evaluation.

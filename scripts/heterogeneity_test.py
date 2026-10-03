@@ -42,16 +42,21 @@ import numpy as np
 from hh_npe.npe.prior import PHASE3
 
 
-def decompose(mean: np.ndarray, sd: np.ndarray, n_boot: int, seed: int) -> dict:
-    """Per-parameter variance decomposition with a household bootstrap."""
+def decompose(mean: np.ndarray, sd: np.ndarray, n_boot: int, seed: int,
+              names=PHASE3.names) -> dict:
+    """Per-parameter variance decomposition with a household bootstrap.
+
+    ``names`` label the columns; option A's files carry a fourth, R_gamma
+    (RESULTS.md 35), and record their own names.
+    """
     ok = np.isfinite(mean[:, 0])
     mean, sd = mean[ok], sd[ok]
     n = len(mean)
     rng = np.random.default_rng(seed)
     idx = rng.integers(0, n, size=(n_boot, n))
 
-    out = {"n": int(n)}
-    for j, name in enumerate(PHASE3.names):
+    out = {"n": int(n), "names": list(names)}
+    for j, name in enumerate(names):
         m, s = mean[:, j], sd[:, j]
         between = m.var(ddof=1)
         within = (s ** 2).mean()
@@ -80,7 +85,7 @@ def show(label: str, r: dict) -> None:
     print(f"\n=== {label}  (N={r['n']}) ===")
     print(f"{'param':8s}{'median':>9s}{'betw sd':>9s}{'within':>9s}"
           f"{'ratio':>7s}{'Var(true)':>11s}{'95% CI':>22s}{'P<=0':>7s}")
-    for name in PHASE3.names:
+    for name in r["names"]:
         d = r[name]
         ci = f"[{d['var_true_ci'][0]:+.5f}, {d['var_true_ci'][1]:+.5f}]"
         print(f"{name:8s}{d['median_mean']:9.4f}{d['between_sd']:9.4f}"
@@ -114,7 +119,8 @@ def main() -> None:
         if not f.exists():
             raise SystemExit(f"missing {f}")
         z = np.load(f)
-        res[lab] = decompose(z["mean"], z["sd"], args.n_boot, args.seed)
+        names = tuple(z["names"]) if "names" in z.files else PHASE3.names
+        res[lab] = decompose(z["mean"], z["sd"], args.n_boot, args.seed, names)
         show(lab, res[lab])
 
     if len(labels) == 2:

@@ -335,6 +335,31 @@ class SwitchedProposal:
         return np.log(pu) - np.log(f1 * dens(self.first) + (1 - f1) * dens(self.second))
 
 
+#: The proposals ``generate_dataset.py --proposal`` can record.
+PROPOSALS = ("uniform", "edge_mixture", "edge_mixture_switched")
+
+
+def proposal_log_weight(proposal: dict, theta) -> np.ndarray:
+    """``log p(theta) - log p~(theta)`` for a network trained on draws from the
+    named generation proposal: the importance weight back to the uniform prior.
+
+    ``proposal`` is ``{"name": ..., "n_train": ...}``, as saved with the
+    checkpoint (``train.save_posterior``) -- the name as the generation run
+    recorded it in ``solver_config.json``, ``n_train`` the number of draws
+    trained on, which only the switched proposal needs. ``theta`` is in theta
+    space (delta, not ``log(1 - delta)``); only (beta, delta, rho) enter.
+    """
+    th = np.asarray(theta, dtype=float)
+    name = proposal["name"]
+    if name == "uniform":
+        return np.zeros(len(th))
+    if name == "edge_mixture":
+        return EdgeMixture().log_weight(th)
+    if name == "edge_mixture_switched":
+        return SwitchedProposal().log_weight(th, int(proposal["n_train"]))
+    raise ValueError(f"unknown proposal {name!r}; known: {PROPOSALS}")
+
+
 def make_sbi_prior(box: PriorBox = PriorBox(),
                    device: str = "cpu") -> "BoxUniform":
     """Return an sbi-compatible ``BoxUniform`` prior on the same ``box``.

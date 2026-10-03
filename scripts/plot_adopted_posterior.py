@@ -39,7 +39,10 @@ from scripts.literature_ranges import LAIBSON, META, laibson_ci
 
 def means(run: Path) -> np.ndarray:
     m = np.load(run / "posterior_uncorrected.npz")["mean"]
-    return m[np.isfinite(m[:, 0])]
+    # (beta, delta, rho) only: option A's files carry R_gamma as a fourth
+    # column (RESULTS.md 35), which the three-parameter runs it is compared
+    # against do not have.
+    return m[np.isfinite(m[:, 0])][:, :PHASE3.n_params]
 
 
 def main() -> None:
