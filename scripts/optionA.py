@@ -5,7 +5,9 @@ Data: ``data/processed/optionA_card_dataset_shards`` -- 32,768 comphs draws of
 access 50/50, 16 households per draw (RESULTS 30, 32). Configuration: the
 adopted one (RESULTS 29) -- anchor + level inputs, ``log(1 - delta)`` target,
 wide embedder, static standardisation on age and log mean income only -- with
-R_gamma as a fourth target.
+R_gamma as a fourth target. ``train --beta_transform log1m|logit`` swaps beta's
+flow target (RESULTS 37); evaluation and PSID read it from the checkpoints'
+config.
 
 Three things differ from every earlier training script, and each would be
 silent if got wrong:
@@ -51,6 +53,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 from pathlib import Path
 
@@ -62,9 +65,14 @@ from hh_npe.data.windows import build_windowed, window_panel
 from hh_npe.evaluation.weighted import sample_weighted, sbc_from_u
 from hh_npe.npe.embedder import TrajectoryTransformer
 from hh_npe.npe.prior import (
+    BETA_TRANSFORMS,
     PHASE3_RGAMMA,
     EdgeMixture,
     SwitchedProposal,
+    beta_flow_bounds,
+    beta_from_flow,
+    beta_log_jacobian,
+    beta_to_flow,
     from_log1m,
     log1m_box,
     proposal_log_weight,
@@ -78,7 +86,6 @@ SBC_CACHE = Path("outputs/optionA/sbc_sims.pt")
 PSID_X = Path("data/processed/psid_x_comphs_optionA.pt")
 OUT = Path("outputs/optionA")
 BOX = PHASE3_RGAMMA
-FLOW_BOX = log1m_box(BOX)
 N_TOTAL = 32768
 N_HELDOUT_SHARDS = 2
 WINDOW = dict(n_waves=7, start_low=24, start_high=45, wave_years=2, with_age=True)
@@ -166,6 +173,23 @@ def one_per_draw(pid: torch.Tensor, seed: int) -> np.ndarray:
     return np.sort(perm[first])
 
 
+# --------------------------------------------------------------- flow targets
+
+def flow_box(beta_transform: str = "linear"):
+    """The box the flow lives in: ``log(1 - delta)`` always, beta's column as
+    ``beta_transform`` (RESULTS 37)."""
+    lo, hi = beta_flow_bounds(BOX, beta_transform)
+    return dataclasses.replace(log1m_box(BOX), beta_low=lo, beta_high=hi)
+
+
+def to_flow(theta, beta_transform: str = "linear"):
+    return beta_to_flow(to_log1m(theta, BOX), BOX, beta_transform)
+
+
+def from_flow(t, beta_transform: str = "linear"):
+    return from_log1m(beta_from_flow(t, BOX, beta_transform), BOX)
+
+
 # --------------------------------------------------------------------------- train
 
 def train(args) -> None:
@@ -186,16 +210,18 @@ def train(args) -> None:
     dev = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     over = {"max_num_epochs": args.max_epochs} if args.max_epochs else {}
     torch.manual_seed(args.seed)
-    post, _d, _i = train_npe(to_log1m(th, BOX).float(), x, embedder=emb,
-                             box=FLOW_BOX, device=dev, group_ids=pid,
+    bt = args.beta_transform
+    post, _d, _i = train_npe(to_flow(th, bt).float(), x, embedder=emb,
+                             box=flow_box(bt), device=dev, group_ids=pid,
                              **{**TRAINING, "batch_size": 1024,
                                 "learning_rate": 1e-3, **over})
     out = args.out / f"s{args.seed}"
     out.mkdir(parents=True, exist_ok=True)
-    save_posterior(post, emb, FLOW_BOX, out / "posterior_7w.pt", proposal=proposal)
+    save_posterior(post, emb, flow_box(bt), out / "posterior_7w.pt", proposal=proposal)
     (out / "results.json").write_text(json.dumps({"_config": {
         "shards": str(args.shards), "train_shards": args.train_shards,
         "proposal": proposal, "box": list(BOX.names), "delta_transform": True,
+        "beta_transform": bt,
         "window": WINDOW, "features": list(feats), "anchor_log": True,
         "mean_income_channel": True, "static_norm_channels": list(STATIC),
         "card": "marginalised", "arch": ARCH, "max_epochs": args.max_epochs,
@@ -218,6 +244,7 @@ def load_members(run_dirs, device=None):
         posts.append(p)
         props.append(ck.get("proposal"))
         cfg = json.loads((Path(d) / "results.json").read_text())["_config"]
+        cfg.setdefault("beta_transform", "linear")     # runs before RESULTS 37
         cfgs.append({k: v for k, v in cfg.items() if k != "train_seed"})
     if any(c != cfgs[0] for c in cfgs) or any(p != props[0] for p in props):
         raise SystemExit("ensemble members differ in configuration or proposal")
@@ -226,8 +253,8 @@ def load_members(run_dirs, device=None):
     return posts, props[0], cfgs[0]
 
 
-def _weighting(proposal):
-    inv = lambda t: from_log1m(t, BOX)
+def _weighting(proposal, beta_transform):
+    inv = lambda t: from_flow(t, beta_transform)
     lw = lambda th: proposal_log_weight(proposal, th)
     return inv, lw
 
@@ -249,35 +276,46 @@ def _recovery(r: dict, truth: np.ndarray) -> dict:
     return out
 
 
-def _by_region(v: np.ndarray, covered: np.ndarray) -> dict:
-    """Coverage within each region of ``v`` (one column per parameter)."""
+def _by_region(v: np.ndarray, u: np.ndarray) -> dict:
+    """Coverage within each region of ``v`` (one column per parameter), and
+    which side the misses fall on: ``above_95`` is the share of truths above
+    the 95th percentile (an upper tail too short), ``below_5`` below the 5th."""
     out = {}
     for j, n in enumerate(BOX.names):
         c = CUTS[n]
         out[n] = []
         for a, b in zip(c[:-1], c[1:]):
             m = (v[:, j] >= a) & ((v[:, j] < b) if b < c[-1] else (v[:, j] <= b))
+            uj = u[m, j]
             out[n].append({"lo": a, "hi": b, "n": int(m.sum()),
-                           "coverage_90": float(covered[m, j].mean()) if m.any() else None})
+                           "coverage_90": float(((uj >= 0.05) & (uj <= 0.95)).mean())
+                           if m.any() else None,
+                           "below_5": float((uj < 0.05).mean()) if m.any() else None,
+                           "above_95": float((uj > 0.95).mean()) if m.any() else None})
     return out
 
 
 def _sbc(r: dict, truth: np.ndarray) -> dict:
     ok = np.isfinite(r["u"]).all(1)
     cov, ks = sbc_from_u(r["u"])
-    covered = (r["u"][ok] >= 0.05) & (r["u"][ok] <= 0.95)
+    u = r["u"][ok]
     return {"coverage_90": dict(zip(BOX.names, map(float, cov))),
             "ks_p": dict(zip(BOX.names, map(float, ks))),
-            "by_posterior_mean": _by_region(r["mean"][ok], covered),
-            "by_true_theta": _by_region(truth[ok], covered),
+            "by_posterior_mean": _by_region(r["mean"][ok], u),
+            "by_true_theta": _by_region(truth[ok], u),
             "recovery": _recovery(r, truth)}
 
 
-def _log_q(members, th_flow: torch.Tensor, x: torch.Tensor, batch=1024) -> float:
-    """Mean held-out log density of the equal-weight mixture, in the flow's
-    space and without the box-truncation renormalisation sbi's ``log_prob``
-    adds -- comparable between option A runs, not to earlier models."""
+def _log_q(members, theta: torch.Tensor, x: torch.Tensor, beta_transform: str,
+           batch=1024) -> float:
+    """Mean held-out log density of the equal-weight mixture, with delta as
+    ``log(1 - delta)`` and beta on its own scale (the beta transform's Jacobian
+    added back, so arms with different beta targets compare), and without the
+    box-truncation renormalisation sbi's ``log_prob`` adds -- comparable between
+    option A runs, not to earlier models."""
     dev = torch.device(getattr(members[0], "_device", "cpu"))
+    th_flow = to_flow(theta, beta_transform)
+    jac = torch.from_numpy(beta_log_jacobian(theta[:, 0].numpy(), BOX, beta_transform))
     out = []
     with torch.no_grad():
         for b0 in range(0, len(x), batch):
@@ -285,13 +323,15 @@ def _log_q(members, th_flow: torch.Tensor, x: torch.Tensor, batch=1024) -> float
             lp = torch.stack([m.posterior_estimator.log_prob(tb[None], condition=xb)[0]
                               for m in members])
             out.append((torch.logsumexp(lp, 0) - np.log(len(members))).cpu())
-    return float(torch.cat(out).mean())
+    return float((torch.cat(out).double() + jac).mean())
 
 
 def evaluate(args) -> None:
     members, proposal, cfg = load_members(args.run_dirs, args.device)
-    inv, lw = _weighting(proposal)
-    print(f"{len(members)} members; proposal {proposal}")
+    bt = cfg["beta_transform"]
+    inv, lw = _weighting(proposal, bt)
+    fb = flow_box(bt)
+    print(f"{len(members)} members; proposal {proposal}; beta transform {bt}")
 
     cache = torch.load(args.sbc_cache, weights_only=False)
     if (tuple(cache["rgamma_range"]) != (BOX.rgamma_low, BOX.rgamma_high)
@@ -316,13 +356,13 @@ def evaluate(args) -> None:
     res = {"proposal": proposal, "config": cfg, "run_dirs": list(map(str, args.run_dirs))}
     torch.manual_seed(0)
     for name, ms in sets.items():
-        r = sample_weighted(ms, x_sbc, args.n_draws, FLOW_BOX.low, FLOW_BOX.high,
+        r = sample_weighted(ms, x_sbc, args.n_draws, fb.low, fb.high,
                             invert=inv, log_weight=lw, truth=th_sbc)
-        q = sample_weighted(ms, x_ho, args.n_draws, FLOW_BOX.low, FLOW_BOX.high,
+        q = sample_weighted(ms, x_ho, args.n_draws, fb.low, fb.high,
                             invert=inv, log_weight=None, truth=th_ho.numpy())
         res[name] = {"sbc": _sbc(r, th_sbc),
                      "heldout_q": {**_recovery(q, th_ho.numpy()),
-                                   "log_q": _log_q(ms, to_log1m(th_ho, BOX), x_ho)}}
+                                   "log_q": _log_q(ms, th_ho, x_ho, bt)}}
         if name == "ensemble" or len(sets) == 1:
             np.savez(args.out / f"sbc_{name}.npz", u=r["u"], mean=r["mean"],
                      sd=r["sd"], truth=th_sbc)
@@ -358,6 +398,14 @@ def report(res: dict) -> None:
                 f"  [{b['lo']:g}, {b['hi']:g}) "
                 + (f"{b['coverage_90']:.3f}" if b["coverage_90"] is not None else "  -  ")
                 + f" (n={b['n']})" for b in s[k][n]))
+    print(f"\n--- {key}: which side the misses fall on, by POSTERIOR-MEAN region "
+          f"(5% each if calibrated) ---")
+    for n in names:
+        print(f"{n:8s}" + "".join(
+            f"  [{b['lo']:g}, {b['hi']:g}) "
+            + (f"below {b['below_5']:.3f} above {b['above_95']:.3f}"
+               if b["coverage_90"] is not None else "  -  ")
+            for b in s["by_posterior_mean"][n]))
     h = res[key]["heldout_q"]
     print(f"\n--- {key}: held-out proposal draws, unweighted q (cf. RESULTS 32.1) ---")
     print(f"{'':10s}{'corr':>8s}{'mae':>10s}{'mae/prior sd':>14s}{'cov90':>8s}")
@@ -365,7 +413,7 @@ def report(res: dict) -> None:
         v = h[n]
         print(f"{n:10s}{v['corr']:8.3f}{v['mae']:10.4f}{v['mae_over_prior_sd']:14.3f}"
               f"{v['coverage_90_interval']:8.3f}")
-    print(f"held-out log q (flow space): {h['log_q']:.3f}"
+    print(f"held-out log q (beta linear, delta as log(1-delta)): {h['log_q']:.3f}"
           + "".join(f"   {k} {res[k]['heldout_q']['log_q']:.3f}"
                     for k in res if k.startswith("member")))
 
@@ -376,8 +424,10 @@ def psid(args) -> None:
     from scripts.literature_ranges import LAIBSON, META
     from scripts.psid_posterior import graded_correction
 
-    members, proposal, _cfg = load_members(args.run_dirs, args.device)
-    inv, lw = _weighting(proposal)
+    members, proposal, cfg = load_members(args.run_dirs, args.device)
+    bt = cfg["beta_transform"]
+    inv, lw = _weighting(proposal, bt)
+    fb = flow_box(bt)
     d = torch.load(args.x, weights_only=False)
     if list(d["features"]) != list(FEATURES_TWOASSET_AGE):
         raise SystemExit(f"{args.x}: features {d['features']} are not "
@@ -386,7 +436,7 @@ def psid(args) -> None:
     keep = np.flatnonzero(d["educ"].numpy() == EDUC_GROUPS.index("comphs"))
     x_raw = d["x"].numpy()[keep]
     print(f"{args.x}: {len(keep)} comphs households; {len(members)} members; "
-          f"proposal {proposal}")
+          f"proposal {proposal}; beta transform {bt}")
     args.out.mkdir(parents=True, exist_ok=True)
     np.save(args.out / "household_index.npy", keep)
 
@@ -396,11 +446,11 @@ def psid(args) -> None:
     lit_lo = np.append(META[0], BOX.rgamma_low)      # R_gamma: no literature band
     lit_hi = np.append(META[1], BOX.rgamma_high)
     ref = np.append(LAIBSON, 1.05)                   # their calibrated R_gamma
-    summary = {"proposal": proposal, "n_households": int(len(keep))}
+    summary = {"proposal": proposal, "beta_transform": bt, "n_households": int(len(keep))}
     for arm, xa in arms.items():
         torch.manual_seed(0)
         xt, _ = transform(torch.from_numpy(xa).float())
-        r = sample_weighted(members, xt, args.n_draws, FLOW_BOX.low, FLOW_BOX.high,
+        r = sample_weighted(members, xt, args.n_draws, fb.low, fb.high,
                             invert=inv, log_weight=lw)
         np.savez(args.out / f"posterior_{arm}.npz", mean=r["mean"], sd=r["sd"],
                  lo=r["lo"], hi=r["hi"], in_box_frac=r["in_box_frac"],
@@ -454,7 +504,8 @@ def psid(args) -> None:
         reflect_axes=("delta",),
         axis_limits=(BOX.low, np.where(np.array(names) == "delta", 1.04, BOX.high)),
         path=args.out / "psid_household_means.png",
-        title="Per-household posterior means, PSID comphs, option A (4 parameters)\n"
+        title="Per-household posterior means, PSID comphs, option A (4 parameters)"
+              + ("" if bt == "linear" else f", beta target {bt}") + "\n"
               "importance-weighted to the uniform prior; card type marginalised")
     print(f"\nwrote {args.out}")
 
@@ -507,6 +558,8 @@ def main() -> None:
     t.add_argument("--max_epochs", type=int, default=None,
                    help="Cap epochs (smoke tests); default TRAINING's.")
     t.add_argument("--device", default=None)
+    t.add_argument("--beta_transform", choices=BETA_TRANSFORMS, default="linear",
+                   help="beta's flow target (RESULTS 37); delta is always log(1 - delta).")
     t.add_argument("--out", type=Path, default=OUT)
     e = sub.add_parser("evaluate", help="SBC and held-out scores, ensemble and members.")
     e.add_argument("--run_dirs", type=Path, nargs="+", required=True)

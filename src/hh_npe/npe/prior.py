@@ -164,6 +164,90 @@ def log1m_box(box: PriorBox = PHASE3) -> PriorBox:
                     rgamma_low=box.rgamma_low, rgamma_high=box.rgamma_high)
 
 
+#: Flow targets for beta's column (RESULTS.md 34, 37), the last-resort fix for
+#: its short upper tail near beta = 1 (§36.1). ``log1m`` is ``log(high - beta)``,
+#: moving the wall at the top to minus infinity as ``to_log1m`` does for delta;
+#: ``logit`` maps ``[low, high]`` onto the whole line, removing both walls.
+BETA_TRANSFORMS = ("linear", "log1m", "logit")
+
+
+def _beta_unit(b, box: PriorBox, xp):
+    """beta rescaled to [0, 1] and clipped ``LOG1M_EPS`` inside both ends."""
+    clip = xp.clamp if xp.__name__ == "torch" else np.clip
+    return clip((b - box.beta_low) / (box.beta_high - box.beta_low),
+                LOG1M_EPS, 1.0 - LOG1M_EPS)
+
+
+def beta_to_flow(theta, box: PriorBox, kind: str):
+    """Replace beta's column (index 0) by its flow target ``kind``; a copy, numpy
+    or torch in, the same kind out."""
+    if kind not in BETA_TRANSFORMS:
+        raise ValueError(f"beta transform {kind!r} not in {BETA_TRANSFORMS}")
+    if kind == "linear":
+        return theta
+    if hasattr(theta, "clone"):
+        import torch as xp
+
+        out = theta.clone()
+        clip = xp.clamp
+    else:
+        xp = np
+        out = np.array(theta, copy=True, dtype=float)
+        clip = np.clip
+    b = out[:, 0]
+    if kind == "log1m":
+        out[:, 0] = xp.log(clip(box.beta_high - b, LOG1M_EPS, None))
+    else:
+        s = _beta_unit(b, box, xp)
+        out[:, 0] = xp.log(s) - xp.log(1.0 - s)
+    return out
+
+
+def beta_from_flow(t, box: PriorBox, kind: str):
+    """Invert :func:`beta_to_flow` (any leading shape; beta is the last axis's
+    first entry)."""
+    if kind == "linear":
+        return t
+    if hasattr(t, "clone"):
+        import torch
+
+        out, exp, sig = t.clone(), torch.exp, torch.sigmoid
+    else:
+        from scipy.special import expit
+
+        out, exp, sig = np.array(t, copy=True, dtype=float), np.exp, expit
+    if kind == "log1m":
+        out[..., 0] = box.beta_high - exp(out[..., 0])
+    else:
+        out[..., 0] = box.beta_low + (box.beta_high - box.beta_low) * sig(out[..., 0])
+    return out
+
+
+def beta_flow_bounds(box: PriorBox, kind: str) -> tuple[float, float]:
+    """Image of ``[beta_low, beta_high]`` under ``kind``, with the
+    ``LOG1M_EPS`` cap wherever the map runs to infinity. ``log1m`` is
+    decreasing, so its ends swap."""
+    if kind == "linear":
+        return float(box.beta_low), float(box.beta_high)
+    if kind == "log1m":
+        return float(np.log(LOG1M_EPS)), float(np.log(box.beta_high - box.beta_low))
+    e = float(np.log(LOG1M_EPS) - np.log1p(-LOG1M_EPS))
+    return e, -e
+
+
+def beta_log_jacobian(beta, box: PriorBox, kind: str) -> np.ndarray:
+    """``log |d t / d beta|`` at ``beta`` (numpy): added to a flow-space log
+    density it gives the density with beta on its own scale, so held-out
+    ``log q`` compares across transforms."""
+    b = np.asarray(beta, dtype=float)
+    if kind == "linear":
+        return np.zeros_like(b)
+    if kind == "log1m":
+        return -np.log(np.clip(box.beta_high - b, LOG1M_EPS, None))
+    s = _beta_unit(b, box, np)
+    return -np.log(box.beta_high - box.beta_low) - np.log(s) - np.log1p(-s)
+
+
 def sample_sobol(
     n_samples: int,
     box: PriorBox = PriorBox(),

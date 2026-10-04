@@ -4142,3 +4142,39 @@ Figures:
   training only: ~4.5 h per arm at five seeds, or ~3 h at three for screening.
 - **Rerun the OOS test (§22) and the wealth-dynamics comparison on option A.**
   Household figures must resample with the weights (`weighted.resample`).
+
+---
+
+## 37. β-transform screen — running
+
+Started 2026-10-04, as §34's last-resort step, triggered by §36.1's short
+upper tail. Option A retrained twice more, all else equal (data, inputs,
+`log(1 - δ)`, architecture, seeds 0–4), with β's flow target changed:
+
+- `log1m`: `log(1 - β)`. This moves the wall at β = 1 to minus infinity, as
+  `log(1 - δ)` did for δ. The lower wall at 0.3 stays.
+- `logit`: `log((β - 0.3) / (1 - β))`. This removes both walls.
+
+Both are capped at `1e-6` from each end, beyond every training draw.
+Importance weights are still applied in θ space, after inversion. Held-out
+`log q` adds the transform's Jacobian back, so all arms compare with β on its
+own scale. `evaluate` now also reports which side of the interval the misses
+fall on.
+
+**Criteria, fixed before training** (`scripts/compare_beta_transforms.py`):
+
+1. **The tail.** Where β's posterior mean is in [0.8, 0.95), the share of
+   truths above the 95th percentile and the share below the 5th are each at
+   most 0.075, on at least 100 draws. Linear: 0.114 above, 0.027 below.
+2. **β overall.** SBC coverage in [0.88, 0.92], and rank KS p ≥ 0.05.
+3. **No collateral damage.** δ, ρ and R_gamma coverage each within 0.02 of the
+   linear arm's.
+4. **Recovery.** β's error over the prior sd is no worse than linear's by more
+   than 0.01. Held-out `log q` breaks ties.
+
+An arm passing 1–3 replaces linear. If none does, β stays linear.
+
+Run with `scripts/run_beta_transform_screen.sh`. There are ten training jobs,
+two at a time, ~7 h in total. Evaluation and PSID (40,000 draws) follow for
+each arm, then the comparison and figure 33. A smoke run (2 shards, 2 epochs)
+passed end to end for both transforms.
