@@ -4137,17 +4137,15 @@ Figures:
 
 ### 36.5 Next
 
-- **β transform (§34): decision pending.** Arms linear / `log(1 - β)` / logit,
-  judged on the upper-tail rate above, rank uniformity and recovery. It needs
-  training only: ~4.5 h per arm at five seeds, or ~3 h at three for screening.
+- **β transform (§34): screened in §37; β stays linear.**
 - **Rerun the OOS test (§22) and the wealth-dynamics comparison on option A.**
   Household figures must resample with the weights (`weighted.resample`).
 
 ---
 
-## 37. β-transform screen — running
+## 37. β-transform screen: β stays linear
 
-Started 2026-10-04, as §34's last-resort step, triggered by §36.1's short
+Run 2026-10-04, as §34's last-resort step, triggered by §36.1's short
 upper tail. Option A retrained twice more, all else equal (data, inputs,
 `log(1 - δ)`, architecture, seeds 0–4), with β's flow target changed:
 
@@ -4174,7 +4172,94 @@ fall on.
 
 An arm passing 1–3 replaces linear. If none does, β stays linear.
 
-Run with `scripts/run_beta_transform_screen.sh`. There are ten training jobs,
-two at a time, ~7 h in total. Evaluation and PSID (40,000 draws) follow for
-each arm, then the comparison and figure 33. A smoke run (2 shards, 2 epochs)
-passed end to end for both transforms.
+Run with `scripts/run_beta_transform_screen.sh`: ten training jobs, two at a
+time, 01:04–07:55 UTC (72–98 epochs each). Evaluation and PSID (40,000 draws)
+followed for each arm, then the comparison (`outputs/beta_transform_screen.json`)
+and figure 33.
+
+### 37.1 No arm passes; the tail does not move
+
+```
+                                          linear       log1m        logit
+beta tail, posterior mean in [0.8, 0.95)
+  n                                       220          213          226
+  truth above 95th pct (5% if calibrated) 0.114        0.108        0.106
+  truth below 5th pct                     0.027        0.038        0.044
+  coverage, true beta >= 0.95 (n = 79)    0.494        0.532        0.544
+SBC coverage / KS p
+  beta                                    0.897/0.164  0.894/0.733  0.899/0.046
+  delta                                   0.897/0.407  0.899/0.079  0.895/0.049
+  rho                                     0.912/0.018  0.914/0.158  0.904/0.221
+  R_gamma coverage (KS invalid, §36.1)    0.932        0.936        0.928
+beta corr / mae over prior sd             0.788/0.495  0.793/0.488  0.787/0.497
+held-out log q (beta on its own scale)    6.615        6.440        6.601
+
+criteria: 1 tail                          no           no           no
+          2 beta overall                  yes          yes          no (KS 0.046)
+          3 no collateral                 yes          yes          yes
+          4 recovery                      yes          yes          yes
+```
+
+- **Criterion 1 fails for both transforms.** The upper miss rate falls by at
+  most 0.008, about half a binomial standard error. Neither arm passes 1–3, so
+  by the rule fixed beforehand β stays linear.
+- **The same draws miss in every arm.** All three arms share the SBC truths.
+  - Linear misses above in 25 draws, log1m in 23 and logit in 24; 20 of these
+    draws miss in all three.
+  - Every miss has a true β of at least 0.95, except one in each transformed
+    arm. The median is 0.993.
+  - Of the 220 draws in the region, 57 have a true β of at least 0.95.
+- **So the defect does not sit in how the flow represents β.** Draws with β
+  near 1 get posterior means of 0.8–0.95 and intervals that stop short of the
+  truth, whatever the output space.
+  - An exact posterior is calibrated given any function of the data, the
+    posterior mean included. This is an approximation error, not weak
+    identification, which would show as wide intervals that still cover.
+  - What the three arms share is upstream: the training draws, the embedding
+    of 16 households' trajectories, and the importance weights.
+- **Single KS p-values move a lot between arms trained on the same data.** δ
+  went from 0.407 to 0.049 and ρ from 0.018 to 0.221, with coverage unchanged.
+  Logit's failure of criterion 2 (0.046) sits within that spread. It does not
+  change the decision, since criterion 1 already fails.
+- **Linear keeps the best held-out fit** (6.615 against 6.601 and 6.440).
+
+### 37.2 PSID: the β lower limit depends on the target
+
+```
+PSID comphs, N = 889, uncorrected    linear        log1m         logit
+median of means  beta                0.784         0.767         0.768
+                 delta               0.9885        0.9906        0.9883
+                 rho                 4.593         4.543         4.611
+                 R_gamma             1.0451        1.0451        1.0462
+beta median 90% limits               0.473-0.980   0.438-0.979   0.419-0.981
+beta CI covers 0.53                  62.8%         66.8%         76.0%
+all three in meta range              76.5%         76.5%         78.7%
+ESS p10                              1069          1102          1041
+```
+
+- **δ, ρ, R_gamma and the meta-range shares barely move.**
+- **The transforms change β's lower limit on PSID, not its upper one.**
+  - The median lower limit drops from 0.473 to 0.438 (log1m) and 0.419
+    (logit). The share of households whose interval covers Laibson et al.'s
+    0.53 rises from 62.8% to 66.8% and 76.0%.
+  - On simulated data the lower side is calibrated in every arm (below-5th
+    rates 0.027–0.044).
+  - So on PSID the flows extrapolate differently into β's lower tail, and
+    simulation cannot say which is right.
+- **This revises §36.1's "the lower limits are not affected".** That held for
+  the tail defect on simulated data. On PSID the lower limit carries a
+  model-choice uncertainty of about 0.05. The covers-0.53 share should be
+  quoted as roughly 63–76%, not 62.8%.
+
+Figure 33: household posterior means for the three arms, with 68/95% contours.
+
+### 37.3 Next
+
+- **Locate the tail defect upstream of the flow.** Split the held-out proposal
+  draws' unweighted `q` by posterior-mean region, as for SBC (minutes, no
+  training).
+  - If `q` already stops short near β = 1 on proposal draws, the network is the
+    cause: the embedding, or too few training draws near β = 1.
+  - If not, the importance weights are.
+- **Rerun the OOS test (§22) and the wealth-dynamics comparison on option A**,
+  as in §36.5.
