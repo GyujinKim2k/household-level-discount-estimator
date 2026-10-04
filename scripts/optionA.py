@@ -521,9 +521,10 @@ def main() -> None:
     p = sub.add_parser("psid", help="Per-household posteriors for PSID comphs.")
     p.add_argument("--run_dirs", type=Path, nargs="+", required=True)
     p.add_argument("--x", type=Path, default=PSID_X)
-    p.add_argument("--n_draws", type=int, default=4000,
+    p.add_argument("--n_draws", type=int, default=40000,
                    help="Raw draws per household; the weights cost effective "
-                        "sample size, most for posteriors near delta = 1.")
+                        "sample size, most for posteriors near delta = 1 "
+                        "(at 4,000 the ESS p10 was 106; RESULTS 36).")
     p.add_argument("--device", default=None)
     p.add_argument("--out", type=Path, default=Path("outputs/psid_optionA"))
     args = ap.parse_args()

@@ -3974,3 +3974,171 @@ per household by default. Full test suite: 382 passed.
 
 **Expected cost:** ~0.5 M training rows, 3.3× §29's. Roughly 75–100 min per
 seed, about 5 h for five seeds run two at a time, plus ~30 min of evaluation.
+
+---
+
+## 36. Option A results
+
+Trained 2026-10-03, 16:45–20:53 UTC, after `verify` passed on all 64 shards:
+five seeds, converged after 75–103 epochs, 507,904 rows from 31,744 draws.
+Evaluation is on the 1,000 uniform-prior SBC simulations (importance-weighted),
+and on 1,024 held-out proposal draws with one household each.
+
+### 36.1 Calibration: δ fixed, one β tail left
+
+```
+SBC, ensemble (weighted)     beta    delta   rho     R_gamma
+90% coverage                 0.897   0.897   0.912   0.932
+rank KS p                    0.164   0.407   0.018   see below
+§29 headline, coverage       0.901   0.860   0.910
+§29 headline, KS p           0.247   0.048   0.081
+```
+
+- **δ's calibration defect is gone.**
+  - Coverage rose from 0.860 to 0.897, and the KS p-value from 0.048 to 0.407.
+  - Truths at δ ≥ 0.98 now cover 0.825 (n = 126), up from 0.707 (n = 41). That
+    is inside what an exact posterior shows there (0.80–0.90, §35.1).
+  - The edge-concentrated proposal did what §30.2 built it for.
+- **R_gamma's pooled rank test is invalid as computed.** The 1,000 SBC ranks
+  share only 63 distinct R_gamma values (one per block of 16), so they are not
+  independent. Taking one draw per block instead, the median KS p is 0.43, and
+  it rejects at 5% in 4.8% of 2,000 random picks. Coverage 0.932 has a
+  block-bootstrap 95% CI of [0.894, 0.962].
+- **ρ is marginal** (KS p = 0.018). Its mean error is +0.022 (se 0.022), and
+  coverage holds in every region below.
+- **Members alone under-cover** (0.855–0.916); the ensemble restores 0.90, as
+  before.
+
+Coverage by posterior-mean region (the calibration check, §35.1):
+
+```
+beta     [0.3, 0.8)  0.907 (776)   [0.8, 0.95)  0.859 (220)   [0.95, 1)  — (4)
+delta    [0.85,0.95) 0.886 (774)   [0.95, 0.98) 0.953 (127)   [0.98, 1)  0.909 (99)
+rho      [0.5, 3.5)  0.912 (793)   [3.5, 4.5)   0.911 (146)   [4.5, 5)   0.918 (61)
+R_gamma  lower third 0.943 (193)   middle       0.922 (626)   upper      0.956 (181)
+```
+
+**β's upper tail is too short where its posterior mean is high.** For the 224
+draws with a posterior mean of at least 0.8:
+
+- the truth lies above the 95th percentile 11.2% of the time instead of 5%
+  (about 4 binomial standard errors);
+- it lies below the 5th percentile only 2.7% of the time.
+
+So the posterior stops short of the bound at 1, which is what §34 anticipated.
+By true θ, β ≥ 0.95 covers 0.494 (n = 79), below an exact posterior's 0.62–0.74.
+
+For PSID this matters on one side only:
+
+- About half of households have β means above 0.78. Their upper β limits are
+  somewhat too low; if anything, they are less present-biased than their
+  intervals say.
+- The lower limits, which decide whether Laibson et al.'s 0.53 is covered, are
+  not affected.
+
+This is §34's trigger for testing a β transform.
+
+### 36.2 Recovery
+
+```
+SBC draws (uniform θ)      corr    mae / prior sd   contraction
+beta                       0.788       0.495           0.558
+delta                      0.796       0.458           0.617
+rho                        0.831       0.354           0.679
+R_gamma                    0.688       0.506           0.491
+§29 held-out corr b/d/r    0.789 0.792 0.853
+
+held-out proposal draws    corr    mae / prior sd   cov90    pilot (§32.1) corr, mae/sd
+beta                       0.694       0.508        0.902        0.621  0.591
+delta                      0.833       0.361        0.896        0.739  0.487
+rho                        0.788       0.328        0.914        0.689  0.439
+R_gamma                    0.764       0.466        0.915        0.636  0.610
+```
+
+- **Adding R_gamma costs β and δ nothing measurable.**
+- ρ's correlation is 0.831 against 0.853. The evaluation sets differ: §29's came
+  from the prefix-flawed held-out rows of §35.2.
+- Eight times the pilot's draws cut every parameter's error by 14–26%.
+
+### 36.3 PSID
+
+40,000 draws per household (§36.4); input `psid_x_comphs_optionA.pt` (§33).
+
+```
+PSID comphs, N = 889     beta    delta    rho     R_gamma
+median of means          0.784   0.9885   4.593   1.0451
+§29 headline             0.852   0.9919   4.498   (1.05 fixed)
+median 90% width         0.502   0.049    0.186   0.0415   (prior width 0.05)
+mean in meta range       82.2%   91.5%    99.8%     —      all three 76.5% (§29: 81.2%)
+CI covers Laibson        62.8%   77.2%    13.2%   92.5% (their 1.05)
+```
+
+- **β moves down by 0.07, as the pilot predicted** (§32.2): a free return
+  carries part of what patience carried.
+  - Several things changed at once: R_gamma free, card type marginalised, the
+    gross-liquid-plus-pensions input, and edge-concentrated training. The shift
+    cannot be attributed to any one of them.
+- **ρ ≈ 4.6 again, with R_gamma free.** The high ρ is not an artefact of fixing
+  the return.
+- **ρ's PSID precision matches its precision on simulated data.**
+  - SBC draws whose posterior-mean ρ is at least 4.3 have a median posterior sd
+    of 0.087, a median error of 0.039 and coverage of 0.945.
+  - So the tight PSID intervals are how the model behaves in that region, not
+    an extrapolation. Misspecification is a separate question.
+- **PSID says little about R_gamma per household.**
+  - The posterior sd is 0.0130, against the prior's 0.0144 (0.0103 on simulated
+    data).
+  - Households lean slightly below 1.05 (median 1.045), and 92.5% of intervals
+    include it.
+- **Corrected-consumption arm:** β 0.773, δ 0.985, ρ 4.58, R_gamma 1.047; 68.6%
+  of households have all three in the meta-analytic range.
+
+Heterogeneity (`heterogeneity_test.py`):
+
+```
+           betw sd   within rms   Var(true)   P<=0    §29 P<=0
+beta       0.109     0.154        -0.0118     1.000    1.000
+delta      0.0195    0.0235       -0.00017    1.000    0.000
+rho        0.580     0.581        -0.0013     0.527    0.012
+R_gamma    0.0087    0.0125       -0.00008    1.000     —
+```
+
+**No parameter shows heterogeneity above estimation noise.**
+
+- **δ:** §29's detectable heterogeneity came from its over-confident posterior.
+  Once δ is calibrated, the within-household sd rises from 0.0186 to 0.0235 and
+  the spread between households falls.
+- **ρ:** the within term is dominated by the ~17% of households whose ρ
+  posteriors are wide (90% width p90 = 3.6). The 737 households with 90% widths
+  below 0.4 show no heterogeneity either (Var(true) = -0.028, P = 1.0).
+
+Figures:
+- 31: household means against the literature and the §29 headline;
+- 32: all four parameters.
+
+### 36.4 The weights cost effective sample size on PSID
+
+- **The ESS is low on PSID.** The median ESS is 12% of kept draws, against 98%
+  on the SBC simulations. (The smoke test's 47–60% came from 2-epoch networks.)
+- **It is lowest near δ = 1.** Across households, corr(log ESS, mean δ) =
+  -0.66. In the concentrated region 1 - δ is log-uniform, so the weight falls
+  roughly in proportion to 1 - δ. A posterior spanning an order of magnitude in
+  1 - δ therefore carries weights spanning one too.
+- **At the old default of 4,000 draws, ESS p10 was 106.** The default is now
+  40,000 draws (p10 1,069).
+  - Medians and shares moved by at most 0.002 and 1 point.
+  - ρ's median posterior sd doubled (0.069 to 0.138) while its 90% width did not
+    (0.184 to 0.186). ρ posteriors have a tight core and a thin, long lower tail
+    that 4,000 draws under-sampled.
+  - So any sd-based statistic for ρ needs the larger budget.
+- **`sample_weighted` now caps draws per sampling call** at 262,144 per member.
+  At 40,000 draws, 256-household batches ran for more than 25 min; capped, the
+  run takes 86 s.
+
+### 36.5 Next
+
+- **β transform (§34): decision pending.** Arms linear / `log(1 - β)` / logit,
+  judged on the upper-tail rate above, rank uniformity and recovery. It needs
+  training only: ~4.5 h per arm at five seeds, or ~3 h at three for screening.
+- **Rerun the OOS test (§22) and the wealth-dynamics comparison on option A.**
+  Household figures must resample with the weights (`weighted.resample`).

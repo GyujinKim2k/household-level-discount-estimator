@@ -74,6 +74,7 @@ def sample_weighted(
     truth=None,
     batch: int = 256,
     min_kept: int = 20,
+    max_per_call: int = 262_144,
 ) -> dict[str, np.ndarray]:
     """Weighted posterior summaries for every row of ``x``.
 
@@ -89,11 +90,16 @@ def sample_weighted(
     and its in-box fraction instead of hanging. Returns arrays ``mean``, ``sd``,
     ``lo``, ``hi`` (5th/95th percentiles), ``in_box_frac``, ``n_kept``, ``ess``
     and, with ``truth``, ``u``.
+
+    ``batch`` rows are sampled together, but never more than ``max_per_call``
+    draws per member in one call: at 40,000 draws per row, 256 rows put 2 M
+    draws through each flow and ran > 25 min on PSID where 32 rows took 86 s.
     """
     dev = posterior_device(members[0])
     lo_b = torch.as_tensor(np.asarray(low), dtype=torch.float32, device=dev)
     hi_b = torch.as_tensor(np.asarray(high), dtype=torch.float32, device=dev)
     per = max(1, int(np.ceil(n_draws / len(members))))
+    batch = max(1, min(batch, max_per_call // per))
     truth = None if truth is None else np.asarray(truth, float)
     keys = ("mean", "sd", "lo", "hi") + (("u",) if truth is not None else ())
     res: dict[str, list] = {k: [] for k in keys + ("in_box_frac", "n_kept", "ess")}
