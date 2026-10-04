@@ -4137,7 +4137,8 @@ Figures:
 
 ### 36.5 Next
 
-- **β transform (§34): screened in §37; β stays linear.**
+- **β transform (§34): screened in §37 (β stays linear), revisited on a
+  fresh SBC set in §38 (logit passes; decision pending).**
 - **Rerun the OOS test (§22) and the wealth-dynamics comparison on option A.**
   Household figures must resample with the weights (`weighted.resample`).
 
@@ -4317,16 +4318,16 @@ coverage, true beta >= 0.95  SBC 0.494 (0.406-0.582)   held-out q 0.636 (0.583-0
 
 - **If the β tail matters for a claim, settle it with a fresh SBC set:** 1,000
   uniform draws with 16 households each, through `generate_dataset.py` (the
-  training code path), ~3.5 h GPU. Not launched.
+  training code path), ~3.5 h GPU. Run in §38.
 - **Rerun the OOS test (§22) and the wealth-dynamics comparison on option A**,
   as in §36.5.
 
 ---
 
-## 38. A fresh SBC set, 16 households per draw — running
+## 38. A fresh SBC set, 16 households per draw: a mild β tail excess
 
-Started 2026-10-04 15:27 UTC to settle §37.3's disagreement. The first SBC set
-puts truths above β's 95th percentile 0.114 (0.079–0.150) of the time where
+Run 2026-10-04, 15:27–19:10 UTC, to settle §37.3's disagreement. The first SBC
+set puts truths above β's 95th percentile 0.114 (0.079–0.150) of the time where
 the posterior mean is in [0.8, 0.95). The held-out draws, reweighted to the
 uniform prior, give 0.049 (0.029–0.072).
 
@@ -4338,7 +4339,7 @@ uniform prior, give 0.049 (0.029–0.072).
   model.
 - Seed 30,000,000. Household shock streams overlap neither training nor the
   first set.
-- About 3.5 h on the V100.
+- 3.7 h on the V100; the evaluation took 2 min.
 
 **The evaluation** (`scripts/sbc_households.py`) scores all three β arms
 (linear, log1m, logit) on every household's importance-weighted posterior:
@@ -4359,3 +4360,97 @@ with its 90% interval:
 
 The §37 decision (β stays linear) is revisited only if linear fails here and
 a transform passes §37's criterion 1 on this set.
+
+### 38.1 Result: the defect is real but mild
+
+```
+beta, posterior mean in [0.8, 0.95)     households (draws)   above 95th            below 5th
+first SBC set (1 hh per draw)            220                 0.114 (0.079-0.150)   0.027
+held-out, weighted (§37.3)               4095 (n_eff 2061)   0.049 (0.029-0.072)   0.033
+fresh set   linear                       3285 (459)          0.078 (0.057-0.100)   0.037
+            log1m                        3209 (459)          0.062 (0.044-0.081)   0.039
+            logit                        3267 (461)          0.062 (0.044-0.081)   0.035
+fresh set, linear, 1 hh per draw          197                0.071 (0.042-0.104)   0.010
+
+fresh set                       linear        log1m         logit
+coverage / KS p (1 hh per draw)
+  beta                          0.899/0.844   0.898/0.681   0.905/0.404
+  delta                         0.902/0.178   0.905/0.109   0.904/0.015
+  rho                           0.907/0.782   0.909/0.742   0.907/0.365
+  R_gamma (KS 1 hh per block)   0.904/0.596   0.904/0.502   0.898/0.382
+beta coverage, mean in [0.8, 0.95)  0.885     0.899         0.904
+coverage, true beta >= 0.95     0.568         0.602         0.615      (1,168 households)
+beta corr / mae over prior sd   0.755/0.511   0.754/0.511   0.754/0.512
+```
+
+- **By the reading fixed beforehand, linear's defect is confirmed.** Its upper
+  miss rate is 0.078, and the 90% interval (0.057–0.100) lies above 0.05.
+- **It is mild, less than half the size the first set suggested.** The
+  excess is 2.8 points against the first set's 6.4.
+  - Coverage in the region is 0.885 against 0.90. The region holds 20% of
+    households.
+  - Overall, β covers 0.899 with KS p = 0.844.
+- **The misses are the same kind as before.**
+  - 91% of them have a true β of at least 0.95 (median 0.990).
+  - Truths in [0.98, 1) cover only 0.23–0.29.
+  - Posterior means shrink toward the middle of the prior by 0.14 there, the
+    same in every arm.
+- **The three sets need no mechanism to reconcile them.**
+  - The fresh set lies 1.6 SE above the held-out estimate and 1.4 SE below the
+    first set. Pooled by inverse variance, the rate is 0.071 ± 0.008.
+  - The simplest reading is that the first set drew high and the held-out
+    draws low.
+  - So I have not searched for a cause, a departure from the "find out why"
+    step fixed beforehand.
+- **Both transforms cut the excess by 0.016 on the same households.**
+  - The paired block bootstrap gives 90% intervals of 0.009–0.024 (log1m) and
+    0.010–0.023 (logit).
+  - That interval covers household sampling, not training noise; retraining
+    linear with other seeds could move its rate.
+  - The direction matches the first set, where the cut was 0.006–0.008.
+- **Coverage at true β ≥ 0.95 rises from 0.568 to 0.602–0.615.** An exact
+  posterior gives 0.62–0.74 there (§35.1).
+- **The fresh set's rank ECDFs stay inside the KS band for every parameter**
+  (figure 34). The first set's ρ and R_gamma curves touched or left it; its
+  R_gamma band is not valid, since ranks are shared within blocks (§36.1).
+
+### 38.2 The §37 decision, revisited: logit passes, decision pending
+
+The trigger fixed in advance has fired: linear fails here, and both
+transforms pass criterion 1. §37's criteria, on the fresh set:
+
+```
+                                                     linear   log1m   logit
+1 tail: above and below 95th/5th each <= 0.075       no       yes     yes
+2 beta coverage in [0.88, 0.92], KS p >= 0.05        yes      yes     yes
+3 delta, rho, R_gamma coverage within 0.02 of linear —        yes     yes
+4 beta mae over prior sd within 0.01 of linear       —        yes     yes
+held-out log q (tie-break, §37.1)                    6.615    6.440   6.601
+```
+
+- **Under §37's rule, logit replaces linear.** An arm passing 1–3 replaces
+  linear, and held-out `log q` breaks the tie between the transforms: logit
+  (6.601) is level with linear (6.615), while log1m (6.440) is clearly worse.
+- **Caveats on logit.**
+  - It failed criterion 2 on the first set (KS p = 0.046).
+  - Its δ KS p is 0.015 here, though δ coverage is a normal 0.904. Among
+    twelve KS tests, one at this level or lower has about a 17% chance.
+- **What switching changes is PSID's β lower limit (§37.2).**
+  - The median lower limit falls from 0.473 to 0.419.
+  - The share of households whose interval covers 0.53 rises from 62.8% to
+    76.0%.
+  - Simulated lower tails are calibrated in every arm, so simulation cannot
+    say which PSID lower limit is right. Quote the 63–76% range either way.
+- **Decision pending.** The rule points to logit, and the upper-tail gain it
+  buys is small.
+
+Figure 34: rank ECDF minus u, per parameter, for the fresh set (one household
+per draw) and the first set (linear arm), with the fresh set's KS 95% band.
+
+### 38.3 Next
+
+- **Decide between linear and logit.** If logit, promote
+  `outputs/optionA_beta_logit` and `outputs/psid_optionA_beta_logit`, and
+  restate §36.3's PSID headline and its figures.
+- **Rerun the OOS test (§22) and the wealth-dynamics comparison** on the chosen
+  arm, as in §36.5.
