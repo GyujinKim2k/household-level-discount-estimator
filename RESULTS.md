@@ -4209,14 +4209,12 @@ criteria: 1 tail                          no           no           no
   - Every miss has a true β of at least 0.95, except one in each transformed
     arm. The median is 0.993.
   - Of the 220 draws in the region, 57 have a true β of at least 0.95.
-- **So the defect does not sit in how the flow represents β.** Draws with β
-  near 1 get posterior means of 0.8–0.95 and intervals that stop short of the
-  truth, whatever the output space.
-  - An exact posterior is calibrated given any function of the data, the
-    posterior mean included. This is an approximation error, not weak
-    identification, which would show as wide intervals that still cover.
-  - What the three arms share is upstream: the training draws, the embedding
-    of 16 households' trajectories, and the importance weights.
+- **So whatever drives the miss rate, it is not how the flow represents β.**
+  Draws with β near 1 get posterior means of 0.8–0.95 and intervals that stop
+  short of the truth, whatever the output space. What the three arms share is
+  the network's training, its embedding of the trajectories, the importance
+  weights, and the SBC set itself. §37.3 tests these on held-out data and does
+  not reproduce the miss rate.
 - **Single KS p-values move a lot between arms trained on the same data.** δ
   went from 0.407 to 0.049 and ρ from 0.018 to 0.221, with coverage unchanged.
   Logit's failure of criterion 2 (0.046) sits within that spread. It does not
@@ -4253,13 +4251,72 @@ ESS p10                              1069          1102          1041
 
 Figure 33: household posterior means for the three arms, with 68/95% contours.
 
-### 37.3 Next
+### 37.3 Held-out diagnostic: the tail is not reproduced
 
-- **Locate the tail defect upstream of the flow.** Split the held-out proposal
-  draws' unweighted `q` by posterior-mean region, as for SBC (minutes, no
-  training).
-  - If `q` already stops short near β = 1 on proposal draws, the network is the
-    cause: the embedding, or too few training draws near β = 1.
-  - If not, the importance weights are.
+`scripts/tail_diagnostic.py` (linear arm; output
+`outputs/optionA/tail_diagnostic.{json,npz}`). It uses the 1,024 held-out
+draws: the last two shards, all from the widened proposal, with 16 households
+each and the training code path. Two checks run on the same draws:
+
+- **The network's own `q`.** It is reweighted only from the training mixture
+  to the widened proposal (weights 0.86–1.15). If `q` is right, its ranks are
+  calibrated on these draws.
+- **The importance-weighted posterior that SBC checks**, with each truth
+  weighted by p / p~. This estimates the uniform-prior SBC on held-out data.
+
+90% intervals are block bootstraps over blocks of 16 draws, which share R_gamma
+and card type. The SBC set gets the same bootstrap.
+
+```
+beta, posterior mean in [0.8, 0.95)    n (households)  above 95th            below 5th
+SBC set (uniform, 1 hh per draw)          220          0.114 (0.079-0.150)   0.027 (0.010-0.046)
+held-out, q                    1 / draw   344          0.061 (0.044-0.079)   0.058 (0.042-0.076)
+                               all       5385          0.050 (0.040-0.062)   0.045 (0.039-0.052)
+held-out, weighted, truths p/p~ 1 / draw  256 (n_eff 125)  0.074 (0.039-0.114)   0.027 (0.010-0.048)
+                               all       4095 (n_eff 2061) 0.049 (0.029-0.072)   0.033 (0.025-0.041)
+
+coverage, true beta >= 0.95  SBC 0.494 (0.406-0.582)   held-out q 0.636 (0.583-0.685)
+                             held-out weighted 0.694 (0.606-0.772)
+```
+
+- **The network is calibrated in β's upper tail on held-out data.** On 5,385
+  households the upper miss rate is 0.050. Truths at β ≥ 0.95 cover 0.636,
+  inside an exact posterior's 0.62–0.74 (§35.1).
+- **The importance weights do not create a short tail either.** On the same
+  draws, reweighted to the uniform prior, the rate is 0.049.
+- **Only the SBC set shows the excess.** Its 90% interval (0.079–0.150) and the
+  held-out one (0.029–0.072) do not overlap; the difference is about 2.6
+  standard errors.
+  - The cleanest subgroup is true β ≥ 0.95 outside the concentrated region,
+    where both sets draw θ uniformly and every truth weight is 2. There the
+    upper miss rate is 0.470 (0.373–0.569, 66 draws) in the SBC set against
+    0.267 (0.172–0.373, 464 households from ~29 draws) on held-out.
+  - 68% of the SBC set's 25 upper misses lie in that subgroup (median truth
+    β 0.993, δ 0.937, ρ 2.9).
+- **No mechanical difference between the two sets was found.**
+  - Both use the same simulator code: no numerical simulator change between
+    the SBC run (2026-09-29) and the held-out shards (2026-10-03).
+  - Both cut windows with the same function (`cut_windows`).
+  - Initial wealth is the SCF median for every household in both, and shocks
+    are drawn independently per household from the same streams, so one
+    household per draw and 16 per draw have the same distribution.
+  - Income shocks are not shared across draws in either set.
+  - Away from the tail the two sets agree. With posterior mean in [0.3, 0.8),
+    the upper / lower miss rates are 0.041 / 0.052 in the SBC set and
+    0.043 / 0.044 on held-out (weighted).
+- **Reading.** Two estimates of the same quantity from the same generator
+  disagree at ~2.6σ. The SBC excess may be partly chance: its tail estimate
+  rests on 79 draws with β ≥ 0.95. Inverse-variance pooled, the upper miss rate
+  in the region is 0.066 ± 0.011, a mild excess at most.
+  - §36.1's "about 4 binomial standard errors" overstated the evidence for a
+    defect.
+  - The transform screen's null result fits with there being little to fix.
+  - PSID's β upper limits are probably not materially too low.
+
+### 37.4 Next
+
+- **If the β tail matters for a claim, settle it with a fresh SBC set:** 1,000
+  uniform draws with 16 households each, through `generate_dataset.py` (the
+  training code path), ~3.5 h GPU. Not launched.
 - **Rerun the OOS test (§22) and the wealth-dynamics comparison on option A**,
   as in §36.5.
