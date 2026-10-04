@@ -4138,7 +4138,7 @@ Figures:
 ### 36.5 Next
 
 - **β transform (§34): screened in §37 (β stays linear), revisited on a
-  fresh SBC set in §38 (logit passes; decision pending).**
+  fresh SBC set in §38: logit adopted, PSID restated in §39.**
 - **Rerun the OOS test (§22) and the wealth-dynamics comparison on option A.**
   Household figures must resample with the weights (`weighted.resample`).
 
@@ -4414,7 +4414,7 @@ beta corr / mae over prior sd   0.755/0.511   0.754/0.511   0.754/0.512
   (figure 34). The first set's ρ and R_gamma curves touched or left it; its
   R_gamma band is not valid, since ranks are shared within blocks (§36.1).
 
-### 38.2 The §37 decision, revisited: logit passes, decision pending
+### 38.2 The §37 decision, revisited: logit adopted
 
 The trigger fixed in advance has fired: linear fails here, and both
 transforms pass criterion 1. §37's criteria, on the fresh set:
@@ -4441,16 +4441,111 @@ held-out log q (tie-break, §37.1)                    6.615    6.440   6.601
     76.0%.
   - Simulated lower tails are calibrated in every arm, so simulation cannot
     say which PSID lower limit is right. Quote the 63–76% range either way.
-- **Decision pending.** The rule points to logit, and the upper-tail gain it
-  buys is small.
+- **Decided 2026-10-04: logit adopted**, as the rule says (§39). The
+  upper-tail gain it buys is small.
 
 Figure 34: rank ECDF minus u, per parameter, for the fresh set (one household
 per draw) and the first set (linear arm), with the fresh set's KS 95% band.
 
 ### 38.3 Next
 
-- **Decide between linear and logit.** If logit, promote
-  `outputs/optionA_beta_logit` and `outputs/psid_optionA_beta_logit`, and
-  restate §36.3's PSID headline and its figures.
-- **Rerun the OOS test (§22) and the wealth-dynamics comparison** on the chosen
-  arm, as in §36.5.
+- Logit adopted; PSID restated in §39.
+- **Rerun the OOS test (§22) and the wealth-dynamics comparison** on the logit
+  arm (§39.2).
+
+---
+
+## 39. Logit β adopted: the PSID headline
+
+Decided 2026-10-04 after §38.2. Option A's headline model is now the logit-β
+ensemble:
+- networks in `outputs/optionA_beta_logit`;
+- PSID posteriors in `outputs/psid_optionA_beta_logit` (40,000 draws per
+  household, the input of §33);
+- heterogeneity in `outputs/optionA_beta_logit/heterogeneity.json`.
+
+§36.3's linear numbers stay as the reference. Figures 31 and 32 now show the
+logit arm; the linear versions are in git history at `e889a0b`.
+
+```
+PSID comphs, N = 889     beta    delta    rho     R_gamma
+median of means          0.768   0.9883   4.611   1.0462
+  linear (§36.3)         0.784   0.9885   4.593   1.0451
+median 90% width         0.551   0.053    0.188   0.0418
+  linear                 0.502   0.049    0.186   0.0415
+mean in meta range       84.0%   91.8%    100.0%    —      all three 78.7% (linear 76.5%)
+CI covers Laibson        76.0%   75.0%    10.2%   92.6% (their 1.05)
+  linear                 62.8%   77.2%    13.2%   92.5%
+```
+
+- **β moves down by 0.016 and its intervals widen at the bottom.** The median
+  lower limit is 0.419, against 0.473; the upper limit barely moves (0.981
+  against 0.980).
+  - So 76.0% of households' intervals include Laibson et al.'s 0.53, up from
+    62.8%.
+  - As §37.2 says, simulation cannot decide between the two lower limits;
+    the honest statement is still about 63–76%.
+- **δ, ρ and R_gamma barely move.** ρ ≈ 4.6, and 90% of household intervals
+  still exclude their 1.94.
+- **Corrected-consumption arm:** β 0.758, δ 0.9846, ρ 4.60, R_gamma 1.048;
+  73.0% of households have all three in the meta-analytic range (linear 68.6%).
+- **The weights cost the same as before:** median ESS 13% of kept draws, p10
+  1,041.
+
+Heterogeneity (`heterogeneity_test.py`):
+
+```
+           betw sd   within rms   Var(true)   P<=0    linear P<=0
+beta       0.099     0.164        -0.0172     1.000   1.000
+delta      0.0194    0.0244       -0.00022    1.000   1.000
+rho        0.451     0.496        -0.043      0.903   0.527
+R_gamma    0.0087    0.0128       -0.00009    1.000   1.000
+```
+
+**Still no parameter shows heterogeneity above estimation noise.**
+
+Figures:
+- 31: household means against the literature and the §29 headline;
+- 32: all four parameters, 68/95% contours.
+
+### 39.1 Later: a logit target for δ
+
+Requested 2026-10-04 and deferred until the OOS rerun (§39.2) is done. δ's
+target is `log(1 - δ)` (§13.1). That removes the wall at δ = 1, but not the
+lower wall at 0.85.
+
+- **Near δ = 1 the two targets are nearly the same.** Logit's slope relative to
+  `log(1 - δ)` is 1.07 at δ = 0.99 and 1.15 at 0.98. So PSID's δ medians
+  (~0.988) should barely move.
+- **They differ near 0.85, and PSID reaches there.**
+  - 24% of households have a δ lower limit below 0.90, and 6% below 0.87.
+  - β's lower limits moved when logit removed β's wall at 0.3 (§37.2). The same
+    could happen for δ.
+- **On simulated data, δ has no tail defect to fix.** Where the posterior mean
+  is in [0.85, 0.95), the upper / lower miss rates are 0.047 / 0.055 on the
+  fresh set (§38.1).
+- **Plan:**
+  - five seeds with logit on both β and δ (~3.5 h);
+  - then evaluation and PSID, judged as in §37: δ coverage and region rates
+    on the §38 set, no collateral damage, held-out `log q`;
+  - and what it does to PSID's δ lower limits.
+
+### 39.2 Out-of-sample forecasts and wealth dynamics on the logit arm — running
+
+Started 2026-10-04 23:07 UTC (`scripts/run_oos_optionA.sh`):
+
+- **Training:** five 5-wave members, logit β (`optionA.py train --n_waves 5`).
+  They see waves 1–5 only.
+- **Forecasts:** `scripts/oos_optionA.py`. It is §22's test with option A's
+  model and input:
+  - parameters importance-weighted to the uniform prior;
+  - R_gamma per household, rounded to 0.0025 for batching;
+  - start state and targets from the gross-liquid-plus-pensions tensor.
+- **Card access is not observed in PSID.**
+  - Households seen borrowing in waves 1–5 (61%) are cardholders.
+  - For the rest, both types are simulated. The forecast mixes them at the
+    posterior card weight `a / (1 + a)`, where `a` is the share of cardholders
+    at the population θ who never borrow over the same five ages.
+  - Scores are also given at weight 0 (the §24.1 proxy) and 0.5.
+- **Also reported:** §24's wealth-dynamics table and its liquid-level table by
+  age, at the population θ and by card type.

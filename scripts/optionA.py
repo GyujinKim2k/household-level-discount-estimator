@@ -159,8 +159,9 @@ def transform(x: torch.Tensor):
     return anchor_log(x, feats), feats
 
 
-def windows(files, theta_all, seed):
-    th, x, pid = build_windowed(files, theta_all, k=1, seed=seed, **WINDOW)
+def windows(files, theta_all, seed, n_waves=WINDOW["n_waves"]):
+    th, x, pid = build_windowed(files, theta_all, k=1, seed=seed,
+                                **{**WINDOW, "n_waves": n_waves})
     x, feats = transform(x)
     return th, x, pid, feats
 
@@ -195,7 +196,7 @@ def from_flow(t, beta_transform: str = "linear"):
 def train(args) -> None:
     theta_all, card_all, train_f, held_f, proposal, _cfg = load_shards(
         args.shards, args.train_shards)
-    th, x, pid, feats = windows(train_f, theta_all, seed=0)
+    th, x, pid, feats = windows(train_f, theta_all, seed=0, n_waves=args.n_waves)
     drawn = np.unique(pid.numpy())
     assert drawn.min() == 0 and drawn.max() < proposal["n_train"]
     print(f"train: {len(th)} rows from {len(drawn)} draws (n_train "
@@ -204,7 +205,7 @@ def train(args) -> None:
     keep = torch.tensor([f in STATIC for f in feats])
     f_mean = torch.where(keep, x.mean((0, 1)), torch.zeros(len(feats)))
     f_std = torch.where(keep, x.std((0, 1)), torch.ones(len(feats)))
-    emb = TrajectoryTransformer(n_features=len(feats), seq_len=WINDOW["n_waves"],
+    emb = TrajectoryTransformer(n_features=len(feats), seq_len=args.n_waves,
                                 feature_mean=f_mean, feature_std=f_std,
                                 per_sequence=False, **{**EMBEDDER, **ARCH})
     dev = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -217,12 +218,14 @@ def train(args) -> None:
                                 "learning_rate": 1e-3, **over})
     out = args.out / f"s{args.seed}"
     out.mkdir(parents=True, exist_ok=True)
-    save_posterior(post, emb, flow_box(bt), out / "posterior_7w.pt", proposal=proposal)
+    save_posterior(post, emb, flow_box(bt), out / f"posterior_{args.n_waves}w.pt",
+                   proposal=proposal)
     (out / "results.json").write_text(json.dumps({"_config": {
         "shards": str(args.shards), "train_shards": args.train_shards,
         "proposal": proposal, "box": list(BOX.names), "delta_transform": True,
         "beta_transform": bt,
-        "window": WINDOW, "features": list(feats), "anchor_log": True,
+        "window": {**WINDOW, "n_waves": args.n_waves}, "features": list(feats),
+        "anchor_log": True,
         "mean_income_channel": True, "static_norm_channels": list(STATIC),
         "card": "marginalised", "arch": ARCH, "max_epochs": args.max_epochs,
         "train_seed": args.seed}}, indent=2))
@@ -231,11 +234,17 @@ def train(args) -> None:
 
 # ------------------------------------------------------------------------ evaluate
 
-def load_members(run_dirs, device=None):
-    """Members of one ensemble: same configuration except the seed."""
+def load_members(run_dirs, device=None, n_waves=WINDOW["n_waves"]):
+    """Members of one ensemble: same configuration except the seed. Refuses
+    members trained on another window length (the 5-wave models of the
+    out-of-sample test, ``train --n_waves 5``)."""
     posts, cfgs, props = [], [], []
     for d in run_dirs:
-        ck = load_posterior(Path(d) / "posterior_7w.pt", map_location=device,
+        cfg = json.loads((Path(d) / "results.json").read_text())["_config"]
+        if cfg["window"]["n_waves"] != n_waves:
+            raise SystemExit(f"{d}: trained on {cfg['window']['n_waves']} waves, "
+                             f"expected {n_waves}")
+        ck = load_posterior(Path(d) / f"posterior_{n_waves}w.pt", map_location=device,
                             weighted_ok=True)
         p = ck["posterior"]
         if device:
@@ -243,7 +252,6 @@ def load_members(run_dirs, device=None):
             p._device = device
         posts.append(p)
         props.append(ck.get("proposal"))
-        cfg = json.loads((Path(d) / "results.json").read_text())["_config"]
         cfg.setdefault("beta_transform", "linear")     # runs before RESULTS 37
         cfgs.append({k: v for k, v in cfg.items() if k != "train_seed"})
     if any(c != cfgs[0] for c in cfgs) or any(p != props[0] for p in props):
@@ -560,6 +568,8 @@ def main() -> None:
     t.add_argument("--device", default=None)
     t.add_argument("--beta_transform", choices=BETA_TRANSFORMS, default="linear",
                    help="beta's flow target (RESULTS 37); delta is always log(1 - delta).")
+    t.add_argument("--n_waves", type=int, default=WINDOW["n_waves"],
+                   help="Window length; 5 for the out-of-sample test (oos_optionA.py).")
     t.add_argument("--out", type=Path, default=OUT)
     e = sub.add_parser("evaluate", help="SBC and held-out scores, ensemble and members.")
     e.add_argument("--run_dirs", type=Path, nargs="+", required=True)
