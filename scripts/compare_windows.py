@@ -292,7 +292,8 @@ def split_shards(shard_files: list[Path], train_n: int):
 def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
                       cache: Path | None = None, educ: str = "comphs",
                       card_types: bool = False,
-                      rgamma_range: tuple[float, float] | None = None):
+                      rgamma_range: tuple[float, float] | None = None,
+                      init_pool: np.ndarray | None = None):
     """One GPU pass; the panels are re-windowed per window afterwards.
 
     Cached to disk because this is hours of GPU and everything downstream is
@@ -317,7 +318,16 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
     also per block. Returned thetas have four columns. Draws within a block share
     R_gamma, so the R_gamma rank test has ~n_sbc / theta_batch independent
     values; its coverage estimate is unaffected, its KS p-value optimistic.
+
+    ``init_pool`` draws each household's age-20 wealth from a seed pool, as
+    ``generate_dataset.py --init_pool`` does (RESULTS 42-43). Part of the cache
+    key by hash, for the same reason as the others.
     """
+    pool_key = None
+    if init_pool is not None:
+        import hashlib
+        init_pool = np.ascontiguousarray(init_pool, dtype=np.float64)
+        pool_key = hashlib.sha256(init_pool.tobytes()).hexdigest()
     if cache is not None and cache.exists():
         d = torch.load(cache, weights_only=False)
         cached_educ = d.get("educ", "comphs")
@@ -326,7 +336,8 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
         if (d["n_sbc"] == n_sbc and d["seed"] == seed and cached_educ == educ
                 and cached_card == card_types
                 and (None if cached_rg is None else tuple(cached_rg))
-                == (None if rgamma_range is None else tuple(rgamma_range))):
+                == (None if rgamma_range is None else tuple(rgamma_range))
+                and d.get("init_pool_sha256") == pool_key):
             log.info(f"Reusing {n_sbc} cached SBC simulations from {cache}")
             return d["thetas"], d["panels"], d.get("educ_idx")
         log.warning(f"{cache} holds n_sbc={d['n_sbc']} seed={d['seed']} "
@@ -360,6 +371,7 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
         theta_batch=solver_config["theta_batch"],
         chunk=solver_config["chunk"],
         return_panels=True, educ=educ_idx, card=card_idx, r_gamma=r_gamma,
+        init_pool=init_pool,
     )
     if r_gamma is not None:
         thetas = torch.cat([thetas, torch.as_tensor(r_gamma, dtype=thetas.dtype)[:, None]], 1)
@@ -370,7 +382,8 @@ def simulate_sbc_once(n_sbc: int, seed: int, solver_config: dict,
                     "seed": seed, "solver_config": solver_config,
                     "educ": educ, "educ_idx": educ_idx,
                     "card_types": card_types, "card_idx": card_idx,
-                    "rgamma_range": rgamma_range}, cache)
+                    "rgamma_range": rgamma_range,
+                    "init_pool_sha256": pool_key}, cache)
         log.info(f"Cached SBC simulations to {cache}")
     return thetas, panels, educ_idx
 

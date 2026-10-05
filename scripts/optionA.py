@@ -66,6 +66,7 @@ from hh_npe.evaluation.weighted import sample_weighted, sbc_from_u
 from hh_npe.npe.embedder import TrajectoryTransformer
 from hh_npe.npe.prior import (
     BETA_TRANSFORMS,
+    PHASE3,
     PHASE3_RGAMMA,
     EdgeMixture,
     SwitchedProposal,
@@ -76,6 +77,7 @@ from hh_npe.npe.prior import (
     from_log1m,
     log1m_box,
     proposal_log_weight,
+    sample_sobol,
     to_log1m,
 )
 from hh_npe.npe.train import load_posterior, save_posterior, train_npe
@@ -134,8 +136,12 @@ def load_shards(shards: Path, train_shards: int | None = None,
     # The weights are only right for these exact draws: regenerate the
     # proposal's sequence and compare.
     name = cfg["proposal"]
+    # "uniform": the option A2 pilot (RESULTS 43). generate_dataset draws the
+    # whole run's Sobol sequence and the pilot is its prefix; Sobol points are
+    # sequential, so the prefix is sample_sobol(n).
     ref = {"edge_mixture": lambda: EdgeMixture().sample(n, seed=cfg["seed"]),
-           "edge_mixture_switched": lambda: SwitchedProposal().sample(n, seed=cfg["seed"])}
+           "edge_mixture_switched": lambda: SwitchedProposal().sample(n, seed=cfg["seed"]),
+           "uniform": lambda: sample_sobol(n, PHASE3, seed=cfg["seed"])}
     if name not in ref:
         raise SystemExit(f"proposal {name!r} not handled here")
     if not np.allclose(theta_all[:, :3], ref[name](), rtol=0, atol=1e-12):
@@ -540,8 +546,13 @@ def verify(args) -> None:
         for k in d.files:
             if (k.startswith("panel_") or k == "x") and not np.isfinite(d[k]).all():
                 bad.append(f"{f.name}:{k}")
+        if "init_pool_sha256" in cfg:
+            # RESULTS 43: every household's age-20 start, from the pool.
+            w = d["init_wealth"] if "init_wealth" in d.files else None
+            if w is None or w.shape != (len(d["x"]), 2) or (w < 0).any():
+                bad.append(f"{f.name}:init_wealth")
     if bad:
-        raise SystemExit(f"non-finite values: {bad}")
+        raise SystemExit(f"non-finite values or bad init_wealth: {bad}")
     print(f"OK: {len(theta_all)} draws in {len(train_f) + len(held_f)} shards, "
           f"theta matches {proposal['name']}, R_gamma and card per block of {tb}, "
           f"all panels finite. Training {proposal['n_train']} draws "

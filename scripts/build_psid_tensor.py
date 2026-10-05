@@ -125,6 +125,12 @@ BUS_ASSET = dict(zip(WAVES, ["ER52217", "ER58018", "ER65198", "ER71275",
 #: --require_card, which is off by default for that reason.
 HAS_CCDEBT = dict(zip(WAVES, ["ER48936", "ER54686", "ER61797", "ER67851",
                               "ER73879", "ER80001", "ER83971"]))
+#: A3 `HEAD/REFERENCE PERSON MARITAL STATUS`: 1 married, 2 never married,
+#: 3 widowed, 4 divorced, 5 separated. Legal marriage only -- cohabiting
+#: partners are not identifiable in our extract (TODO.md). The model is a
+#: 2-adult household, so couples are the primary PSID sample (RESULTS 42).
+MARITAL = dict(zip(WAVES, ["ER47323", "ER53023", "ER60024", "ER66024",
+                           "ER72024", "ER78025", "ER82026"]))
 #: Section P pension variables: the *stock* in defined-contribution accounts,
 #: which the Section W wealth module does not carry. P20 is the current job's
 #: balance, P49 the balance still held at up to two previous employers, each

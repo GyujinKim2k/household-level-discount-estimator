@@ -45,11 +45,7 @@ OUT = Path("outputs/calibration_check.json")
 ALPHA = 2.02
 COUPLE_MIN_WAVES = 4
 
-#: A3 `HEAD/REFERENCE PERSON MARITAL STATUS`: 1 married, 2 never married,
-#: 3 widowed, 4 divorced, 5 separated. Legal marriage only -- cohabiting
-#: partners are not identifiable in our extract (TODO.md).
-MARITAL = dict(zip(b.WAVES, ["ER47323", "ER53023", "ER60024", "ER66024",
-                             "ER72024", "ER78025", "ER82026"]))
+MARITAL = b.MARITAL
 N_FU = dict(zip(b.WAVES, ["ER47316", "ER53016", "ER60016", "ER66016",
                           "ER72016", "ER78016", "ER82017"]))
 N_CHILD = dict(zip(b.WAVES, ["ER47320", "ER53020", "ER60021", "ER66021",

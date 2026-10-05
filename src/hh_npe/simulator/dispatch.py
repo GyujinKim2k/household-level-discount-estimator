@@ -15,6 +15,22 @@ from hh_npe.data.waves import FEATURES_MVP, FEATURES_TWOASSET, aggregate_waves
 AGE_START_SIM = 20
 AGE_END_SIM = 90
 
+#: Second word of the per-draw stream that picks initial wealth from a seed
+#: pool. Its own stream, so income shocks (``seed_base + j``) are untouched.
+INIT_POOL_STREAM = 20
+
+
+def draw_initial_wealth(pool: np.ndarray, seed_base: int, j: int,
+                        n_households: int) -> np.ndarray:
+    """Draw ``j``'s households' age-20 ``(liquid, illiquid)`` ratios from ``pool``.
+
+    With replacement, keyed on the draw index like the income shocks, so the
+    same draw gets the same households however draws are grouped or batched,
+    and a resumed shard reproduces its seeds. RESULTS 42-43.
+    """
+    rng = np.random.default_rng([seed_base + int(j), INIT_POOL_STREAM])
+    return pool[rng.integers(0, len(pool), size=n_households)]
+
 
 def simulate_one_hark(
     theta: np.ndarray, sim_seed: int, start_age: int, n_waves: int,
@@ -70,7 +86,7 @@ def simulate_batch_twoasset_gpu(
     wave_years: int, grid: str = "full", theta_batch: int = 16, chunk: int = 16,
     return_panels: bool = False, n_households: int = 1,
     educ: np.ndarray | None = None, card: np.ndarray | None = None,
-    r_gamma: np.ndarray | None = None,
+    r_gamma: np.ndarray | None = None, init_pool: np.ndarray | None = None,
 ) -> tuple[np.ndarray, ...]:
     """Phase 3 on the GPU: many draws per backward induction, one panel each.
 
@@ -113,6 +129,14 @@ def simulate_batch_twoasset_gpu(
     by R_gamma value too; generation assigns it per block of theta_batch draws
     so each group is exactly one full batch. ``thetas`` stays (beta, delta, rho).
 
+    ``init_pool`` is an ``(n, 2)`` array of age-20 (liquid, illiquid) ratios
+    to mean income. Each household's start is drawn from it with replacement
+    (:func:`draw_initial_wealth`) instead of the single SCF seed every
+    household shares by default (RESULTS 42.2). ``None`` leaves the forward
+    pass exactly as before. The draws are a pure function of ``seed_base`` and
+    the draw index, so callers that need them (to store per shard) recompute
+    them with :func:`draw_initial_wealth`.
+
     The forward pass and wave aggregation stay on the CPU and are shared with
     :func:`simulate_one_twoasset` verbatim; only the solver differs.
     """
@@ -137,6 +161,11 @@ def simulate_batch_twoasset_gpu(
     if r_gamma is not None and len(r_gamma) != len(thetas):
         raise ValueError(
             f"r_gamma has {len(r_gamma)} entries for {len(thetas)} thetas")
+    if init_pool is not None:
+        init_pool = np.asarray(init_pool, dtype=float)
+        if init_pool.ndim != 2 or init_pool.shape[1] != 2 or (init_pool < 0).any():
+            raise ValueError("init_pool must be (n, 2) non-negative (liquid, "
+                             "illiquid) ratios to age-20 mean income")
     thetas = np.asarray(thetas)[:, :3]
 
     # Consume each sub-batch before solving the next: a Solution holds ~58 MB of
@@ -175,8 +204,10 @@ def simulate_batch_twoasset_gpu(
             for j, sol in zip(sel, sols):
                 # Seed off the draw index, not a running counter: identical
                 # draws must give identical households however they are grouped.
+                init = (None if init_pool is None else draw_initial_wealth(
+                    init_pool, seed_base, j, n_households))
                 panel = simulate(sol, n_households=n_households,
-                                 seed=seed_base + int(j))
+                                 seed=seed_base + int(j), initial_wealth=init)
                 x, alive = aggregate_waves(
                     panel, age_start_sim=AGE_START_SIM, start_age=start_age,
                     n_waves=n_waves, wave_years=wave_years,

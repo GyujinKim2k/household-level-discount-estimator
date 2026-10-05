@@ -5099,3 +5099,85 @@ the `PSID_DATA.md` recipe.
 - re-aim the proposal from couples' posteriors;
 - the full regeneration, after a go;
 - training with card conditioning.
+
+## 43. Option A2: couples, a PSID seed pool, and the pilot
+
+Agreed 2026-10-05. This is the regeneration design after §40–42. Generation
+stays the option A process:
+- comphs only;
+- card types 50/50;
+- R_gamma on 1.025–1.075, drawn per block of 16;
+- 16 households per draw;
+- full grid, with panels stored.
+
+Three things change.
+
+1. **The fixed solver:** utility is centred at mean income (§40–41).
+2. **Starting wealth is drawn from a PSID pool.** It replaces the single SCF
+   seed (§42.2).
+   - The pool is 207 PSID married comphs heads aged 20–24 (2011–2023), under
+     Laibson et al.'s filter, one row per person at the youngest age seen.
+   - Each row is the joint (liquid, illiquid) ratio to model mean income at
+     the person's own age. Liquid is gross and **floored at 0**, so no
+     household starts in debt. Illiquid includes DC pensions, net of
+     non-card debt, floored at 0.
+   - Liquid: median 0, p90 0.31, 53% at zero. Illiquid: median 0.157,
+     p90 1.29, 26% at zero.
+   - Households are drawn with replacement, keyed on the draw index, from a
+     stream separate from income, so income paths are unchanged.
+   - Nothing is estimated.
+   - Built by `scripts/build_couples_inputs.py` as
+     `data/processed/seed_pool_couples.npz`; PSID-derived, never committed.
+3. **The PSID headline sample is couples:**
+   `data/processed/psid_x_comphs_couples.pt`.
+   - 409 households married in at least 4 of 7 waves, of which 310 are
+     married in all 7.
+   - Built as a row subset of the option A tensor, so x is unchanged.
+   - `married_waves` is stored with it.
+
+**Code.**
+- `dispatch.simulate_batch_twoasset_gpu(init_pool=...)` and
+  `draw_initial_wealth`.
+- `generate_dataset.py`:
+  - `--init_pool`: the pool's sha256 and size go into `solver_config.json`,
+    so a resume under another pool, or under none, is refused;
+  - `init_wealth` is stored per shard;
+  - `--max_draws`: stop after a prefix of the run.
+- `compare_windows.simulate_sbc_once(init_pool=...)`.
+- `optionA.py`: reads the uniform pilot shards and checks `init_wealth` in
+  `verify`.
+- `tests/test_init_pool.py`, 6 tests:
+  - draws are keyed on the draw;
+  - no pool gives the default path, bit for bit;
+  - the pool moves the start and leaves income and income states identical;
+  - age-20 liquid is ≥ 0 and illiquid lands on the drawn grid point;
+  - a draw's households don't depend on its batch;
+  - end to end: seeds stored, `--max_draws` honoured, and a resume under
+    another pool, or none, is refused.
+
+**Pilot.** `scripts/run_optionA2_pilot.sh` generates the first 4,096 of
+32,768 draws (`--max_draws 4096`), uniform on the prior box, into
+`data/processed/optionA2_dataset_shards`. It takes about 14 h. The rest of the
+run waits for the concentrated region to be re-aimed from couples'
+posteriors. Switching then is a documented `solver_config` change, verified
+to reproduce these shards, as in §32.2.
+
+The Sobol θ prefix and the per-block R_gamma and card draws are prefixes of
+the full run's sequences (checked).
+
+The pilot model:
+- `optionA.py train --shards data/processed/optionA2_dataset_shards
+  --beta_transform logit`;
+- 6 training shards, 2 held out;
+- then `psid --x data/processed/psid_x_comphs_couples.pt`.
+
+**Checks before launch.**
+- **Full test suite:** 432 passed, 5 skipped.
+- **Smoke test on the full grid:** 32 draws, M = 16, with the pool; 13.0 s per
+  draw.
+  - Seeds are stored: 512 × 2, all ≥ 0, 55% with zero liquid.
+  - Age-20 liquid is ≥ 0.
+  - No-card draws never go below −$1,000, the known one-step rounding of
+    cash minus income.
+  - R_gamma and card are constant within blocks.
+- **Launched** 2026-10-05 15:03 UTC, log in `logs/optionA2_generation.log`.

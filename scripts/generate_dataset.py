@@ -40,7 +40,7 @@ from hh_npe.data.waves import FEATURES_TWOASSET, aggregate_waves
 from hh_npe.npe.prior import PHASE3, PriorBox, sample_sobol
 from hh_npe.simulator import laibson_calibration as cal
 from hh_npe.simulator.dispatch import (
-    AGE_START_SIM, SIMULATORS, simulate_batch_twoasset_gpu,
+    AGE_START_SIM, SIMULATORS, draw_initial_wealth, simulate_batch_twoasset_gpu,
 )
 from hh_npe.utils.seeding import seed_all
 
@@ -89,11 +89,29 @@ def _solver_config(args) -> dict:
         # before the fix lack the key, so resuming one under the fix is refused.
         from hh_npe.simulator.twoasset import GRIDS
         cfg["crra_centred"] = GRIDS[args.grid].crra_centred
+    if args.init_pool is not None:
+        # Only when used, so shard directories from before the pool existed
+        # still resume. A different pool is a different simulator.
+        pool, digest = _load_pool(args.init_pool)
+        cfg |= {"init_pool_sha256": digest, "init_pool_n": int(len(pool))}
     if args.device == "cuda":
         import torch
         cfg |= {"theta_batch": args.theta_batch, "chunk": args.chunk,
                 "gpu": torch.cuda.get_device_name(0)}
     return cfg
+
+
+def _load_pool(path: Path) -> tuple[np.ndarray, str]:
+    """The age-20 seed pool (``scripts/build_couples_inputs.py``) and its hash,
+    checked against the hash written with it."""
+    import hashlib
+
+    d = np.load(path)
+    pool = np.ascontiguousarray(d["pool"], dtype=np.float64)
+    digest = hashlib.sha256(pool.tobytes()).hexdigest()
+    if "sha256" in d.files and str(d["sha256"]) != digest:
+        raise SystemExit(f"{path}: pool does not match its recorded sha256")
+    return pool, digest
 
 
 def _check_config(shard_dir: Path, cfg: dict, log_fn) -> None:
@@ -326,6 +344,19 @@ def main() -> None:
                              "design, like the uniform education draw; the "
                              "population share enters through conditioning or "
                              "reweighting. RESULTS.md 24.1, 26.")
+    parser.add_argument("--init_pool", type=Path, default=None,
+                        help="Seed pool (.npz with an (n, 2) `pool` of age-20 "
+                             "liquid, illiquid ratios to mean income) to draw "
+                             "each household's starting wealth from, instead of "
+                             "Laibson et al.'s single SCF seed (RESULTS 42.2). "
+                             "Recorded by hash in solver_config.json; the drawn "
+                             "starts are stored per shard as `init_wealth`. cuda "
+                             "only.")
+    parser.add_argument("--max_draws", type=int, default=None,
+                        help="Stop after the shards covering the first N draws "
+                             "(a multiple of --block). For a pilot that is "
+                             "exactly the start of the full run: theta, R_gamma, "
+                             "card and seeds are drawn for all --n_samples.")
     parser.add_argument("--verbose", type=int, default=0)
     args = parser.parse_args()
 
@@ -362,6 +393,13 @@ def main() -> None:
     if args.assemble_only:
         assemble(out, theta_np, log.info, window)
         return
+
+    if args.init_pool is not None and args.device != "cuda":
+        raise SystemExit("--init_pool is wired into the cuda path only")
+    if args.max_draws is not None and args.max_draws % args.block:
+        raise SystemExit(f"--max_draws ({args.max_draws}) must be a multiple of "
+                         f"--block ({args.block})")
+    pool = None if args.init_pool is None else _load_pool(args.init_pool)[0]
 
     shard_dir = _shard_dir(out)
     shard_dir.mkdir(parents=True, exist_ok=True)
@@ -413,6 +451,10 @@ def main() -> None:
         if sf.exists():
             continue
         lo, hi = b * args.block, min((b + 1) * args.block, args.n_samples)
+        if args.max_draws is not None and lo >= args.max_draws:
+            log.info(f"--max_draws {args.max_draws} reached; stopping before "
+                     f"shard {b + 1}/{n_blocks}")
+            break
         t0 = time.time()
         panels: dict[str, np.ndarray] = {}
         if args.device == "cuda":
@@ -423,6 +465,7 @@ def main() -> None:
                 None if educ_np is None else educ_np[lo:hi],
                 None if card_np is None else card_np[lo:hi],
                 None if args.rgamma_range is None else theta_np[lo:hi, 3],
+                pool,
             )
             xb, ab = out_batch[0], out_batch[1]
             if store_panel:
@@ -462,6 +505,12 @@ def main() -> None:
             # Like education: unrecoverable afterwards, and needed to condition
             # on or reweight the card type.
             extra["card"] = card_np[lo:hi]
+        if pool is not None:
+            # Each household's age-20 start, M rows per draw like x. Recomputed
+            # exactly as the dispatch drew it (same seed_base and draw index).
+            extra["init_wealth"] = np.concatenate([
+                draw_initial_wealth(pool, args.seed + lo + 1, j, args.n_households)
+                for j in range(hi - lo)])
         np.savez(tmp, x=xb, alive=ab, lo=lo, hi=hi,
                  n_households=args.n_households, **extra,
                  **{PANEL_PREFIX + k: v for k, v in panels.items()})
