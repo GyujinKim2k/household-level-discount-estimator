@@ -20,16 +20,45 @@ AGE_END_SIM = 90
 INIT_POOL_STREAM = 20
 
 
-def draw_initial_wealth(pool: np.ndarray, seed_base: int, j: int,
-                        n_households: int) -> np.ndarray:
-    """Draw ``j``'s households' age-20 ``(liquid, illiquid)`` ratios from ``pool``.
+def draw_initial_conditions(pool: np.ndarray, seed_base: int, j: int,
+                            n_households: int, states: np.ndarray | None = None,
+                            P: np.ndarray | None = None,
+                            sigma_nu: float | None = None):
+    """Draw ``j``'s households' age-20 starting point from a PSID ``pool``.
 
-    With replacement, keyed on the draw index like the income shocks, so the
-    same draw gets the same households however draws are grouped or batched,
-    and a resumed shard reproduces its seeds. RESULTS 42-43.
+    Each household is one pool row, with replacement, keyed on the draw index
+    like the income shocks, so the same draw gets the same households however
+    draws are grouped or batched, and a resumed shard reproduces its seeds.
+
+    A row is ``(liquid, illiquid)`` ratios to mean income (RESULTS 42.2), and
+    optionally a third column ``e``: the person's log after-tax income minus
+    the model's mean log income at that age (RESULTS 43). With ``e`` the
+    household's initial persistent income state is drawn from its posterior
+    given ``e`` under the model's own income process -- prior the stationary
+    distribution of ``P``, likelihood ``e = state + transitory`` with the
+    transitory sd ``sigma_nu`` -- so wealth and income come jointly from the
+    same PSID person. Returns ``(wealth (n, 2), state (n,) or None)``.
     """
     rng = np.random.default_rng([seed_base + int(j), INIT_POOL_STREAM])
-    return pool[rng.integers(0, len(pool), size=n_households)]
+    rows = pool[rng.integers(0, len(pool), size=n_households)]
+    if pool.shape[1] < 3:
+        return rows[:, :2], None
+    from hh_npe.simulator.grids import stationary
+
+    e = rows[:, 2]
+    logp = (np.log(stationary(P))[None, :]
+            - 0.5 * ((e[:, None] - np.asarray(states)[None, :]) / sigma_nu) ** 2)
+    p = np.exp(logp - logp.max(axis=1, keepdims=True))
+    cdf = np.cumsum(p / p.sum(axis=1, keepdims=True), axis=1)
+    u = rng.random(n_households)
+    state = np.minimum((u[:, None] > cdf).sum(axis=1), len(states) - 1)
+    return rows[:, :2], state
+
+
+def draw_initial_wealth(pool: np.ndarray, seed_base: int, j: int,
+                        n_households: int) -> np.ndarray:
+    """The wealth part of :func:`draw_initial_conditions` (same stream)."""
+    return draw_initial_conditions(pool[:, :2], seed_base, j, n_households)[0]
 
 
 def simulate_one_hark(
@@ -130,12 +159,14 @@ def simulate_batch_twoasset_gpu(
     so each group is exactly one full batch. ``thetas`` stays (beta, delta, rho).
 
     ``init_pool`` is an ``(n, 2)`` array of age-20 (liquid, illiquid) ratios
-    to mean income. Each household's start is drawn from it with replacement
-    (:func:`draw_initial_wealth`) instead of the single SCF seed every
-    household shares by default (RESULTS 42.2). ``None`` leaves the forward
-    pass exactly as before. The draws are a pure function of ``seed_base`` and
-    the draw index, so callers that need them (to store per shard) recompute
-    them with :func:`draw_initial_wealth`.
+    to mean income, or ``(n, 3)`` with each person's log income relative to
+    the model's mean as well. Each household's start is drawn from it with
+    replacement (:func:`draw_initial_conditions`) instead of the single SCF
+    seed every household shares by default (RESULTS 42.2), and with three
+    columns so is its initial persistent income state (RESULTS 43). ``None``
+    leaves the forward pass exactly as before. The draws are a pure function of
+    ``seed_base``, the draw index and the calibration, so callers that need
+    them (to store per shard) recompute them the same way.
 
     The forward pass and wave aggregation stay on the CPU and are shared with
     :func:`simulate_one_twoasset` verbatim; only the solver differs.
@@ -163,9 +194,11 @@ def simulate_batch_twoasset_gpu(
             f"r_gamma has {len(r_gamma)} entries for {len(thetas)} thetas")
     if init_pool is not None:
         init_pool = np.asarray(init_pool, dtype=float)
-        if init_pool.ndim != 2 or init_pool.shape[1] != 2 or (init_pool < 0).any():
+        if (init_pool.ndim != 2 or init_pool.shape[1] not in (2, 3)
+                or (init_pool[:, :2] < 0).any() or not np.isfinite(init_pool).all()):
             raise ValueError("init_pool must be (n, 2) non-negative (liquid, "
-                             "illiquid) ratios to age-20 mean income")
+                             "illiquid) ratios to age-20 mean income, optionally "
+                             "with a third column of log income deviations")
     thetas = np.asarray(thetas)[:, :3]
 
     # Consume each sub-batch before solving the next: a Solution holds ~58 MB of
@@ -204,10 +237,13 @@ def simulate_batch_twoasset_gpu(
             for j, sol in zip(sel, sols):
                 # Seed off the draw index, not a running counter: identical
                 # draws must give identical households however they are grouped.
-                init = (None if init_pool is None else draw_initial_wealth(
-                    init_pool, seed_base, j, n_households))
+                init, s0 = (None, None) if init_pool is None else \
+                    draw_initial_conditions(init_pool, seed_base, j, n_households,
+                                            sol.states, sol.P,
+                                            spec.calib.ywork_sigmanu)
                 panel = simulate(sol, n_households=n_households,
-                                 seed=seed_base + int(j), initial_wealth=init)
+                                 seed=seed_base + int(j), initial_wealth=init,
+                                 initial_state=s0)
                 x, alive = aggregate_waves(
                     panel, age_start_sim=AGE_START_SIM, start_age=start_age,
                     n_waves=n_waves, wave_years=wave_years,

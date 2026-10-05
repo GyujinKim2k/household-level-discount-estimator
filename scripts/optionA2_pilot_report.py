@@ -13,7 +13,7 @@ and answers the three questions the pilot exists for:
    each covers, for couples and for all 889, against the current
    ``EDGE_WIDENED`` region.
 3. **Levels.** At couples' median posterior theta, does the model (PSID seed
-   pool, 80% cardholders -- couples' lower bound is 79.5%, RESULTS 42.5) hold
+   pool with income, 80% cardholders -- couples' lower bound is 79.5%, RESULTS 42.5) hold
    PSID couples' illiquid wealth and debt at 35-44?
 
 Usage::
@@ -35,7 +35,7 @@ ARMS = {"couples": Path("outputs/psid_optionA2_pilot_couples"),
         "all 889": Path("outputs/psid_optionA2_pilot_all")}
 X = {"couples": Path("data/processed/psid_x_comphs_couples.pt"),
      "all 889": Path("data/processed/psid_x_comphs_optionA.pt")}
-POOL = Path("data/processed/seed_pool_couples.npz")
+POOL = Path("data/processed/seed_pool_couples_income.npz")
 OUT = Path("outputs/optionA2_pilot/report.json")
 CARD_SHARE = 0.80
 BOX = PHASE3_RGAMMA

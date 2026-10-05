@@ -12,7 +12,7 @@ set -uo pipefail
 cd /home/household-level-discount-estimator
 export PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 PY=.venv/bin/python
-SH=data/processed/optionA2_dataset_shards
+SH=data/processed/couples_dataset_shards
 OUT=outputs/optionA2_pilot
 
 $PY scripts/optionA.py verify --shards $SH --partial || exit 1

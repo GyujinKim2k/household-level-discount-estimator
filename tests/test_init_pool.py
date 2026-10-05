@@ -115,6 +115,17 @@ def test_generation_stores_starts_and_refuses_another_pool(tmp_path):
             "--n_households", "4", "--card_types", "--rgamma_range", "1.025", "1.075",
             "--seed", "7", "--out", str(out)]
     env = {**os.environ, "PYTHONPATH": "."}
+    pool_c = tmp_path / "c.npz"
+    np.savez(pool_c, pool=np.column_stack([POOL, [-1.5, 0.0, 1.5, 0.3, -0.2]]))
+    out_c = tmp_path / "c.pt"
+    r = subprocess.run(base[:-1] + [str(out_c), "--init_pool", str(pool_c),
+                                    "--max_draws", "16"],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr[-2000:]
+    sc = np.load(sorted((tmp_path / "c_shards").glob("shard_*.npz"))[0])
+    assert sc["init_state"].shape == (16 * 4,)
+    np.testing.assert_array_equal(sc["init_state"], sc["panel_income_state"][:, 0])
+
     r = subprocess.run(base + ["--init_pool", str(pool_a), "--max_draws", "16"],
                        capture_output=True, text=True, env=env)
     assert r.returncode == 0, r.stderr[-2000:]
@@ -133,3 +144,59 @@ def test_generation_stores_starts_and_refuses_another_pool(tmp_path):
     assert r.returncode != 0 and "init_pool_sha256" in (r.stdout + r.stderr)
     r = subprocess.run(base, capture_output=True, text=True, env=env)
     assert r.returncode != 0 and "init_pool" in (r.stdout + r.stderr)
+
+
+# --- initial income state (RESULTS 43) ----------------------------------------
+
+def _income_process():
+    from hh_npe.simulator import laibson_calibration as cal
+
+    states, P = grids.tauchen(c=cal.COMPHS)
+    return states, P, cal.COMPHS.ywork_sigmanu
+
+
+def test_income_column_sets_the_state_and_keeps_the_wealth_stream():
+    from hh_npe.simulator.dispatch import draw_initial_conditions
+
+    states, P, sig = _income_process()
+    pool3 = np.column_stack([POOL, np.linspace(-2.0, 2.0, len(POOL))])
+    w, s = draw_initial_conditions(pool3, 100, 3, 500, states, P, sig)
+    # The wealth part is the same stream as the wealth-only pool.
+    np.testing.assert_array_equal(w, draw_initial_wealth(POOL, 100, 3, 500))
+    w2, s2 = draw_initial_conditions(pool3, 100, 3, 500, states, P, sig)
+    np.testing.assert_array_equal(s, s2)
+    # Far below / above the mean picks the bottom / top state.
+    rows = np.random.default_rng([103, 20]).integers(0, len(POOL), size=500)
+    e = pool3[rows, 2]
+    assert (s[e <= -2.0] == 0).all() and (s[e >= 2.0] == len(states) - 1).all()
+    assert draw_initial_conditions(POOL, 100, 3, 5)[1] is None
+
+
+def test_initial_state_only_replaces_the_age_20_state():
+    """Passing the state the default draw would have picked changes nothing,
+    so every later shock is untouched."""
+    from hh_npe.simulator.twoasset import ModelSpec, simulate, solve
+
+    tiny = ModelSpec(xjump=20000.0, x_cells_per_step=4, zjump=200000.0, z_cells_per_step=3)
+    sol = solve(0.8, 0.98, 2.0, tiny)
+    a = simulate(sol, n_households=50, seed=3)
+    b = simulate(sol, n_households=50, seed=3, initial_state=a["income_state"][:, 0])
+    for k in a:
+        np.testing.assert_array_equal(a[k], b[k])
+    c = simulate(sol, n_households=50, seed=3, initial_state=np.full(50, 2))
+    assert (c["income_state"][:, 0] == 2).all()
+    with pytest.raises(ValueError, match="initial_state"):
+        simulate(sol, n_households=50, seed=3, initial_state=np.full(50, 3))
+
+
+@gpu
+def test_dispatch_uses_the_pool_income_state():
+    from hh_npe.simulator.dispatch import (draw_initial_conditions,
+                                           simulate_batch_twoasset_gpu)
+
+    states, P, sig = _income_process()
+    pool3 = np.column_stack([POOL, [-1.5, 0.0, 1.5, 0.3, -0.2]])
+    _x, _a, p = simulate_batch_twoasset_gpu(THETAS, init_pool=pool3, **KW)
+    for j in range(len(THETAS)):
+        _w, s = draw_initial_conditions(pool3, 5, j, M, states, P, sig)
+        np.testing.assert_array_equal(p["income_state"][j * M:(j + 1) * M, 0], s)

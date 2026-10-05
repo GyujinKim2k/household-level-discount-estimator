@@ -40,7 +40,7 @@ from hh_npe.data.waves import FEATURES_TWOASSET, aggregate_waves
 from hh_npe.npe.prior import PHASE3, PriorBox, sample_sobol
 from hh_npe.simulator import laibson_calibration as cal
 from hh_npe.simulator.dispatch import (
-    AGE_START_SIM, SIMULATORS, draw_initial_wealth, simulate_batch_twoasset_gpu,
+    AGE_START_SIM, SIMULATORS, draw_initial_conditions, simulate_batch_twoasset_gpu,
 )
 from hh_npe.utils.seeding import seed_all
 
@@ -346,12 +346,15 @@ def main() -> None:
                              "reweighting. RESULTS.md 24.1, 26.")
     parser.add_argument("--init_pool", type=Path, default=None,
                         help="Seed pool (.npz with an (n, 2) `pool` of age-20 "
-                             "liquid, illiquid ratios to mean income) to draw "
-                             "each household's starting wealth from, instead of "
-                             "Laibson et al.'s single SCF seed (RESULTS 42.2). "
+                             "liquid, illiquid ratios to mean income, or (n, 3) "
+                             "adding log income relative to the model's mean) "
+                             "to draw each household's starting wealth -- and "
+                             "with 3 columns its initial income state -- from, "
+                             "instead of Laibson et al.'s single SCF seed and "
+                             "the stationary income draw (RESULTS 42.2, 43). "
                              "Recorded by hash in solver_config.json; the drawn "
-                             "starts are stored per shard as `init_wealth`. cuda "
-                             "only.")
+                             "starts are stored per shard as `init_wealth` and "
+                             "`init_state`. cuda, comphs only.")
     parser.add_argument("--max_draws", type=int, default=None,
                         help="Stop after the shards covering the first N draws "
                              "(a multiple of --block). For a pilot that is "
@@ -396,6 +399,10 @@ def main() -> None:
 
     if args.init_pool is not None and args.device != "cuda":
         raise SystemExit("--init_pool is wired into the cuda path only")
+    if args.init_pool is not None and args.educ != "comphs":
+        # The initial-state posterior uses the group's income process; storing
+        # it per shard below assumes the one comphs process.
+        raise SystemExit("--init_pool is defined for --educ comphs only")
     if args.max_draws is not None and args.max_draws % args.block:
         raise SystemExit(f"--max_draws ({args.max_draws}) must be a multiple of "
                          f"--block ({args.block})")
@@ -506,11 +513,19 @@ def main() -> None:
             # on or reweight the card type.
             extra["card"] = card_np[lo:hi]
         if pool is not None:
-            # Each household's age-20 start, M rows per draw like x. Recomputed
-            # exactly as the dispatch drew it (same seed_base and draw index).
-            extra["init_wealth"] = np.concatenate([
-                draw_initial_wealth(pool, args.seed + lo + 1, j, args.n_households)
-                for j in range(hi - lo)])
+            # Each household's age-20 start, M rows per draw like x, and its
+            # initial income state when the pool carries income. Recomputed
+            # exactly as the dispatch drew them (same seed_base, draw index and
+            # comphs income process).
+            from hh_npe.simulator import grids as _g
+            states, P = _g.tauchen(c=cal.COMPHS)
+            got = [draw_initial_conditions(pool, args.seed + lo + 1, j,
+                                           args.n_households, states, P,
+                                           cal.COMPHS.ywork_sigmanu)
+                   for j in range(hi - lo)]
+            extra["init_wealth"] = np.concatenate([g[0] for g in got])
+            if pool.shape[1] > 2:
+                extra["init_state"] = np.concatenate([g[1] for g in got])
         np.savez(tmp, x=xb, alive=ab, lo=lo, hi=hi,
                  n_households=args.n_households, **extra,
                  **{PANEL_PREFIX + k: v for k, v in panels.items()})

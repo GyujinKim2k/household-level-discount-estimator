@@ -225,6 +225,33 @@ def submit(df: pd.DataFrame, chunk: int = 2000) -> pd.DataFrame:
     return pd.concat(parts, ignore_index=True)
 
 
+def after_tax(tin: pd.DataFrame, tax: pd.DataFrame) -> pd.DataFrame:
+    """Merge TAXSIM's liabilities onto its input and compute ``atincome``.
+
+    Laibson et al. subtract federal, state and the *employee* share of FICA.
+    TAXSIM's `fica` is employee + employer, so it is halved.
+    """
+    m = tin.merge(tax, on="taxsimid", suffixes=("", "_t"))
+    m["tfica"] = m["fica"] / 2.0
+
+    # TAXSIM computes liability on TOTAL income, including the dividends,
+    # interest and rent that `nasry` excludes. Subtracting the whole liability
+    # from non-asset income alone charges asset-income tax to labour income --
+    # which for a few households drives after-tax income below zero, and for
+    # every household with assets biases it down.
+    #
+    # Laibson et al. handle it by pro-rating (2_builddata.do:96): assume tax is
+    # paid on all income, then scale by the non-asset share. Same rule here,
+    # applied to state tax as well since TAXSIM computes that on total income
+    # too. FICA is levied on wages only and is not scaled.
+    share = (m["_nasry"] / m["_totinc"].replace(0, np.nan)).clip(0, 1).fillna(1.0)
+    m["tax_share"] = share
+    m["fiitax_adj"] = m["fiitax"] * share
+    m["siitax_adj"] = m["siitax"] * share
+    m["atincome"] = m["_nasry"] - m["fiitax_adj"] - m["siitax_adj"] - m["tfica"]
+    return m
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--psid_dir", type=Path, default=Path("PSID-data"))
@@ -255,27 +282,7 @@ def main() -> None:
         return
 
     print("submitting to TAXSIM...")
-    tax = submit(tin)
-    m = tin.merge(tax, on="taxsimid", suffixes=("", "_t"))
-    # Laibson et al. subtract federal, state and the *employee* share of FICA.
-    # TAXSIM's `fica` is employee + employer, so halve it.
-    m["tfica"] = m["fica"] / 2.0
-
-    # TAXSIM computes liability on TOTAL income, including the dividends,
-    # interest and rent that `nasry` excludes. Subtracting the whole liability
-    # from non-asset income alone charges asset-income tax to labour income --
-    # which for a few households drives after-tax income below zero, and for
-    # every household with assets biases it down.
-    #
-    # Laibson et al. handle it by pro-rating (2_builddata.do:96): assume tax is
-    # paid on all income, then scale by the non-asset share. Same rule here,
-    # applied to state tax as well since TAXSIM computes that on total income
-    # too. FICA is levied on wages only and is not scaled.
-    share = (m["_nasry"] / m["_totinc"].replace(0, np.nan)).clip(0, 1).fillna(1.0)
-    m["tax_share"] = share
-    m["fiitax_adj"] = m["fiitax"] * share
-    m["siitax_adj"] = m["siitax"] * share
-    m["atincome"] = m["_nasry"] - m["fiitax_adj"] - m["siitax_adj"] - m["tfica"]
+    m = after_tax(tin, submit(tin))
     m["hh"] = m["taxsimid"] // 10
     m["wave"] = m["_wave"]
 

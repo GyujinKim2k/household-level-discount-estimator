@@ -391,6 +391,7 @@ def simulate(
     n_households: int = 1,
     seed: int = 0,
     initial_wealth: np.ndarray | None = None,
+    initial_state: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """Forward-simulate households through the solved policy rules.
 
@@ -408,6 +409,12 @@ def simulate(
     manufactures households that do not exist. Note their forward pass applies **no** mortality: death
     enters only through the backward induction and through the ``alive_``
     weights used when averaging moments, so no household is ever replaced.
+
+    ``initial_state`` sets each household's age-20 persistent income state (an
+    index into ``sol.states``) instead of drawing it from the stationary
+    distribution. The uniform draw that would have picked it is still consumed,
+    so every later shock is the one the household would otherwise have had
+    (RESULTS 43).
 
     Returns panel arrays of shape ``(n_households, T)``:
 
@@ -433,7 +440,14 @@ def simulate(
     # --- persistent income state path ------------------------------------
     state_idx = np.empty((N, T), dtype=np.int64)
     cdf0 = np.cumsum(grids.stationary(P))
-    state_idx[:, 0] = np.searchsorted(cdf0, rng.random(N))
+    u0 = rng.random(N)
+    if initial_state is None:
+        state_idx[:, 0] = np.searchsorted(cdf0, u0)
+    else:
+        s0 = np.asarray(initial_state, dtype=np.int64)
+        if s0.shape != (N,) or s0.min() < 0 or s0.max() >= nS:
+            raise ValueError(f"initial_state must be ({N},) indices into {nS} states")
+        state_idx[:, 0] = s0
     cdf = np.cumsum(P, axis=1)
     for t in range(1, T):
         u = rng.random(N)

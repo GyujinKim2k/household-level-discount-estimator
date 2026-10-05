@@ -17,6 +17,15 @@
    at 0 as in the PSID input. Nothing is estimated: generation draws
    households from this pool with replacement.
 
+   A third column carries the same person's **income** in that wave: log
+   after-tax non-asset income (TAXSIM, exactly as the panel's -- 
+   ``taxsim_run.build_input`` / ``after_tax``) minus the model's mean log
+   income at that age. Generation turns it into the household's initial
+   persistent income state (``dispatch.draw_initial_conditions``), so wealth
+   and income start jointly from one PSID person (RESULTS 43). Income below
+   $1,000 is floored there before the log; the model's own income never gets
+   near it.
+
 Both files are PSID-derived and live in ``data/processed`` (never committed).
 
 Usage::
@@ -34,13 +43,43 @@ import numpy as np
 import pandas as pd
 import torch
 
+from hh_npe.simulator import grids
 from scripts import build_psid_tensor as b
+from scripts import taxsim_run as tx
 from scripts.check_calibration_psid import young_heads
 
 SRC = Path("data/processed/psid_x_comphs_optionA.pt")
 TENSOR_OUT = Path("data/processed/psid_x_comphs_couples.pt")
-POOL_OUT = Path("data/processed/seed_pool_couples.npz")
+POOL_OUT = Path("data/processed/seed_pool_couples_income.npz")
+TAX_CACHE = Path("data/processed/seed_pool_couples_taxsim.csv")
 MIN_PERSONS = 200
+INCOME_FLOOR = 1000.0
+
+
+def pool_income(ind, fam, person: np.ndarray, wave: np.ndarray) -> np.ndarray:
+    """After-tax non-asset income (2010 $) of each pool person in their wave.
+
+    TAXSIM is a network service, so its answer is cached; the cache is reused
+    only if it covers exactly these persons.
+    """
+    if TAX_CACHE.exists():
+        m = pd.read_csv(TAX_CACHE)
+        if set(m.person) != set(person):
+            m = None
+    else:
+        m = None
+    if m is None:
+        keep = pd.Series(False, index=ind.index)
+        keep.iloc[np.unique(person)] = True
+        tin, _moved = tx.build_input(ind, fam, keep)
+        m = tx.after_tax(tin, tx.submit(tin))
+        m["person"] = m["taxsimid"] // 10
+        m = m[["person", "_wave", "atincome"]].rename(columns={"_wave": "wave"})
+        m.to_csv(TAX_CACHE, index=False)
+    m = m.set_index(["person", "wave"])["atincome"]
+    nominal = m.loc[list(zip(person, wave))].to_numpy()
+    # Income is for calendar wave - 1, deflated at that year like the panel.
+    return nominal * np.array([b.deflator(int(w) - 1) for w in wave])
 
 
 def pool_hash(pool: np.ndarray) -> str:
@@ -83,21 +122,32 @@ def main() -> None:
     if len(first) < MIN_PERSONS:
         raise SystemExit(f"only {len(first)} married heads aged {args.age_low}-"
                          f"{args.age_high}; widen the age range (plan: 20-26)")
+    inc = pool_income(ind, fam, first.person.to_numpy(), first.wave.to_numpy())
+    e = (np.log(np.maximum(inc, INCOME_FLOOR))
+         - grids.mean_log_income(first.age.to_numpy(float)))
     pool = np.column_stack([np.maximum(first.liq_gross.to_numpy(), 0.0),
-                            np.maximum(first.illiquid.to_numpy(), 0.0)])
-    assert (pool >= 0).all() and np.isfinite(pool).all()
+                            np.maximum(first.illiquid.to_numpy(), 0.0), e])
+    assert (pool[:, :2] >= 0).all() and np.isfinite(pool).all()
     np.savez(POOL_OUT, pool=pool, age=first.age.to_numpy(), wave=first.wave.to_numpy(),
              source=(f"PSID 2011-2023 married (A3) comphs heads aged {args.age_low}-"
                      f"{args.age_high}, not self-employed, no business/farm income; "
                      "one row per person (youngest wave); (gross liquid floored at 0, "
                      "illiquid incl. DC pensions net of non-card debt floored at 0) "
-                     "over model mean income at own age"),
+                     "over model mean income at own age; column 3: log after-tax "
+                     "non-asset income (TAXSIM, 2010 $, floored at $1,000) minus "
+                     "model mean log income at own age"),
+             income=inc,
              sha256=pool_hash(pool))
     q = np.quantile(pool, [0.1, 0.25, 0.5, 0.75, 0.9], axis=0)
     print(f"seed pool: {len(pool)} persons -> {POOL_OUT}  sha256 {pool_hash(pool)[:12]}")
     for j, name in enumerate(("liquid", "illiquid")):
         print(f"   {name:8s} p10/25/50/75/90 " + " ".join(f"{v:6.3f}" for v in q[:, j])
               + f"   zero {np.mean(pool[:, j] == 0):.2f}  max {pool[:, j].max():.2f}")
+    print(f"   log income dev p10/25/50/75/90 " + " ".join(f"{v:6.3f}" for v in q[:, 2])
+          + f"   (after-tax income median {np.median(inc):,.0f}; below $1,000: "
+          f"{np.mean(inc < INCOME_FLOOR):.1%})")
+    print(f"   correlation: income dev with liquid {np.corrcoef(e, pool[:, 0])[0, 1]:+.2f}, "
+          f"with illiquid {np.corrcoef(e, pool[:, 1])[0, 1]:+.2f}")
 
 
 if __name__ == "__main__":

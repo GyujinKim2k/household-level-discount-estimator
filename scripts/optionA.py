@@ -551,8 +551,11 @@ def verify(args) -> None:
             w = d["init_wealth"] if "init_wealth" in d.files else None
             if w is None or w.shape != (len(d["x"]), 2) or (w < 0).any():
                 bad.append(f"{f.name}:init_wealth")
+            if "init_state" in d.files and not np.array_equal(
+                    d["init_state"], d["panel_income_state"][:, 0]):
+                bad.append(f"{f.name}:init_state")
     if bad:
-        raise SystemExit(f"non-finite values or bad init_wealth: {bad}")
+        raise SystemExit(f"non-finite values or bad initial conditions: {bad}")
     print(f"OK: {len(theta_all)} draws in {len(train_f) + len(held_f)} shards, "
           f"theta matches {proposal['name']}, R_gamma and card per block of {tb}, "
           f"all panels finite. Training {proposal['n_train']} draws "

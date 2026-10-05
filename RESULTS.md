@@ -5181,3 +5181,71 @@ The pilot model:
     cash minus income.
   - R_gamma and card are constant within blocks.
 - **Launched** 2026-10-05 15:03 UTC, log in `logs/optionA2_generation.log`.
+
+### 43.1 Initial income from PSID too (requested 2026-10-05)
+
+The model's age-20 income is `exp(mean log income + persistent state +
+transitory)`. The persistent state is drawn from the stationary distribution
+of the 3-state Tauchen chain: low (−0.661) 24.5%, middle 51%, high 24.5%. It
+is now drawn from the same PSID person as the wealth seed.
+
+**The pool's third column.** For each person:
+- **Income:** log after-tax non-asset income in their pool wave, via TAXSIM
+  exactly as the panel. `taxsim_run.after_tax` is factored out for reuse.
+- **Deflation:** to 2010 $, at the income year.
+- **Floor:** $1,000. Two persons fall below it.
+- **Reference:** the model's mean log income at the person's age is
+  subtracted.
+
+```
+                      p10     p25     p50     p75     p90
+log income vs model  -0.626  -0.136   0.190   0.581   0.796
+```
+
+The median young couple's after-tax income is $33,831. Their log income is
+correlated +0.17 with their liquid seed and +0.11 with their illiquid seed,
+which is why the three are drawn jointly.
+
+**The state.** The household's initial state is drawn from its posterior given
+that person's income, under the model's own income process:
+- prior: the stationary distribution;
+- likelihood: e = state + transitory, with transitory sd 0.212.
+
+`simulate(initial_state=...)` still consumes the uniform the default draw
+would have used, so every later shock is unchanged.
+
+Over the pool, the implied initial states are:
+
+```
+              low     mid    high    mean income multiplier at 20
+stationary   0.245   0.510   0.245        1.111
+PSID pool    0.171   0.459   0.369        1.263   (+14%)
+```
+
+- Young couples start richer than the model's profile, consistent with
+  §42.4.
+- With persistence 0.84 per year, half the gap is gone in about 4 years.
+
+**Code and runs.**
+- **Pool:** `data/processed/seed_pool_couples_income.npz`, 207 × 3, sha256
+  bd89225281dc…. A 2-column pool still means wealth only.
+- **`dispatch.draw_initial_conditions`:**
+  - returns wealth and states;
+  - its wealth part is the same stream as `draw_initial_wealth`.
+- **`generate_dataset.py`:**
+  - stores `init_state` per shard;
+  - restricts `--init_pool` to comphs, because the state posterior uses its
+    income process.
+- **`optionA.py verify`:** checks `init_state` equals the panel's age-20
+  income state.
+- **Tests:** three more.
+  - A 3-column pool picks the state, and its wealth part is unchanged.
+  - Passing the default draw's own state as `initial_state` reproduces the
+    panel bit for bit.
+  - Dispatch uses the pool's state, and generation stores it.
+- **The pilot moves to `data/processed/couples_dataset.pt`** (log
+  `logs/couples_generation.log`).
+  - The 15:03 launch was the wealth-only process.
+  - That process could not be stopped from this session, so it is left for
+    the user to stop.
+  - Its directory `optionA2_dataset_shards` is not used.
