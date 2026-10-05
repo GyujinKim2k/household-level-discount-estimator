@@ -4665,6 +4665,11 @@ beta, delta    rho 3.5          4.0              4.2              4.4           
   cardholder in debt with no illiquid wealth.**
 - **Patched, debt falls smoothly as ρ rises, as precautionary saving
   predicts.**
+- **No-card households show the same failure in illiquid wealth.** They cannot
+  borrow, so their debt share is 0% by construction. At β 0.77, δ 0.988 their
+  illiquid median goes from $188k at ρ 3.5 to $132k at 4.4 and $0 from 4.6 on;
+  patched, it stays at $172–188k. The other (β, δ) pairs fail the same way: illiquid $0
+  from ρ 4.6 on, against $124–132k patched at β 0.5, δ 0.99.
 
 **Exposure.**
 - 37% of option A's 32,768 draws have ρ ≥ 4.0, and 30% have ρ ≥ 4.2. The
@@ -4683,7 +4688,10 @@ beta, delta    rho 3.5          4.0              4.2              4.4           
 - **Results at ρ ≲ 4 are unaffected.** These include §31.3's fixed-ρ runs and
   anything at Laibson et al.'s θ.
 
-**Fix (proposed, not applied).**
+**Fix (applied 2026-10-05, §41).** Utility is centred at mean income per adult
+rather than at $1 (`ModelSpec.crra_centred`, default True; False reproduces the
+old datasets bit for bit). This keeps the log limit at ρ = 1, which simply
+dropping the constant would not. The original proposal was:
 - Drop the constant from period and bequest utility in both solvers, keeping
   the log branch.
 - Record the change in `solver_config.json`, so old and new datasets are never
@@ -4695,3 +4703,157 @@ beta, delta    rho 3.5          4.0              4.2              4.4           
   - the Laibson moment self-check.
 - Then regenerate option A (~4.7 GPU-days), retrain with logit β, and rerun
   SBC, PSID and §39.2.
+
+---
+
+## 41. Before regenerating: the solver fix, and two proposed changes gated
+
+Requested 2026-10-05: before regenerating option A, check whether two changes
+would work:
+- the illiquid liquidation penalty as an estimated parameter;
+- initial wealth drawn from PSID's range.
+
+All checks run on the fixed solver.
+
+### 41.1 The solver fix
+
+The fix centres utility at the calibration's mean income per adult, `k`:
+
+```
+u = h ((c/h)^(1-ρ) - k^(1-ρ)) / (1-ρ)
+```
+
+- This differs from the textbook form only by a per-period constant, so no
+  choice can move in real arithmetic.
+- It keeps the variable part resolvable at high ρ, and keeps the log limit at
+  ρ = 1.
+- In the bequest term, the baseline is now exactly zero.
+- **Where it lives:**
+  - `ModelSpec.crra_centred`, default True, in both solvers. The legacy
+    branches are kept literally as they were.
+  - `generate_dataset.py` records `crra_centred` in `solver_config.json`. A
+    shard directory from before the fix lacks the key, so resuming it under
+    the fix is refused.
+- **Tests:** the 123 existing solver, GPU-parity, card, R_gamma, SBC-match and
+  shard tests pass with the fix as default. `tests/test_crra_centred.py` (7
+  tests) checks:
+  - the constant shift;
+  - the log limit;
+  - resolution at ρ = 4.6;
+  - GPU = CPU, centred;
+  - batch invariance at ρ = 4.6, centred;
+  - the penalty scale.
+
+`ModelSpec.liqpen_scale` (default 1, bit-identical) scales the penalty's age
+schedule for the gate below.
+
+### 41.2 Method
+
+`scripts/gate_regeneration.py` uses local Fisher information at four θ points
+(cardholders, R_gamma 1.05, s = 1).
+
+- **Statistics per household:** for a 7-wave window starting at 28 or 40, and
+  for each wave, log consumption, asinh liquid and asinh illiquid wealth, each
+  over the household's mean income.
+- **Jacobian:** central differences on the same 4,000 households and shocks.
+- **Information:** `I = J' Σ^-1 J`.
+- **Reported:** the Cramér–Rao sd per household, in prior-sd units. `s` has a
+  prior of 0.25–1.5 times the current schedule.
+- **Caveat:** these linear summaries are far coarser than what the network
+  extracts, so the absolute values are pessimistic. Option A's network
+  contracts β to 0.56 of its prior sd on simulated data. The comparisons are
+  what this measures.
+
+### 41.3 The liquidation penalty: not identifiable, do not estimate it
+
+```
+CR sd per household / prior sd, fixed seed   window from 28               window from 40
+                                       beta  delta  rho  R_g    s     beta  delta  rho  R_g    s
+mid rho (0.77, 0.988, 2.0)   4 params  1.75  0.55  2.70  1.75   -     3.52  0.28  2.78  1.46   -
+                             + s       3.71  0.75  3.15  1.76  15.2   3.53  0.29  2.84  1.50  9.4
+high rho (0.77, 0.988, 4.0)  4 params  4.24  0.95  5.10  1.16   -     2.55  0.44  3.20  1.01   -
+                             + s       5.17  0.96  6.17  1.18  15.5   2.60  0.44  3.57  1.23  4.0
+Gate 2 (0.85, 0.990, 4.5)    4 params  5.26  1.04  6.86  1.16   -     2.88  0.38  4.69  1.10   -
+                             + s       6.40  1.05  7.99  1.16  14.2   2.91  0.38  4.98  1.16  4.3
+present-biased (0.55, 0.975, 3.0)
+                             4 params  8.38  1.99  8.07  2.84   -     5.82  1.39  5.76  1.96   -
+                             + s       8.80  2.08  8.30  2.95   5.4   5.82  1.51  5.84  2.08  6.3
+```
+
+- **s carries 2–10 times less information than R_gamma, in prior-sd terms.**
+  Its CR sd is 4–15 prior sds against R_gamma's 1.0–2.9, and the pilot found
+  R_gamma itself only moderately identified (§32.1).
+- **Estimating it costs the other parameters.** ρ's CR sd rises 2–25%, and β's
+  doubles for young windows at mid ρ.
+- **Even across its whole prior, the penalty barely moves behaviour.**
+  Cardholders at ages 40–44, s = 0.25 → 1.5:
+
+  ```
+  high rho:        debt 29% → 26%, illiquid median 172k → 188k, zero illiquid 9% → 3%, big 2-yr drops 0.7% → 0.2%
+  present-biased:  debt 45% → 52%, illiquid median 52k → 84k,  zero illiquid 28% → 21%, big 2-yr drops 2.5% → 1.5%
+  ```
+
+  - Model households almost never liquidate (0.2–2.6% big two-year drops,
+    against PSID's 9.9%).
+  - So the penalty seldom binds on an observed choice. Where it does move
+    anything, it moves the illiquid level, which R_gamma and β also move.
+- **Verdict: keep the schedule fixed.** If a misspecified penalty is a worry
+  for the other estimates, test that after regeneration as a sensitivity run
+  (PSID at s = 0.5 and 1.5), not as a fifth parameter.
+
+### 41.4 Initial wealth from PSID's range: forgotten by the mid-30s, small help at young ages
+
+The seed is a PSID household's wave-1 (liquid, illiquid) ratio to mean income,
+drawn jointly and applied at age 20.
+
+```
+persistence: sd ratio PSID seed / SCF-median seed      25-30   31-34   35-44   45-55
+illiquid (four theta points)                         1.34-1.51 1.13-1.20 1.04-1.07 1.01-1.02
+liquid                                               1.00-1.10 0.98-1.02 0.98-1.00 0.99-1.00
+
+CR sd / prior sd, 4 params        window from 28: SCF seed -> PSID seed        window from 40
+                                  beta          delta        rho               beta        rho
+mid rho                           1.75 -> 2.39  0.55 -> 0.70  2.70 -> 3.25     3.52 -> 3.40  2.78 -> 2.69
+high rho                          4.24 -> 5.86  0.95 -> 1.25  5.10 -> 6.51     2.55 -> 2.75  3.20 -> 3.17
+present-biased                    8.38 -> 14.86 1.99 -> 3.28  8.07 -> 13.45    5.82 -> 5.38  5.76 -> 5.15
+```
+
+- **Gate 2 (§9.1) holds on the fixed solver.** The model forgets its age-20
+  wealth by the mid-30s, slightly more slowly than on the old solver (1.04
+  against 1.00 at 35–44).
+- **The cost is concentrated in young windows.** For windows starting at 28,
+  θ information falls by 25–45%; for windows starting at 40 nothing changes
+  beyond noise.
+- **What it buys is a level shift toward PSID at young ages.** The model's
+  young households hold far more illiquid wealth than PSID's (50/50 card
+  types):
+
+```
+illiquid at 25-30         p25      p50      p75      p90
+PSID (with pensions)        0    2,808   15,989   48,586
+model, SCF seed     8,000-40,000  32,000-60,000  68,000-140,000  124,000-204,000
+model, PSID seed        0-6,000   12,000-44,000  60,000-116,000  116,000-188,000
+```
+
+  The PSID seed closes part of that gap at 25–34 and none of it at 35–44,
+  where PSID's median is 17,014 against the model's 56,000–204,000.
+- **Verdict: optional.** It costs no compute (forward pass only), helps the
+  level fit and robustness of windows starting before ~32, and costs those
+  windows information. It does nothing for the larger problem the gate
+  surfaced.
+
+### 41.5 What the gates surfaced: the fixed model over-accumulates illiquid wealth
+
+At every θ tried, the fixed model's households hold 3–12 times PSID comphs'
+median illiquid wealth at 35–44, even with DC pensions counted, and PSID has a
+mass at zero (p25 = 0) that the model rarely produces. On the old solver, high
+ρ produced households with no illiquid wealth, which may be part of why PSID
+mapped to ρ ≈ 4.6. On the fixed solver, high ρ produces more illiquid wealth,
+not less. So after regeneration, PSID's estimates may move a long way, and:
+
+- **The edge-concentrated proposal must be re-aimed.** Its concentrated half
+  (β ≥ 0.6, δ ≥ 0.92, ρ ≥ 3; §32.2) was aimed at where PSID sat under the
+  broken solver. Re-aim it from a pilot, as §32.2 did: the first 4,096 draws,
+  a quick four-parameter model, and PSID's posterior on it.
+- **The level misfit (§24) is the main open problem, now on the illiquid
+  side.** Neither proposed change addresses it.

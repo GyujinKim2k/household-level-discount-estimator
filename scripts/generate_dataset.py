@@ -84,6 +84,11 @@ def _solver_config(args) -> dict:
            "n_households": args.n_households, "educ": args.educ,
            "card_types": args.card_types, "proposal": args.proposal,
            "rgamma_range": args.rgamma_range}
+    if args.simulator == "twoasset":
+        # RESULTS 40: utility centred at mean income instead of $1. Shards from
+        # before the fix lack the key, so resuming one under the fix is refused.
+        from hh_npe.simulator.twoasset import GRIDS
+        cfg["crra_centred"] = GRIDS[args.grid].crra_centred
     if args.device == "cuda":
         import torch
         cfg |= {"theta_batch": args.theta_batch, "chunk": args.chunk,

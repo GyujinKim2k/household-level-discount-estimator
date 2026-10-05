@@ -157,10 +157,16 @@ def solve_batch(
     hhs = grids.effective_hh_size(age, spec.calib)
     ymean = grids.mean_log_income(age, spec.calib)
     ylevel = grids.mean_income(age, spec.calib)
-    zliqpen = grids.liquidation_penalty(age)
+    zliqpen = grids.liquidation_penalty(age) * spec.liqpen_scale
     xmin = grids.credit_limit(age, spec.xjump, spec.calib)
     death = cal.DEATH_PROB
     mean_hhs, mean_hhy = hhs.mean(), ylevel.mean()
+    # Utility centred at mean income per adult (ModelSpec.crra_centred). The
+    # uncentred branches below are kept literally as they were, so a legacy
+    # spec reproduces its datasets bit for bit.
+    centred = spec.crra_centred
+    ref = float(mean_hhy / mean_hhs)
+    log_ref = float(np.log(ref))
 
     X = torch.as_tensor(X_np, dtype=f64, device=dev)
     Z = torch.as_tensor(Z_np, dtype=f64, device=dev)
@@ -222,15 +228,21 @@ def solve_batch(
             r = rho.view(B, 1, 1)
             omr3, log3 = 1.0 - r, _safe_omr(1.0 - r)
             small3 = omr3.abs() < RHO_LOG_EPS
-            base_num = torch.where(
-                small3,
-                torch.log(torch.as_tensor(mean_hhy / mean_hhs, dtype=f64,
-                                          device=dev)) * log3,
-                (mean_hhy / mean_hhs) ** omr3 - 1.0)
-            base = mean_hhs * base_num / log3
             ratio = (mean_hhy + annuity[None]) / mean_hhs
-            beq_num = torch.where(small3, torch.log(ratio) * log3,
-                                  ratio ** omr3 - 1.0)
+            if centred:
+                # Centred at ref = mean_hhy / mean_hhs, the baseline is exactly 0.
+                base = torch.zeros_like(omr3)
+                beq_num = torch.where(small3, (torch.log(ratio) - log_ref) * log3,
+                                      ratio ** omr3 - ref ** omr3)
+            else:
+                base_num = torch.where(
+                    small3,
+                    torch.log(torch.as_tensor(mean_hhy / mean_hhs, dtype=f64,
+                                              device=dev)) * log3,
+                    (mean_hhy / mean_hhs) ** omr3 - 1.0)
+                base = mean_hhs * base_num / log3
+                beq_num = torch.where(small3, torch.log(ratio) * log3,
+                                      ratio ** omr3 - 1.0)
             beq = mean_hhs * beq_num / log3
             beq = (spec.alpha / (1.0 - delta.view(B, 1, 1))) * (beq - base)
 
@@ -269,9 +281,15 @@ def solve_batch(
 
                 for s in range(nS):
                     safe5 = _safe_omr(omr5)
-                    u_num = torch.where(omr5.abs() < RHO_LOG_EPS,
-                                        logc[None] * safe5,
-                                        torch.exp(omr5 * logc[None]) - 1.0)
+                    if centred:
+                        u_num = torch.where(omr5.abs() < RHO_LOG_EPS,
+                                            (logc[None] - log_ref) * safe5,
+                                            torch.exp(omr5 * logc[None])
+                                            - torch.exp(omr5 * log_ref))
+                    else:
+                        u_num = torch.where(omr5.abs() < RHO_LOG_EPS,
+                                            logc[None] * safe5,
+                                            torch.exp(omr5 * logc[None]) - 1.0)
                     u = h * u_num / safe5
                     u.masked_fill_(bad[None], NEG)
                     u_flat = u.reshape(B, hi - lo, nZ, nX * nZ)

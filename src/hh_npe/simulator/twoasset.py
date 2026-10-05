@@ -78,6 +78,18 @@ class ModelSpec:
     # only for quick iteration -- never for a dataset or a validation run.
     dtype: type = np.float64
     chunk: int = 24  # current-X rows per vectorized block; caps peak memory
+    #: Centre CRRA utility at the calibration's mean income per adult equivalent
+    #: ``k``, as ``(x**(1-rho) - k**(1-rho)) / (1-rho)``, instead of at $1
+    #: (RESULTS.md 40). Exact in real arithmetic -- a per-period constant never
+    #: changes a choice -- and the log limit at rho = 1 is kept. Centred at $1,
+    #: the constant ``-1 / (1 - rho)`` leaves the variable part below float64's
+    #: resolution once rho >~ 4.2: choices tie, and ties break toward the most
+    #: borrowing and the least illiquid wealth. False reproduces every dataset
+    #: generated before 2026-10-05.
+    crra_centred: bool = True
+    #: Multiplies the age schedule of the illiquid liquidation penalty
+    #: (``grids.liquidation_penalty``); 1 is Laibson et al.'s.
+    liqpen_scale: float = 1.0
 
 
 #: Coarsest grid (81x46). Cheap but carries 3.15 se of discretization error
@@ -112,12 +124,23 @@ class Solution:
     prefs: tuple[float, float, float] = field(default=(1.0, 1.0, 1.0))
 
 
-def _crra(c: np.ndarray, hhs: float, rho: float) -> np.ndarray:
-    """Per-period utility ``hhs * u(c / hhs)`` with CRRA ``rho``."""
+def _crra(c: np.ndarray, hhs: float, rho: float, ref: float = 1.0) -> np.ndarray:
+    """Per-period utility ``hhs * u(c / hhs)`` with CRRA ``rho``, centred at
+    consumption ``ref`` per adult equivalent (``ModelSpec.crra_centred``).
+    ``ref = 1`` is the textbook form and reproduces it bit for bit."""
     c = np.maximum(c, 1e-9)
+    if ref == 1.0:
+        if abs(rho - 1.0) < 1e-9:
+            return hhs * np.log(c / hhs)
+        return hhs * ((c / hhs) ** (1.0 - rho) - 1.0) / (1.0 - rho)
     if abs(rho - 1.0) < 1e-9:
-        return hhs * np.log(c / hhs)
-    return hhs * ((c / hhs) ** (1.0 - rho) - 1.0) / (1.0 - rho)
+        return hhs * (np.log(c / hhs) - np.log(ref))
+    return hhs * ((c / hhs) ** (1.0 - rho) - ref ** (1.0 - rho)) / (1.0 - rho)
+
+
+def utility_ref(spec: "ModelSpec", mean_hhs: float, mean_hhy: float) -> float:
+    """The consumption level per adult equivalent utility is centred at."""
+    return float(mean_hhy / mean_hhs) if spec.crra_centred else 1.0
 
 
 def _bequest_utility(
@@ -127,15 +150,16 @@ def _bequest_utility(
     """``beqUtil__``: utility from annuitizing the estate, relative to no estate."""
     estate = X[:, None] + Z[None, :] * (1.0 - zliqpen)
     annuity = max(spec.R - 1.0, 0.0) * np.maximum(estate, 0.0)
-    baseline = _crra(np.array(mean_hhy), mean_hhs, rho)
-    bequest = _crra(mean_hhy + annuity, mean_hhs, rho)
+    ref = utility_ref(spec, mean_hhs, mean_hhy)
+    baseline = _crra(np.array(mean_hhy), mean_hhs, rho, ref)
+    bequest = _crra(mean_hhy + annuity, mean_hhs, rho, ref)
     return np.asarray(spec.alpha / (1.0 - delta) * (bequest - baseline), dtype=np.float64)
 
 
 def _age_step(
     EV: np.ndarray, A: np.ndarray, B: np.ndarray, Z: np.ndarray,
     beta: float, delta: float, rho: float, betahat: float,
-    hhs: float, R_gamma: float, spec: ModelSpec,
+    hhs: float, R_gamma: float, spec: ModelSpec, ref: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """One backward-induction step.
 
@@ -175,7 +199,7 @@ def _age_step(
         hi = min(lo + spec.chunk, nX)
         # C[i, a, j, b] over this chunk of current liquid-asset rows.
         C = A[lo:hi, None, :, None] + B[None, :, None, :]
-        u = _crra(C + dividend[None, :, None, None], hhs, rho).astype(spec.dtype)
+        u = _crra(C + dividend[None, :, None, None], hhs, rho, ref).astype(spec.dtype)
         u[C < 0.0] = NEG  # cannot consume negative amounts
         C4 = C.reshape(hi - lo, nZ, nX, nZ)
         u4 = u.reshape(hi - lo, nZ, nX, nZ)
@@ -258,10 +282,11 @@ def solve(
     hhs = grids.effective_hh_size(age, spec.calib)
     ymean = grids.mean_log_income(age, spec.calib)
     ylevel = grids.mean_income(age, spec.calib)
-    zliqpen = grids.liquidation_penalty(age)
+    zliqpen = grids.liquidation_penalty(age) * spec.liqpen_scale
     xmin = grids.credit_limit(age, spec.xjump, spec.calib)
     death = cal.DEATH_PROB
     mean_hhs, mean_hhy = hhs.mean(), ylevel.mean()
+    ref = utility_ref(spec, mean_hhs, mean_hhy)
 
     # Cost today of holding X[j] tomorrow: saved at R, borrowed at R_CC.
     cost_next = np.maximum(X / spec.R, 0.0) + np.minimum(X / spec.R_CC, 0.0)
@@ -294,7 +319,7 @@ def solve(
 
         nx, nz, c, ok, V = _age_step(
             EV_t, A, B, Z, beta, delta, rho, spec.betahat,
-            float(hhs[t]), spec.R_gamma, spec
+            float(hhs[t]), spec.R_gamma, spec, ref
         )
         next_x[t], next_z[t], cons[t], solvable[t] = nx, nz, c, ok
 
