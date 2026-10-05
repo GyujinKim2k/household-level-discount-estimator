@@ -4857,3 +4857,245 @@ not less. So after regeneration, PSID's estimates may move a long way, and:
   a quick four-parameter model, and PSID's posterior on it.
 - **The level misfit (§24) is the main open problem, now on the illiquid
   side.** Neither proposed change addresses it.
+
+## 42. Laibson's fixed calibration against PSID, and the SCF first stage rerun
+
+Requested 2026-10-05, before regenerating:
+1. check every SCF-fitted parameter against PSID;
+2. vary the age-20 starting wealth from PSID's range, with no initial debt;
+3. make card access an input if PSID can tell it;
+4. check the four points raised with the calibration table.
+
+**Scripts.**
+- `scripts/scf_first_stage.py` ports their SCF code (`2_buildmoments.do`,
+  `4_initialwealth.do`, `5_examinecredlimits.do`) to Python and reruns it on
+  the public SCF files. The replication package ships only 10-row stubs.
+  `data/external/scf/download.sh` fetches the full public data, the summary
+  extract and NBER TAXSIM for 1995–2013, plus 2016–2022 for card holding.
+- `scripts/check_calibration_psid.py` is the PSID side.
+- Outputs: `outputs/scf_first_stage.json` and `outputs/calibration_check.json`.
+
+**Decision taken with this section:** couples are the primary PSID sample, and
+generation stays a 2-adult model. Couples means legally married (A3 = 1) in at
+least 4 of 7 waves: 409 of the 889 households, or 310 if married in all 7.
+The single-adult version is in `TODO.md`.
+
+### 42.1 The port reproduces their seed; the credit-limit curve does not reproduce
+
+```
+                                   ours       theirs
+seed, total wealth / mean income   1.4425     1.4696     -1.8%
+seed, liquid / mean income         0.0506     0.0549     -7.8%  (0.004 x $27,655 = $120)
+credit limit / mean income at 25    0.177      0.205
+                              45    0.517      0.358
+                              65    0.903      0.619
+```
+
+- **Seed:** it reproduces when 1995 and 1998 use national unemployment.
+  - Their code uses census-division unemployment for those years, but the
+    public files carry no region (X30074).
+  - Dropping the two years instead gives 1.5755, further away.
+- **Credit limit:** our coefficients are stable across implicates and do not
+  match theirs.
+  - Their curve sits between the raw median and the raw mean of
+    limit/income by age:
+
+    ```
+    age                 25     35     45     55     65     75
+    theirs           0.205  0.268  0.358  0.475  0.619  0.790
+    raw median       0.121  0.159  0.222  0.253  0.343  0.421
+    raw fit (mean)   0.237  0.340  0.453  0.574  0.703  0.841
+    + demographics   0.239  0.337  0.438  0.544  0.652  0.765
+    + cohort (full)  0.177  0.341  0.517  0.704  0.903  1.113
+    ```
+
+  - The cohort step is where we and they part. A handful of very large limits
+    ($1–7M) move it, and the public files may have been revised since their
+    run.
+  - The limit is therefore reported descriptively, not re-estimated.
+- **Bug found while porting:** `Y1` and `YY1` are int16 in some years, so the
+  implicate number `Y1 − 10·YY1` wrapped round and silently dropped 2010 and
+  2013. They are now widened first, with an assertion.
+
+### 42.2 The age-20 seed is an artefact of the two-head adjustment
+
+Median total wealth / mean income at ages 20–24, comphs:
+
+```
+                                                   SCF      PSID 2011-23
+raw, all households                               0.121     0.055   (1,624 heads)
+raw, cardholders                                  0.133       -
+raw, married                                      0.147     0.229   (207 heads)
+cardholders + 2-head adjustment only              2.020
+cardholders + kids only / dep. adults only        0.015 / 0.133
+cardholders + unemployment only                  -0.173
+cardholders + all demographics                    1.410
++ cohort 1980-84 = their seed                     1.443  (published 1.4696)
+```
+
+- **Their typical-household adjustment raises the seed tenfold.**
+  - The regression of wealth/income on number of heads, across ages 20–90,
+    gives b_nhead = 2.38 (implicate 1).
+  - That coefficient comes from older couples' wealth. Adding it to the 56% of
+    20–24-year-old cardholders who are single moves the median from 0.13 to
+    1.41–2.02.
+- **SCF's own young couples disagree with the seed.** Their raw median is
+  0.147.
+- **SCF and PSID roughly agree on young wealth:** raw medians of 0.12–0.15
+  against PSID's 0.06 (all) and 0.23 (married).
+- **In dollars,** the simulator starts every household with $40,641 at 20.
+  The raw SCF median for young couples is about $4,000, and PSID's is about
+  $6,300.
+- **This explains §41.5's young-age illiquid excess.** The model's 25–30
+  illiquid wealth is mostly the frozen seed: $39,124 against PSID's median
+  of $2,808.
+- **Verdict:** replace the fixed seed with a PSID pool, as point 2 asked:
+  - married comphs heads aged 20–24, 207 persons;
+  - liquid floored at 0;
+  - no parameter estimated.
+
+  PSID married young heads, ratio to model mean income:
+
+  ```
+             p10     p25     p50     p75     p90
+  liquid   -0.043   0.000   0.020   0.134   0.341   (floored at 0 in the pool)
+  illiquid  0.000   0.029   0.174   0.739   1.427   23% at zero
+  ```
+
+### 42.3 Credit limit and α against PSID
+
+PSID reports balances, not limits, so the limit itself cannot be checked; what
+can be checked is whether PSID borrowers fit under it. Borrowers are
+gross-liquid < 0, in 2010 $:
+
+```
+                 in debt   debt p50   debt p90   model limit   beyond limit   x2.02
+couples 25-34      0.47      3,620     15,610      12,000         15.8%        36.7%
+        35-44      0.45      4,848     19,018      17,000         11.1%        31.3%
+        45-54      0.46      5,521     19,350      23,000          7.3%        25.0%
+        55-70      0.41      7,206     14,412      26,000          2.4%        19.5%
+SCF 2010-13, comphs, raw CCBAL among debtors:
+        25-34      0.40      1,514      8,516
+        35-44      0.44      2,034     14,237
+        45-54      0.47      2,288     17,221
+```
+
+- **The limit is roughly right.** 2–16% of couples' borrowing waves exceed it,
+  mostly at young ages. Those waves lie outside the model's support, as they
+  always have.
+- **Do not apply α = 2.02 to PSID.**
+  - PSID's median balance among borrowers is already 2.1–2.4 times SCF's raw
+    median, and its p90 is similar.
+  - The borrowing incidence also matches SCF's (0.41–0.47 against
+    0.40–0.47).
+  - So PSID does not under-report the way SCF does. Doubling it would put
+    20–37% of borrowing waves beyond the limit.
+  - This retires §6 deviation 2 as a units mismatch. PSID's raw balance is
+    already on the scale of SCF × α.
+- **Mean-income denominator:** SCF after-tax mean income for comphs
+  cardholders is 0.92–1.15 of the model's mean income at ages 22–60, but 0.73
+  at age 20. The seed and limit ratios are therefore on nearly the same scale
+  as the model's income.
+
+### 42.4 Composition and income: couples match the model's family, not its income
+
+```
+                 kids per family              adults           married
+          PSID all  couples  model     PSID all  model
+25-34       1.35     1.55     1.55       1.53     2.07          0.35
+35-44       1.30     1.69     1.66       1.82     2.28          0.47
+45-54       0.57     0.83     0.70       2.06     2.50          0.50
+55-70       0.18     0.19     0.08       2.01     2.31          0.43
+
+median after-tax income (2010 $)
+          all 889   couples   not couples   model (exact median)
+25-34      31,137    48,940      23,065         39,000 (age 30)
+35-44      43,353    65,356      26,917         50,000 (age 40)
+45-54      45,753    74,186      28,239         52,000 (age 50)
+55-70      40,280    67,897      28,909         47,000 (age 58)
+```
+
+- **The IPUMS kids profile is right for couples.**
+- **Income is where couples depart:** they earn 1.25–1.43 times the model's
+  median, and singles 0.54–0.61 times.
+  - §3's validation, "simulated median income matches PSID", held only for
+    the mixed sample.
+  - Couples' incomes stay inside the model's support: the top Tauchen state is
+    1.94 times the mean.
+  - The anchor + level inputs carry log mean income, so the network sees the
+    level. The calibrated income profile still describes an average PSID
+    1982–91 household with spouse = 2, which is poorer than today's married
+    comphs couples.
+- **We do not change the income process** (§12.5's reasons hold). It is a
+  caveat for the couples headline.
+
+### 42.5 Card access: PSID cannot observe it, but it bounds it
+
+- **PSID has no possession question.**
+  - W38A asks only whether the household has card debt.
+  - SCF does ask: X410 for any credit card, and X7973 for a bank-type card,
+    the only possession question from 2016 on.
+  - Codebook scan: see 42.6.
+- **What PSID does give:** a household that ever reports card debt is a
+  cardholder for certain, because the model's no-card type cannot borrow.
+  - That is 66.5% of all 889 and **79.5% of couples**.
+  - It is a lower bound on the cardholder share.
+- **SCF holding rate:** bank-card holding for comphs couples aged 25–54 in
+  2016–2022 is 0.65–0.86.
+- **Implication for the card prior π:**
+  - For couples, π lies in about 0.80–0.86.
+  - At most (0.86 − 0.795)/0.205 ≈ 32% of never-borrowing couples are
+    cardholders.
+  - The current network integrates card type at the 50/50 generation share,
+    which is far too low for couples.
+- **Plan (point 3):**
+  - Condition the network on card.
+  - Give households with any debt card = 1, exactly.
+  - Give never-borrowers card = 1 with a probability from a classifier
+    trained on simulated never-debt windows, shifted to π.
+  - Report the cardholder-conditional posterior, which is like-for-like with
+    Laibson's cardholder sample. Generation already records card per draw,
+    so this is training-side only.
+
+### 42.6 PSID codebook scan for a possession variable
+
+All CARD/CREDIT labels in the 2011–2023 family-file codebooks, scanned with
+the `PSID_DATA.md` recipe.
+- **Every wave** has only W38A (has card debt) and W39A (amount), plus their
+  imputation and accuracy flags.
+- **Two one-off items:**
+  - 2019 `GSD11 WTR USED CREDIT CARD MORE OFTEN` (ER72984);
+  - 2021 `GCOVID10 HOW MNG FINAN - USE CREDIT CARD` (ER79056).
+
+  A "yes" to either implies a card, but each is asked in one wave only and
+  probably only of a sub-population. It could confirm cardholding for a few
+  never-borrowers. Not pursued now, as it needs a new PSID pull.
+- **Conclusion:** PSID has no possession variable. Card access stays a
+  probability for households with no debt (§42.5).
+
+### 42.7 Verdicts on the four points raised with the calibration table
+
+1. **Starting illiquid wealth: replace it.** The seed is a two-head-adjustment
+   artefact, about 10 times both SCF's and PSID's raw young-couple medians
+   (§42.2). Use the PSID married-young pool, with liquid ≥ 0.
+2. **Return spread (R_gamma against R): no PSID check is possible.** Keep
+   R_gamma estimated on 1.025–1.075. The pilot checks for pile-up at the lower
+   edge and widens it to 1.021 if needed, which must stay above R = 1.0203.
+3. **Household composition: the largest mismatch.**
+   - At 35–44, married households hold $62,871 median illiquid (15% at
+     zero); unmarried households hold $3,465 (40% at zero).
+   - §41.5's "over-accumulation" is largely a comparison against
+     single-adult households the model does not describe.
+   - Couples are now the primary sample, and the single-adult type is in
+     `TODO.md`.
+4. **Penalty and home equity: keep them.** SCF wealth also includes home
+   equity, so PSID's illiquid definition matches the one their targets and
+   seed use. The penalty barely moves behaviour (§41.3); test it as a
+   sensitivity after regeneration.
+
+**Next:**
+- the couples PSID tensor and the seed pool (generation code);
+- the 4,096-draw uniform pilot;
+- re-aim the proposal from couples' posteriors;
+- the full regeneration, after a go;
+- training with card conditioning.

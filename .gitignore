@@ -30,6 +30,7 @@ sbi-logs/
 data/raw/
 data/processed/
 data/interim/
+data/external/
 
 # Notebooks
 .ipynb_checkpoints/
