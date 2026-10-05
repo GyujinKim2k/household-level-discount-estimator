@@ -4780,10 +4780,10 @@ present-biased (0.55, 0.975, 3.0)
                              + s       8.80  2.08  8.30  2.95   5.4   5.82  1.51  5.84  2.08  6.3
 ```
 
-- **s carries 2–10 times less information than R_gamma, in prior-sd terms.**
-  Its CR sd is 4–15 prior sds against R_gamma's 1.0–2.9, and the pilot found
-  R_gamma itself only moderately identified (§32.1).
-- **Estimating it costs the other parameters.** ρ's CR sd rises 2–25%, and β's
+- **s is far less identified than R_gamma.** Its CR sd is 4–15 prior sds,
+  2–13 times R_gamma's (1.0–2.9), which is 3–170 times less information. The
+  pilot found R_gamma itself only moderately identified (§32.1).
+- **Estimating it costs the other parameters.** ρ's CR sd rises 1–21%, and β's
   doubles for young windows at mid ρ.
 - **Even across its whole prior, the penalty barely moves behaviour.**
   Cardholders at ages 40–44, s = 0.25 → 1.5:
@@ -4822,8 +4822,8 @@ present-biased                    8.38 -> 14.86 1.99 -> 3.28  8.07 -> 13.45    5
   wealth by the mid-30s, slightly more slowly than on the old solver (1.04
   against 1.00 at 35–44).
 - **The cost is concentrated in young windows.** For windows starting at 28,
-  θ information falls by 25–45%; for windows starting at 40 nothing changes
-  beyond noise.
+  the CR sds of β, δ and ρ rise 20–77%, so information falls by a third to two
+  thirds. For windows starting at 40 nothing changes beyond noise.
 - **What it buys is a level shift toward PSID at young ages.** The model's
   young households hold far more illiquid wealth than PSID's (50/50 card
   types):
