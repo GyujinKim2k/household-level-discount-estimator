@@ -4457,6 +4457,9 @@ per draw) and the first set (linear arm), with the fresh set's KS 95% band.
 
 ## 39. Logit β adopted: the PSID headline
 
+> **§40 (2026-10-05):** ρ ≈ 4.6 lies where the solver loses float64 resolution;
+> these numbers stand only until the data are regenerated with the fix.
+
 Decided 2026-10-04 after §38.2. Option A's headline model is now the logit-β
 ensemble:
 - networks in `outputs/optionA_beta_logit`;
@@ -4530,22 +4533,165 @@ lower wall at 0.85.
     on the §38 set, no collateral damage, held-out `log q`;
   - and what it does to PSID's δ lower limits.
 
-### 39.2 Out-of-sample forecasts and wealth dynamics on the logit arm — running
+### 39.2 Out-of-sample forecasts and wealth dynamics: driven by a solver artefact (§40)
 
-Started 2026-10-04 23:07 UTC (`scripts/run_oos_optionA.sh`):
+Run 2026-10-04 23:07 to 2026-10-05 07:08 UTC (`scripts/run_oos_optionA.sh`).
+It is §22's test with option A's model and input:
+- five 5-wave members, logit β, trained with `optionA.py train --n_waves 5`;
+  they see waves 1–5 only;
+- parameters importance-weighted to the uniform prior;
+- R_gamma per household, rounded to 0.0025 for batching;
+- start state and targets from the gross-liquid-plus-pensions tensor;
+- output in `outputs/oos_optionA`.
 
-- **Training:** five 5-wave members, logit β (`optionA.py train --n_waves 5`).
-  They see waves 1–5 only.
-- **Forecasts:** `scripts/oos_optionA.py`. It is §22's test with option A's
-  model and input:
-  - parameters importance-weighted to the uniform prior;
-  - R_gamma per household, rounded to 0.0025 for batching;
-  - start state and targets from the gross-liquid-plus-pensions tensor.
-- **Card access is not observed in PSID.**
-  - Households seen borrowing in waves 1–5 (61%) are cardholders.
-  - For the rest, both types are simulated. The forecast mixes them at the
-    posterior card weight `a / (1 + a)`, where `a` is the share of cardholders
-    at the population θ who never borrow over the same five ages.
-  - Scores are also given at weight 0 (the §24.1 proxy) and 0.5.
-- **Also reported:** §24's wealth-dynamics table and its liquid-level table by
-  age, at the population θ and by card type.
+**Card access is not observed in PSID.**
+- Households seen borrowing in waves 1–5 (61.4%) are cardholders.
+- For the rest, the forecast mixes the two types at the weight `a / (1 + a)`,
+  where `a` is the share of cardholders at the population θ who never borrow
+  over the same five ages.
+- At the population θ, every simulated cardholder borrows at some point
+  (`a = 0` at every age). So the headline weight is identical to the §24.1
+  proxy: no card unless seen borrowing.
+- At weight 0.5, liquid forecasts are worse for every rule.
+
+```
+CRPS (lower is better)   household  population  laibson  persistence   §22 household / persistence
+consumption  wave 6        0.331      0.344      0.353     0.279         0.298 / 0.280
+             wave 7        0.350      0.354      0.374     0.311         0.323 / 0.311
+liquid       wave 6        2.038      2.250      1.576     1.396         2.698 / 1.385
+             wave 7        1.806      1.955      1.387     1.469         2.381 / 1.502
+illiquid     wave 6        1.481      1.916      1.020     1.060         1.145 / 1.066
+             wave 7        1.525      1.827      1.058     1.296         1.277 / 1.325
+
+household minus population   diff     95% CI             households better   §22
+consumption  wave 6         -0.013  [-0.022, -0.003]        53.8%           -0.038
+             wave 7         -0.005  [-0.012, +0.003]        51.7%           -0.024
+liquid       wave 6         -0.211  [-0.312, -0.115]        54.6%           -0.096
+             wave 7         -0.149  [-0.229, -0.071]        55.3%           -0.004
+illiquid     wave 6         -0.435  [-0.579, -0.292]        57.3%           +0.064
+             wave 7         -0.302  [-0.434, -0.173]        59.3%           +0.124
+all, averaged               -0.186  [-0.240, -0.134]        58.7%           +0.004
+```
+
+Wealth dynamics, wave 5 to 6, at the population θ (0.761, 0.976, 4.61, 1.048):
+
+```
+                                 ΔZ p10     ΔZ p90   Z big down   ΔX median   ΔX p10
+PSID (what they did)            -49,055    127,337      9.9%            0     -8,281
+model                          -242,488      9,341     35.9%       -8,205    -26,012
+  same, rho 1.94 in place of 4.61  -5,867   63,321      1.2%            0    -16,450
+Laibson et al.'s theta           -5,118     78,335      1.6%           -4    -19,604
+```
+
+At the population θ, the model's own cardholders are 84–91% in net debt at ages
+35–49 (median liquid wealth −$13,000 to −$20,000). PSID gross is 33–38%.
+
+**ρ drives every one of these results, and the population θ sits where the
+solver fails (§40).**
+- **ρ alone.** Changing only ρ, from 4.61 to 1.94, removes the illiquid
+  drawdown. Wave-6 CRPS falls from 2.23 to 1.59 (liquid) and from 1.67 to
+  1.02 (illiquid). That matches Laibson's θ, and on illiquid wealth it beats
+  persistence.
+- **δ and β matter little.** δ = 0.988 gives 2.18 / 1.47; β = 1 gives
+  2.13 / 1.39.
+- **The household rule's gain over the population rule is not yet evidence of
+  household-specific information.** Households whose posterior ρ is lower sit
+  nearer the part of the solver that works.
+- **Not interpretable until the solver is fixed and the data regenerated.**
+  - Card types do improve liquid forecasts for every rule against §22:
+    Laibson's θ goes from 2.25 to 1.58.
+  - But that comparison also mixes in the input change (gross liquid,
+    pensions).
+
+---
+
+## 40. The solver loses float64 resolution at high ρ
+
+Found 2026-10-05 while checking §39.2. It affects every dataset since Phase 3
+wherever ρ ≳ 4.2, and option A's PSID estimates sit in that region.
+
+**Mechanism.** Both solvers compute CRRA utility in dollars, as
+`h * ((c / h)^(1 - ρ) - 1) / (1 - ρ)`. This is CPU `_crra`, GPU `solve_batch`,
+and the bequest term.
+- **The "−1" splits every period's utility into two parts:** a constant of
+  order `h / (ρ - 1)`, and a variable part `(c / h)^(1 - ρ) / (1 - ρ)`.
+- **At ρ = 4.6 the variable part is too small to resolve.**
+  - At `c / h` = $13,000 the variable part is about 1e-15, and the
+    difference between neighbouring choices is smaller still.
+  - float64 resolves about 1e-16 of the constant. The value function,
+    summed over 71 periods, resolves about 1e-15.
+- **So choices that differ in the model tie exactly in the solver.** Ties break
+  toward the lowest index: the most borrowing, then the least illiquid wealth.
+- **This is SIMULATOR_SPEC's float32 failure** (borrowing inflated ~50% at
+  ρ = 1.94), reached in float64 at high ρ.
+- **The batch dependence noted in §10.5 is the visible symptom.** Last-bit
+  differences between batch sizes flip these ties.
+
+**Evidence** (`scripts/solver_precision_check.py batch` and `sweep`).
+θ = (0.7612, 0.9759, ρ), cardholders, R_gamma 1.048. Each column
+compares one ρ solved alone against the same ρ solved in a batch with the
+others, followed by the model's own households at ages 40–44:
+
+```
+                                     rho 1.94   rho 3.0   rho 4.0   rho 4.6
+current solver
+  policy agreement, alone vs batch  x 1.000    0.995     0.287     0.825
+                                    z 1.000    1.000     0.766     0.212
+  share in net debt (alone)            45%      35%       29%       98%
+  illiquid median (alone)            124,000  124,000   132,000        0
+patched solver (constant dropped)
+  policy agreement, alone vs batch  x/z 1.000  1.000     1.000     1.000
+  share in net debt                    45%      35%       28%       24%
+  illiquid median                    124,000  124,000   132,000   140,000
+```
+
+Dropping the constant is exact in real arithmetic, because a per-period
+constant never changes a choice. Patched, the solver is batch-invariant at
+every ρ and smooth in ρ. At ρ ≤ 3 it behaves exactly as the current solver
+does.
+
+**Where it starts.** Cardholders, R_gamma 1.05, ages 40–44. Each cell is the
+share in net debt / illiquid median, current solver → patched solver:
+
+```
+beta, delta    rho 3.5          4.0              4.2              4.4              4.6             5.0
+0.77, 0.988    31%/188k→31%/188k 31%/188k→28%/188k 37%/156k→28%/188k 57%/124k→27%/188k 95%/0→27%/188k  100%/0→25%/188k
+0.95, 0.95     25%/108k→25%/108k 23%/108k→23%/116k 29%/108k→22%/116k 55%/92k→21%/116k  94%/2k→20%/124k  100%/0→19%/124k
+0.50, 0.99     47%/124k→47%/124k 46%/124k→43%/124k 50%/116k→41%/132k 75%/76k→40%/132k  98%/0→38%/132k  100%/0→35%/140k
+```
+
+- **The two solvers agree up to ρ ≈ 4.0, for every (β, δ).**
+- **They part at 4.2, and by 4.6 the current solver puts almost every
+  cardholder in debt with no illiquid wealth.**
+- **Patched, debt falls smoothly as ρ rises, as precautionary saving
+  predicts.**
+
+**Exposure.**
+- 37% of option A's 32,768 draws have ρ ≥ 4.0, and 30% have ρ ≥ 4.2. The
+  edge-concentrated proposal aimed draws at where PSID lies.
+- 94.5% of PSID households' ρ means are at least 4.0, and 88% of their 90%
+  lower limits are too.
+
+**What it means.**
+- **Above ρ ≈ 4.2 the simulator is not Laibson et al.'s model.** It is a
+  rounding artefact with a systematic bias toward borrowing and liquidation.
+- **The network learned that artefact faithfully, so SBC could not see it.**
+  The artefact is a deterministic function of θ and the batch configuration.
+- **PSID's ρ ≈ 4.5–4.6 cannot be interpreted until the data are
+  regenerated.** That covers §15, §29, §31 and §36–§39. β and δ were
+  estimated jointly with ρ, so the same applies to them.
+- **Results at ρ ≲ 4 are unaffected.** These include §31.3's fixed-ρ runs and
+  anything at Laibson et al.'s θ.
+
+**Fix (proposed, not applied).**
+- Drop the constant from period and bequest utility in both solvers, keeping
+  the log branch.
+- Record the change in `solver_config.json`, so old and new datasets are never
+  mixed.
+- Tests:
+  - CPU/GPU parity;
+  - batch invariance at ρ = 4.6 and 5;
+  - unchanged behaviour at ρ ≤ 3;
+  - the Laibson moment self-check.
+- Then regenerate option A (~4.7 GPU-days), retrain with logit β, and rerun
+  SBC, PSID and §39.2.
