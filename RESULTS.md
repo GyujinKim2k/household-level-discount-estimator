@@ -5273,3 +5273,111 @@ simulated, default    -0.715  -0.310   0.019   0.463   0.732
 
 - **Pilot launched** at 03:18 UTC: `scripts/run_optionA2_pilot.sh`, 4,096
   draws, about 14 h.
+
+### 43.2 Pilot result: PSID moves to low ρ; the old concentrated region misses it
+
+**Run.** 4,096 uniform draws, finished in 14.67 h. `run_optionA2_pilot_model.sh`:
+- verify;
+- 3 logit-β members, each trained on 6 shards (3,072 draws);
+- PSID posteriors for couples (409) and all 889 (40,000 draws each);
+- `optionA2_pilot_report.py`.
+
+**The model is calibrated.** The pilot is uniform, so its 2 held-out shards
+are an SBC set under exactly this generative process: PSID seed pool, fixed
+solver. The old option A SBC cache is not. 1,024 draws, one household each
+(`outputs/optionA2_pilot/heldout.json`):
+
+```
+ensemble     cov90   KS p   corr   mae/prior sd   contraction
+beta         0.893   0.061  0.604      0.660         0.371
+delta        0.909   0.144  0.794      0.469         0.595
+crra         0.893   0.932  0.816      0.459         0.664
+R_gamma      0.875   0.093  0.712      0.535         0.528
+```
+
+By posterior-mean region, 90% coverage is 0.86–0.94 everywhere. Single
+members under-cover R_gamma (0.835–0.860), and the ensemble repairs most of
+it.
+
+**PSID, uncorrected posterior means.** The option A row is the logit headline,
+§39 (old solver, SCF seed):
+
+```
+                               beta    delta    crra   R_gamma
+option A, all 889 (§39)       0.768   0.9883   4.611   1.0462
+A2 pilot, all 889             0.707   0.9812   1.446   1.0472
+A2 pilot, couples (409)       0.683   0.9844   1.360   1.0418
+  couples p10 / p90           0.443 / 0.857   0.956 / 0.996   0.693 / 2.669   1.029 / 1.064
+  couples median post. sd     0.154   0.0076   0.586   0.0081
+Laibson et al. MSM            0.5305  0.9891   1.9355  (1.05 calibrated)
+```
+
+- **ρ falls from 4.6 to 1.4.** No household's mean is at or above 4.2. This
+  is §41.5's warning come true: the old solver's high-ρ ties produced zero
+  illiquid wealth, which is where PSID used to map.
+- **Laibson et al.'s point sits inside couples' 68% contours** in every pair
+  but one:
+  - inside for β–δ, β–ρ, δ–ρ (only just), β–R_gamma and δ–R_gamma;
+  - outside for ρ–R_gamma, where the calibrated 1.05 is above couples' ridge.
+
+  Couples' 90% intervals cover it in:
+  - β: 79%;
+  - δ: 60%;
+  - ρ: 66%;
+  - R_gamma (at 1.05): 59%.
+- **Meta-analytic ranges** (couples): β 54.5%, δ 91.7%, ρ 70.4%, all three
+  33.5%.
+  - All three was 78.7% under option A.
+  - The ρ misses are all below 1, none above 7.
+- The corrected posterior moves ρ further down (couples median 1.14).
+
+**Edges.**
+- **R_gamma, the question the pilot was for:** no pile at the 1.025 floor.
+  - 11.7% of couples' means are in the bottom decile of the box (10% if
+    uniform).
+  - 7.1% have a 90% upper bound below 1.035.
+  - Keep [1.025, 1.075].
+- **ρ, a new floor:**
+  - 12.5% of couples' means are below 0.75;
+  - 8.6% have a 90% upper bound below 1.0, so their posterior is pressed
+    against ρ = 0.5;
+  - all 889: 9.0% and 5.4%.
+- **δ:** 34.7% of couples have a 90% lower bound above 0.98, the δ → 1 edge
+  (§39.1).
+- **β:** nothing at either edge. 1.7% have an upper bound below 0.5, and none
+  a lower bound above 0.9.
+
+**Re-aiming.**
+- **Current `EDGE_WIDENED`** (β ≥ 0.60, δ ≥ 0.92, ρ ≥ 3, §32.2) covers 3% of
+  couples' and 3% of all 889's posterior means. It must not be used for the
+  rest of the run.
+- **The candidate from couples' p10/p90** is β ≥ 0.40, δ ≥ 0.95, with ρ
+  unrestricted (its p10 rounds to the 0.5 floor).
+  - It covers 87% of couples and 82% of all 889, in 29% of the 4-D box.
+  - As the concentrated half of a 50/50 mixture, the whole run (pilot plus
+    28,672 draws) has 2.1× uniform density inside it and 0.56× outside.
+- Widening ρ by 0.5 is moot, because the candidate already reaches the floor.
+
+**Levels at couples' median θ** (0.683, 0.9844, 1.36, 1.0418): 80%
+cardholders, PSID seed pool with income, ages 35–44.
+
+```
+                illiquid p25 / p50 / p75          zero   in debt
+model           12,000 / 108,000 / 252,000         17%     42%
+PSID couples    11,202 /  59,809 / 149,578         15%     45%
+```
+
+- §41.5 had 3–12× PSID's median illiquid at every θ tried. Here the median is
+  1.8× and p75 1.7×, while p25, the zero share and the debt share match.
+- This is one θ for everyone, not a posterior predictive. A per-household
+  check (each couple at its own posterior) would take about 1.5 GPU-hours.
+
+**Figure** (`scripts/plot_optionA2_pilot.py`):
+`figures/35_optionA2_pilot_psid.png`. It shows per-household posterior means
+for couples, all 889 and option A, the meta-analytic range, the candidate
+region and Laibson et al.'s point.
+
+**Waiting for the user** before the remaining 28,672 draws (about 4.1
+GPU-days):
+1. **Proposal:** the re-aimed 50/50 mixture, or uniform throughout.
+2. **The ρ floor:** keep 0.5, or widen.
