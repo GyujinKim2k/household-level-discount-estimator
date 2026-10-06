@@ -277,7 +277,9 @@ class EdgeMixture:
     component puts training draws where they are needed:
 
     - beta uniform on ``[beta_lo, box.beta_high]``
-    - ``1 - delta`` log-uniform on ``[one_minus_delta_lo, one_minus_delta_hi]``
+    - ``1 - delta`` log-uniform on ``[one_minus_delta_lo, one_minus_delta_hi]``,
+      or with ``delta_log=False`` uniform on ``[0, one_minus_delta_hi]``
+      (``one_minus_delta_lo`` unused; RESULTS 43.3)
     - rho uniform on ``[crra_lo, box.crra_high]``
 
     **The inference prior stays uniform.** A network trained on draws from this
@@ -293,6 +295,7 @@ class EdgeMixture:
     one_minus_delta_lo: float = 1e-4
     one_minus_delta_hi: float = 0.05
     crra_lo: float = 3.5
+    delta_log: bool = True
 
     def __post_init__(self) -> None:
         if self.box is None:
@@ -313,27 +316,34 @@ class EdgeMixture:
         """Density of the concentrated component at each row (0 outside it)."""
         b, d, r = theta[:, 0], theta[:, 1], theta[:, 2]
         omd = 1.0 - d
-        lo, hi = self.one_minus_delta_lo, self.one_minus_delta_hi
+        lo = self.one_minus_delta_lo if self.delta_log else 0.0
+        hi = self.one_minus_delta_hi
         inside = ((b >= self.beta_lo) & (b <= self.box.beta_high)
                   & (omd >= lo) & (omd <= hi)
                   & (r >= self.crra_lo) & (r <= self.box.crra_high))
         f_b = 1.0 / (self.box.beta_high - self.beta_lo)
         f_r = 1.0 / (self.box.crra_high - self.crra_lo)
-        # delta = 1 - exp(u), u uniform on [log lo, log hi]: f(delta) =
-        # 1 / ((1 - delta) * log(hi / lo)).
-        with np.errstate(divide="ignore"):
-            f_d = 1.0 / (np.maximum(omd, 1e-300) * np.log(hi / lo))
+        if self.delta_log:
+            # delta = 1 - exp(u), u uniform on [log lo, log hi]: f(delta) =
+            # 1 / ((1 - delta) * log(hi / lo)).
+            with np.errstate(divide="ignore"):
+                f_d = 1.0 / (np.maximum(omd, 1e-300) * np.log(hi / lo))
+        else:
+            f_d = 1.0 / hi
         return np.where(inside, f_b * f_d * f_r, 0.0)
+
+    def density(self, theta) -> np.ndarray:
+        """The proposal's density at each row of (beta, delta, rho)."""
+        th = np.asarray(theta, dtype=float)[:, :3]
+        return ((1.0 - self.frac) * self._uniform_density()
+                + self.frac * self._concentrated_density(th))
 
     def log_weight(self, theta) -> np.ndarray:
         """``log p(theta) - log p~(theta)``: the importance weight restoring the
         uniform prior. Bounded above by ``log(1 / (1 - frac))``."""
         # Only (beta, delta, rho) differ between proposal and prior. A 4th
         # column (R_gamma, RESULTS 32) is uniform under both, so its ratio is 1.
-        th = np.asarray(theta, dtype=float)[:, :3]
-        pu = self._uniform_density()
-        mix = (1.0 - self.frac) * pu + self.frac * self._concentrated_density(th)
-        return np.log(pu) - np.log(mix)
+        return np.log(self._uniform_density()) - np.log(self.density(theta))
 
     def sample(self, n: int, seed: int = 0) -> np.ndarray:
         """``n`` draws, uniform and concentrated components interleaved.
@@ -351,11 +361,12 @@ class EdgeMixture:
         n_u = n - n_c
         uni = sample_sobol(n_u, self.box, seed=seed)
         u = qmc.Sobol(d=3, scramble=True, seed=seed + 1).random(n_c)
+        omd = (np.exp(np.log(self.one_minus_delta_lo)
+                      + u[:, 1] * np.log(self.one_minus_delta_hi / self.one_minus_delta_lo))
+               if self.delta_log else u[:, 1] * self.one_minus_delta_hi)
         con = np.column_stack([
             self.beta_lo + u[:, 0] * (self.box.beta_high - self.beta_lo),
-            1.0 - np.exp(np.log(self.one_minus_delta_lo)
-                         + u[:, 1] * np.log(self.one_minus_delta_hi
-                                            / self.one_minus_delta_lo)),
+            1.0 - omd,
             self.crra_lo + u[:, 2] * (self.box.crra_high - self.crra_lo),
         ])
         out = np.empty((n, 3))
@@ -368,34 +379,69 @@ class EdgeMixture:
 #: against 39-67% for the original region).
 EDGE_WIDENED = dict(beta_lo=0.60, one_minus_delta_hi=0.08, crra_lo=3.0)
 
+#: RESULTS.md 43.3: re-aimed from the option A2 pilot (fixed solver, PSID seed
+#: pool), where PSID couples moved to low rho: beta >= 0.40 and delta >= 0.95
+#: cover 87% of couples' posterior means (EDGE_WIDENED: 3%). rho is
+#: unrestricted, and delta is uniform in the region, not log-uniform -- the
+#: log spacing would put fewer draws than the uniform prior near delta = 0.95
+#: and 18% of the region's draws above 0.9997, where no couple sits.
+EDGE_A2 = dict(beta_lo=0.40, one_minus_delta_hi=0.05, crra_lo=0.5, delta_log=False)
+
+
+@dataclass(frozen=True)
+class UniformProposal:
+    """The uniform prior as a proposal: the Sobol draws ``generate_dataset.py
+    --proposal uniform`` makes, so it can be the first part of a
+    :class:`SwitchedProposal` (the option A2 pilot, RESULTS 43)."""
+
+    box: PriorBox = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.box is None:
+            object.__setattr__(self, "box", PHASE3)
+
+    def _uniform_density(self) -> float:
+        return float(1.0 / np.prod(self.box.high - self.box.low))
+
+    def density(self, theta) -> np.ndarray:
+        return np.full(len(np.asarray(theta)), self._uniform_density())
+
+    def log_weight(self, theta) -> np.ndarray:
+        return np.zeros(len(np.asarray(theta)))
+
+    def sample(self, n: int, seed: int = 0) -> np.ndarray:
+        # Sobol is prefix-stable: sample(n) is the first n of any longer run.
+        return sample_sobol(n, self.box, seed=seed)
+
 
 @dataclass(frozen=True)
 class SwitchedProposal:
-    """Two EdgeMixtures in sequence: the original for the first ``n_first``
-    draws (the R_gamma pilot, already generated), the widened one after.
+    """Two proposals in sequence: ``first`` for the first ``n_first`` draws (a
+    pilot, already generated), ``second`` after.
 
-    The pilot's draws are kept, not regenerated (RESULTS.md 32.2). Draws
-    ``[0, n_first)`` reproduce ``EdgeMixture().sample`` exactly; draws from
-    ``n_first`` on are ``EdgeMixture(**EDGE_WIDENED).sample`` with their own
-    seed.
+    The pilot's draws are kept, not regenerated. Draws ``[0, n_first)``
+    reproduce ``first.sample`` exactly; draws from ``n_first`` on are
+    ``second.sample`` with their own seed. The default is RESULTS.md 32.2: the
+    original EdgeMixture, then ``EdgeMixture(**EDGE_WIDENED)``. :data:`SWITCHED_A2`
+    is RESULTS.md 43.3: the uniform pilot, then ``EdgeMixture(**EDGE_A2)``.
 
     **Weights depend on the training-set size.** A network trained on the first
     ``n`` draws learns the posterior under their empirical theta density,
     ``(n1/n) q1 + (1 - n1/n) q2`` with ``n1 = min(n, n_first)``, so
-    :meth:`log_weight` takes ``n``. Both parts are half uniform, so every weight
-    stays in (0, 2].
+    :meth:`log_weight` takes ``n``. Both parts are at least half uniform, so
+    every weight stays in (0, 2].
     """
 
     n_first: int = 4096
     second_seed_offset: int = 10
+    first: EdgeMixture | UniformProposal = None  # type: ignore[assignment]
+    second: EdgeMixture = None  # type: ignore[assignment]
 
-    @property
-    def first(self) -> EdgeMixture:
-        return EdgeMixture()
-
-    @property
-    def second(self) -> EdgeMixture:
-        return EdgeMixture(**EDGE_WIDENED)
+    def __post_init__(self) -> None:
+        if self.first is None:
+            object.__setattr__(self, "first", EdgeMixture())
+        if self.second is None:
+            object.__setattr__(self, "second", EdgeMixture(**EDGE_WIDENED))
 
     def sample(self, n: int, seed: int = 0) -> np.ndarray:
         n1 = min(n, self.n_first)
@@ -412,15 +458,23 @@ class SwitchedProposal:
         th = np.asarray(theta, dtype=float)[:, :3]
         f1 = min(n, self.n_first) / n
         pu = self.first._uniform_density()
-
-        def dens(m: EdgeMixture) -> np.ndarray:
-            return (1.0 - m.frac) * pu + m.frac * m._concentrated_density(th)
-
-        return np.log(pu) - np.log(f1 * dens(self.first) + (1 - f1) * dens(self.second))
+        return np.log(pu) - np.log(f1 * self.first.density(th)
+                                   + (1 - f1) * self.second.density(th))
 
 
-#: The proposals ``generate_dataset.py --proposal`` can record.
-PROPOSALS = ("uniform", "edge_mixture", "edge_mixture_switched")
+#: RESULTS.md 43.3: the option A2 run -- its 4,096 uniform pilot draws, then the
+#: mixture re-aimed at where PSID couples sat in the pilot.
+SWITCHED_A2 = SwitchedProposal(first=UniformProposal(), second=EdgeMixture(**EDGE_A2))
+
+#: The proposals ``generate_dataset.py --proposal`` can record, and their
+#: samplers (``n``, ``seed``) -> theta of (beta, delta, rho).
+PROPOSAL_SAMPLERS = {
+    "uniform": UniformProposal().sample,
+    "edge_mixture": EdgeMixture().sample,
+    "edge_mixture_switched": SwitchedProposal().sample,
+    "a2_switched": SWITCHED_A2.sample,
+}
+PROPOSALS = tuple(PROPOSAL_SAMPLERS)
 
 
 def proposal_log_weight(proposal: dict, theta) -> np.ndarray:
@@ -441,6 +495,8 @@ def proposal_log_weight(proposal: dict, theta) -> np.ndarray:
         return EdgeMixture().log_weight(th)
     if name == "edge_mixture_switched":
         return SwitchedProposal().log_weight(th, int(proposal["n_train"]))
+    if name == "a2_switched":
+        return SWITCHED_A2.log_weight(th, int(proposal["n_train"]))
     raise ValueError(f"unknown proposal {name!r}; known: {PROPOSALS}")
 
 

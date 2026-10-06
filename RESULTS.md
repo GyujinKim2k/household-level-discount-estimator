@@ -5381,3 +5381,63 @@ region and Laibson et al.'s point.
 GPU-days):
 1. **Proposal:** the re-aimed 50/50 mixture, or uniform throughout.
 2. **The ρ floor:** keep 0.5, or widen.
+
+### 43.3 The rest of the run: re-aimed mixture, ρ floor kept (decided 2026-10-07)
+
+**Decisions.**
+- The remaining 28,672 draws come from a mixture re-aimed at PSID couples.
+- ρ keeps its 0.5 floor.
+
+**Proposal: `SWITCHED_A2`** (`src/hh_npe/npe/prior.py`).
+- **Draws 0–4,095** are the uniform pilot, kept exactly.
+- **The remaining draws** are `EdgeMixture(**EDGE_A2)`: half uniform on the
+  box, half on β ∈ [0.40, 1], δ ∈ [0.95, 1], with ρ and R_gamma unrestricted.
+
+**δ is uniform within the region, not log-uniform as in §30/§32.2**
+(`EdgeMixture(delta_log=False)`).
+- Log spacing on [1e-4, 0.05] would put 59% of the region's δ draws above
+  0.996, where 11.5% of couples' means sit, and 18% above 0.9997, where none
+  do.
+- Near δ = 0.95–0.96 it would give fewer draws than the uniform prior.
+- Uniform spacing gives the density quoted in §43.2. Counting all 32,768
+  draws, it is 2.09× the uniform prior inside the region and 0.5625×
+  outside.
+- The weight p/p̃ is piecewise constant:
+  - 0.478 inside the region;
+  - 1.778 outside it.
+
+**The pilot draws reproduce exactly.**
+- `SWITCHED_A2.sample(32768)[:4096]` equals the stored θ of all 8 pilot
+  shards, including R_gamma, and the card types, through the generator's own
+  path.
+- `optionA.py verify --partial` passes against `a2_switched`.
+- The smallest 1 − δ in the run is 1.58e-6, so no draw is clipped by
+  `LOG1M_EPS`.
+
+**Code.**
+- **`EdgeMixture`** gains `delta_log` (default True) and `density()`. The
+  default path is bit-identical, so §32.2's run and weights are unchanged.
+- **`UniformProposal`:** the uniform prior as a proposal object.
+- **`SwitchedProposal`** takes `first` and `second`. Its default is still
+  §32.2's pair.
+- **New:** `SWITCHED_A2`, and the proposal name `a2_switched` in
+  `proposal_log_weight`, `generate_dataset.py --proposal` and
+  `optionA.load_shards`.
+- **Tests** (`tests/test_edge_mixture.py`, 10 more), checking that:
+  - the pilot prefix is exact;
+  - draws are prefix-stable past the switch;
+  - the second part is the re-aimed mixture, with δ uniform and ρ
+    unrestricted;
+  - the region density is flat and integrates to one;
+  - the default `EdgeMixture` is unchanged;
+  - weights stay ≤ 2 and recover the prior's means at n = 4,096, 20,000 and
+    32,768;
+  - pilot-only weights are 1;
+  - the quoted 2.09× / 0.5625× densities hold.
+
+**The shard directory's `solver_config.json`** now names `a2_switched`, with a
+`_note` recording the change.
+
+**Launch:** `scripts/run_optionA2_full.sh`.
+- It writes into the same directory (`couples_dataset_shards`): shards 9–64.
+- About 12.8 s per draw, so about 4.2 days.

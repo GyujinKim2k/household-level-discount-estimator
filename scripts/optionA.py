@@ -68,6 +68,7 @@ from hh_npe.npe.prior import (
     BETA_TRANSFORMS,
     PHASE3,
     PHASE3_RGAMMA,
+    SWITCHED_A2,
     EdgeMixture,
     SwitchedProposal,
     beta_flow_bounds,
@@ -141,7 +142,10 @@ def load_shards(shards: Path, train_shards: int | None = None,
     # sequential, so the prefix is sample_sobol(n).
     ref = {"edge_mixture": lambda: EdgeMixture().sample(n, seed=cfg["seed"]),
            "edge_mixture_switched": lambda: SwitchedProposal().sample(n, seed=cfg["seed"]),
-           "uniform": lambda: sample_sobol(n, PHASE3, seed=cfg["seed"])}
+           "uniform": lambda: sample_sobol(n, PHASE3, seed=cfg["seed"]),
+           # The rest of the option A2 run: the uniform pilot, then the mixture
+           # re-aimed at PSID couples (RESULTS 43.3).
+           "a2_switched": lambda: SWITCHED_A2.sample(n, seed=cfg["seed"])}
     if name not in ref:
         raise SystemExit(f"proposal {name!r} not handled here")
     if not np.allclose(theta_all[:, :3], ref[name](), rtol=0, atol=1e-12):

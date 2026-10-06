@@ -120,3 +120,85 @@ def test_switched_weights_are_bounded_and_recover_the_prior(n):
 def test_switched_weight_with_only_pilot_draws_equals_the_first_mixture():
     th = SW.sample(2048, seed=0)
     np.testing.assert_allclose(SW.log_weight(th, 2048), EdgeMixture().log_weight(th))
+
+
+# --- RESULTS 43.3: the option A2 run (uniform pilot kept, re-aimed region after) ---
+
+from hh_npe.npe.prior import (  # noqa: E402
+    EDGE_A2,
+    SWITCHED_A2,
+    UniformProposal,
+    proposal_log_weight,
+)
+
+A2 = EdgeMixture(**EDGE_A2)
+
+
+def test_a2_reproduces_the_uniform_pilot_draws_exactly():
+    """The pilot was generated as the prefix of sample_sobol(32768)."""
+    full_uniform = sample_sobol(32768, PHASE3, seed=0)
+    np.testing.assert_array_equal(SWITCHED_A2.sample(32768, seed=0)[:4096], full_uniform[:4096])
+    np.testing.assert_array_equal(SWITCHED_A2.sample(4096, seed=0), full_uniform[:4096])
+    np.testing.assert_array_equal(SWITCHED_A2.sample(1024, seed=0), full_uniform[:1024])
+
+
+def test_a2_is_prefix_stable_beyond_the_switch():
+    np.testing.assert_array_equal(SWITCHED_A2.sample(49152, seed=0)[:32768],
+                                  SWITCHED_A2.sample(32768, seed=0))
+
+
+def test_a2_second_part_is_the_reaimed_mixture_with_uniform_delta():
+    th = SWITCHED_A2.sample(32768, seed=0)[4096:]
+    np.testing.assert_array_equal(th, A2.sample(28672, seed=10))
+    con = th[1::2]
+    assert (A2._concentrated_density(con) > 0).all()
+    assert con[:, 0].min() >= 0.40 and con[:, 1].min() >= 0.95
+    # rho unrestricted in the region; delta uniform on [0.95, 1], not log-spaced
+    assert con[:, 2].min() < 0.6 and con[:, 2].max() > 4.9
+    assert (con[:, 1] > 0.998).mean() == pytest.approx(0.04, abs=0.005)
+    assert np.median(con[:, 1]) == pytest.approx(0.975, abs=0.002)
+
+
+def test_uniform_delta_region_density_is_flat_and_integrates_to_one():
+    f = 1.0 / ((1.0 - 0.40) * 0.05 * (5.0 - 0.5))
+    th = np.array([[0.41, 0.951, 0.51], [0.99, 0.9999999, 4.99], [0.7, 0.975, 2.0]])
+    np.testing.assert_allclose(A2._concentrated_density(th), f)
+    out = np.array([[0.39, 0.97, 2.0], [0.7, 0.949, 2.0]])
+    np.testing.assert_array_equal(A2._concentrated_density(out), 0.0)
+
+
+def test_default_edge_mixture_is_unchanged_by_the_delta_option():
+    """delta_log defaults to True: the 32.2 run's proposal and weights must not move."""
+    assert EdgeMixture().delta_log and EdgeMixture(**EDGE_WIDENED).delta_log
+    assert SW.first == EdgeMixture() and SW.second == EdgeMixture(**EDGE_WIDENED)
+
+
+@pytest.mark.parametrize("n", [4096, 20000, 32768])
+def test_a2_weights_are_bounded_and_recover_the_prior(n):
+    th = SWITCHED_A2.sample(n, seed=0)
+    lw = SWITCHED_A2.log_weight(th, n)
+    assert np.exp(lw).max() <= 2.0 + 1e-12
+    w = np.exp(lw); w /= w.sum()
+    for j in range(3):
+        lo, hi = PHASE3.low[j], PHASE3.high[j]
+        assert (w * th[:, j]).sum() == pytest.approx((lo + hi) / 2, rel=4e-3)
+    np.testing.assert_allclose(
+        proposal_log_weight({"name": "a2_switched", "n_train": n}, np.column_stack(
+            [th, np.full(n, 1.05)])), lw)
+
+
+def test_a2_weights_with_only_pilot_draws_are_one():
+    th = SWITCHED_A2.sample(2048, seed=0)
+    np.testing.assert_array_equal(SWITCHED_A2.log_weight(th, 2048), 0.0)
+    np.testing.assert_array_equal(UniformProposal().log_weight(th), 0.0)
+
+
+def test_a2_full_run_density_inside_and_outside_the_region():
+    """What RESULTS 43.2 quoted: 2.1x the uniform density inside, 0.56x outside."""
+    th = np.array([[0.7, 0.98, 1.5], [0.35, 0.98, 1.5], [0.7, 0.90, 1.5]])
+    q_over_p = np.exp(-SWITCHED_A2.log_weight(th, 32768))
+    np.testing.assert_allclose(q_over_p, [4096 / 32768 + 28672 / 32768 * (0.5 + 0.5 / (0.6 / 0.7 * 0.05 / 0.15)),
+                                          4096 / 32768 + 28672 / 32768 * 0.5,
+                                          4096 / 32768 + 28672 / 32768 * 0.5])
+    assert q_over_p[0] == pytest.approx(2.09, abs=0.01)
+    assert q_over_p[1] == pytest.approx(0.5625)
