@@ -5249,3 +5249,27 @@ PSID pool    0.171   0.459   0.369        1.263   (+14%)
   - That process could not be stopped from this session, so it is left for
     the user to stop.
   - Its directory `optionA2_dataset_shards` is not used.
+
+**Smoke test and launch (2026-10-06).**
+- The wealth-only process was stopped at 6 of 8 pilot shards; its directory
+  is not used.
+- **Smoke test:** 32 draws, full grid, the income pool. Every check passes:
+  - `init_state` equals the panel's age-20 income state in all 512
+    households;
+  - liquid wealth at 20 is ≥ 0;
+  - no-card households never go below −$1,000;
+  - θ, card and the wealth rows are identical to the wealth-only smoke test
+    (same draw stream);
+  - every stored x is finite.
+- **Simulated age-20 log income** relative to the model mean tracks the pool
+  (the pool's figure adds the transitory shock and unemployment):
+
+```
+                        p10     p25     p50     p75     p90
+pool                  -0.626  -0.136   0.190   0.581   0.796
+simulated, pool       -0.635  -0.156   0.096   0.561   0.770
+simulated, default    -0.715  -0.310   0.019   0.463   0.732
+```
+
+- **Pilot launched** at 03:18 UTC: `scripts/run_optionA2_pilot.sh`, 4,096
+  draws, about 14 h.
