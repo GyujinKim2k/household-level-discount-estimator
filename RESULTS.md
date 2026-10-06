@@ -5382,7 +5382,7 @@ GPU-days):
 1. **Proposal:** the re-aimed 50/50 mixture, or uniform throughout.
 2. **The ρ floor:** keep 0.5, or widen.
 
-### 43.3 The rest of the run: re-aimed mixture, ρ floor kept (decided 2026-10-07)
+### 43.3 The rest of the run: re-aimed mixture, ρ floor kept (decided 2026-10-06)
 
 **Decisions.**
 - The remaining 28,672 draws come from a mixture re-aimed at PSID couples.
@@ -5438,6 +5438,6 @@ GPU-days):
 **The shard directory's `solver_config.json`** now names `a2_switched`, with a
 `_note` recording the change.
 
-**Launch:** `scripts/run_optionA2_full.sh`.
+**Launch:** `scripts/run_optionA2_full.sh`, started 23:43 UTC on 2026-10-06.
 - It writes into the same directory (`couples_dataset_shards`): shards 9–64.
 - About 12.8 s per draw, so about 4.2 days.
