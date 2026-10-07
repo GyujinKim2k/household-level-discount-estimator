@@ -5441,3 +5441,25 @@ GPU-days):
 **Launch:** `scripts/run_optionA2_full.sh`, started 23:43 UTC on 2026-10-06.
 - It writes into the same directory (`couples_dataset_shards`): shards 9–64.
 - About 12.8 s per draw, so about 4.2 days.
+
+**Queued after generation (requested 2026-10-07):** `scripts/run_optionA2_model.sh`
+(PID 166790). It waits on the generation wrapper and goes on only if the run
+exits with rc=0 and all 64 shards pass `optionA.py verify`. Then:
+- 5 logit-β members, two at a time, card type marginalised as in option A;
+- PSID posteriors for couples and all 889 (each ships its population contour
+  figure);
+- the two single-household figures, from `scripts/plot_optionA2_households.py`:
+  - **figure 36:** a held-out simulated household against its true θ;
+  - **figure 37:** the typical PSID couple, nearest the couples' median
+    posterior mean, with Laibson et al.'s point and the meta-analytic ranges.
+
+Both households are picked by rule, as for figures 10 and 15. Sampling follows
+`optionA.psid`: reject in the flow box, invert, importance-weight to the
+uniform prior, and resample for the contours. No SBC runs in this step, because
+option A's SBC cache was simulated under the old process.
+
+**Tested on the pilot model** (3 members, on CPU).
+- **Simulated:** the median-error household out of 141 interior ones in a
+  pool of 300. All four 90% intervals cover the truth.
+- **PSID:** couple #82, ages 36–49. Its estimate is β 0.69, δ 0.984, ρ 1.11,
+  R_gamma 1.044.
