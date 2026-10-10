@@ -14,7 +14,8 @@
 # ~12.8 s per draw on the V100: about 4.2 days. Resumable (existing shards are
 # skipped; theta, R_gamma, card and seeds all come from the run seed).
 #
-# Launch:  nohup setsid ./scripts/run_optionA2_full.sh > logs/couples_full.log 2>&1 &
+# Launch:  nohup setsid ./scripts/run_optionA2_full.sh >> logs/couples_full.log 2>&1 &
+# (append: run_optionA2_model.sh reads the last "full run exited" line)
 set -uo pipefail
 cd /home/household-level-discount-estimator
 export PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -31,4 +32,6 @@ echo "$(date -u '+%F %T UTC') full run: 32768 draws, a2_switched, PSID seed pool
     --rgamma_range 1.025 1.075 --init_pool "$POOL" \
     --n_waves 7 --wave_years 2 --start_age 30 --seed 0 \
     --out data/processed/couples_dataset.pt >> logs/couples_generation.log 2>&1
-echo "$(date -u '+%F %T UTC') full run exited rc=$?"
+# Capture first: "$(date ...)" in the echo would reset $? to date's status.
+rc=$?
+echo "$(date -u '+%F %T UTC') full run exited rc=$rc"

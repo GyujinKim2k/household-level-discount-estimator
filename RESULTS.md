@@ -5463,3 +5463,34 @@ option A's SBC cache was simulated under the old process.
   pool of 300. All four 90% intervals cover the truth.
 - **PSID:** couple #82, ages 36–49. Its estimate is β 0.69, δ 0.984, ρ 1.11,
   R_gamma 1.044.
+
+**Checks during the run.**
+- **First re-aimed shard (shard 9, draws 4,096–4,607):** θ matches
+  `SWITCHED_A2.sample(32768)[4096:4608]` exactly, R_gamma included. Every
+  concentrated draw is in the region. Start states equal the panel state at
+  age 20, liquid wealth there is ≥ 0, and every value is finite.
+- **Shards 9–28 (10,240 draws, checked 2026-10-08):** θ matches and every value
+  is finite. 64.3% of draws are in β ≥ 0.40, δ ≥ 0.95, against 64.3% expected:
+  half from the concentrated part, plus the 28.6% of the uniform half that
+  lands there.
+
+**Paused on 2026-10-10** so the GPU could be used for other work. Generation was
+stopped with SIGTERM right after shard 49 was saved (02:50 UTC). That leaves 49
+of 64 shards, 25,088 of 32,768 draws, and nothing partial on disk. The queued
+model chain (PID 166790) was stopped too. The remaining 15 shards are about 28
+GPU-hours. A restart resumes from the finished shards and needs the model chain
+queued again on the new wrapper PID.
+
+**Exit-code logging bug, found at the stop.** In the generation wrapper,
+`echo "$(date …) full run exited rc=$?"` reported rc=0 for the killed run: the
+`$(date)` substitution runs first and resets `$?`. The model chain's guard
+grepped for that line, so the guard was not real. `optionA.py verify` would
+still have refused 49 shards.
+- `run_optionA2_full.sh` and `run_optionA2_model.sh` now capture `rc=$?` before
+  the echo.
+- The guard now reads only the last "full run exited" line, because the log is
+  appended to across resumes.
+- The wrong line in the ignored `logs/couples_full.log` is followed by a
+  hand-added rc=143 correction.
+- The same pattern is in about 45 echo lines of older wrapper scripts. They have
+  not been changed, so their logged rc values say nothing.
