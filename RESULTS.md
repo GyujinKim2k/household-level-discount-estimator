@@ -5494,3 +5494,11 @@ still have refused 49 shards.
   hand-added rc=143 correction.
 - The same pattern is in about 45 echo lines of older wrapper scripts. They have
   not been changed, so their logged rc values say nothing.
+
+**Resumed at 07:59 UTC on 2026-10-10** with the same wrapper, appending to its
+log. The log reported 49 shards complete and 15 to go, and the resume's
+`solver_config.json` check passed. The model chain was queued again, as PID
+297852 on wrapper 297830.
+The first resumed shard (shard 50, draws 25,088–25,599, saved 09:48 UTC, 12.8 s
+per draw) matches the a2_switched sequence. Every stored value is finite, and
+64.3% of its draws are in the region.
