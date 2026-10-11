@@ -5502,3 +5502,130 @@ log. The log reported 49 shards complete and 15 to go, and the resume's
 The first resumed shard (shard 50, draws 25,088–25,599, saved 09:48 UTC, 12.8 s
 per draw) matches the a2_switched sequence. Every stored value is finite, and
 64.3% of its draws are in the region.
+
+### 43.4 Model on the full run: calibrated, sharper, and pressing on the ρ and R_gamma floors
+
+**Run.** Generation ended cleanly at 11:52 UTC on 2026-10-11, with 64 shards and
+all 524,288 households kept. `optionA.py verify` passed at 11:54. The five logit-β
+members took about 1.4 h each, two at a time, and finished between 13:19 and
+15:54. PSID couples and all 889 ran at 40,000 raw draws each, and figures 36–37
+followed at 15:58. Every step returned rc = 0.
+
+**Held-out simulated households.** The two held-out shards (draws
+31,744–32,767) all come from the re-aimed mixture q₂, so each case is weighted
+by p/q₂ (0.445 inside the region, 2.0 outside; ESS 658 of 1,024). Each posterior
+is importance-weighted to the uniform prior. This estimates the same prior-
+averaged quantities as the pilot's uniform held-out table (§43.2); the pilot's
+3-member values are in brackets. Script: `scripts/check_optionA2_heldout.py`,
+which writes `outputs/optionA2/heldout_check.json`. It is not a full SBC: the
+SBC under the new process belongs to step 7.
+
+| 5-member ensemble | 90% coverage | truth < 5% / > 95% | corr | MAE / prior sd | contraction |
+|---|---|---|---|---|---|
+| β | 0.931 (0.893) | 0.036 / 0.033 | 0.825 | 0.448 (0.660) | 0.634 (0.371) |
+| δ | 0.900 (0.909) | 0.060 / 0.040 | 0.846 | 0.379 (0.469) | 0.718 (0.595) |
+| ρ | 0.899 (0.893) | 0.042 / 0.059 | 0.899 | 0.340 (0.459) | 0.789 (0.664) |
+| R_gamma | 0.919 (0.875) | 0.046 / 0.035 | 0.791 | 0.426 (0.535) | 0.609 (0.528) |
+
+- The standard error of a coverage figure is about 0.012 at ESS 658.
+- Single members cover 0.86–0.90. As in option A, the ensemble lifts coverage,
+  and β now slightly over-covers.
+- The weighted held-out log q is 7.15, against 4.50 for the pilot ensemble, the
+  same estimand.
+
+**PSID**, uncorrected arm; the pilot's couples in brackets:
+
+| | couples (409) median | sd across households | median posterior sd | all 889 median |
+|---|---|---|---|---|
+| β | 0.746 (0.683) | 0.157 | 0.155 (0.154) | 0.750 |
+| δ | 0.9845 (0.9844) | 0.019 | 0.0071 (0.0076) | 0.9850 |
+| ρ | 0.921 (1.360) | 0.623 | 0.365 (0.586) | 1.105 |
+| R_gamma | 1.0382 (1.0418) | 0.014 | 0.0078 (0.0081) | 1.0439 |
+
+- Per-couple correlation with the pilot's means: β 0.57, δ 0.82, ρ 0.64,
+  R_gamma 0.83.
+- 87.8% of couples' means lie in the re-aimed region, against 87% on the pilot.
+- No couple has ρ ≥ 4.2.
+- Weights cost little: median ESS / kept is 0.82 and the ESS p10 is 22,497 of
+  40,000. The in-box median is 0.92. No household is unrepresentable.
+- Against Laibson et al.: the couples' 90% interval covers their β for 71%, δ
+  for 63%, ρ for 42%, and R_gamma = 1.05 for 52%.
+- The share whose means fall inside the meta-analytic range on all three is
+  20.3% for couples and 28.0% for all households.
+- The consumption-corrected arm moves δ down (median 0.9793) and R_gamma up
+  (1.0436).
+
+**Figures.**
+- **36:** held-out simulated household #136 of a pool of 300 (draw 32207,
+  cardholder, ages 44–56). It is the median-error household of the 110 interior
+  ones, with a standardised error of 0.347. All four 90% intervals cover the
+  truth:
+
+  | | truth | estimate | 90% interval |
+  |---|---|---|---|
+  | β | 0.667 | 0.768 | [0.54, 0.96] |
+  | δ | 0.9599 | 0.9601 | [0.943, 0.976] |
+  | ρ | 4.20 | 3.58 | [2.62, 4.55] |
+  | R_gamma | 1.0355 | 1.0347 | [1.031, 1.039] |
+
+- **37:** PSID couple #280, ages 43–55, nearest the couples' median (distance
+  0.124). Estimates, 90% intervals, and whether Laibson et al.'s value is
+  covered:
+
+  | | estimate | 90% interval | Laibson covered? |
+  |---|---|---|---|
+  | β | 0.747 | [0.37, 0.97] | yes |
+  | δ | 0.9862 | [0.9755, 0.9954] | yes |
+  | ρ | 0.89 | [0.53, 1.71] | no, theirs is 1.94 |
+  | R_gamma | 1.0366 | [1.0269, 1.0492] | no, theirs is 1.05 (just above) |
+
+  Its ρ mass runs into the 0.5 floor, and its β–R_gamma 68% region reaches
+  1.025.
+- **38** (`scripts/plot_optionA2_psid.py`): per-household means, A2 couples and
+  all 889 against the pilot's couples. Both A2 sets sit lower in ρ than the
+  pilot and pile against the ρ and R_gamma floors.
+
+**The floors.** Same script. "Lower 5%" is the
+lower end of the household's 90% interval.
+
+| share of households | couples, A2 | all 889, A2 | couples, pilot |
+|---|---|---|---|
+| ρ mean < 1.0 | 0.555 | 0.439 | 0.296 |
+| ρ lower 5% < 0.55 | 0.575 | 0.516 | 0.315 |
+| R_gamma mean < 1.030 | 0.267 | 0.191 | 0.117 |
+| R_gamma lower 5% < 1.0275 | 0.619 | 0.637 | 0.340 |
+| either floor | 0.880 | 0.867 | 0.621 |
+| both floors | 0.313 | 0.286 | 0.034 |
+
+- The two floors are nearly unrelated across households: corr(ρ, R_gamma) of the
+  means is −0.12 for couples.
+- The piling grew as the model sharpened. That is the signature of a likelihood
+  that wants values below the box, not of noise pushing means outward.
+
+**Held-out calibration near the floors** (5 members, weighted as above):
+- **R_gamma, by posterior-mean region.** Where the mean is in [1.025, 1.030)
+  (n = 41), 90% coverage is 0.740, and the truth falls below the posterior's 5th
+  percentile 22.9% of the time. The estimate near the floor is pushed up, away
+  from truths that sit at the floor. Every other bin covers 0.913–0.932.
+- **ρ, by posterior-mean region.** Coverage is 0.95 in [0.5, 0.75) and 0.92 in
+  [0.75, 1.0), but those bins hold only 12 and 48 cases.
+
+So the R_gamma intervals of the 27% of couples whose mean is below 1.030 are
+probably biased upward. That is a network-at-the-edge problem, like β's before
+its logit target (§37). Separately, the data seem to want ρ < 0.5 and
+R_gamma < 1.025 for many households.
+
+**Options, not started; the user decides:**
+- **(a) A bounded target for R_gamma**, logit within its box as for β.
+  Retraining only, about 4 GPU-h. It fixes calibration at the edge but cannot
+  represent values below 1.025.
+- **(b) Widen the box below the floors**, simulating only the added strips
+  (each case is then weighted by the empirical proposal mixture):
+  - R_gamma down to 1.021, which must stay above R = 1.0203 (§43 plan, step 5):
+    about 2,600 draws, roughly 9 GPU-h at 12.8 s per draw;
+  - ρ down to 0.3: about 1,500 draws, roughly 5 GPU-h. The solver has not been
+    checked below 0.5.
+- **(c) Keep the box** and report the floors as binding for the households that
+  reach them.
+- **Interim check (2026-10-11, members s0 and s1 only):** it showed the same
+  calibration and floors, slightly weaker.
