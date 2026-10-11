@@ -5629,3 +5629,92 @@ R_gamma < 1.025 for many households.
   reach them.
 - **Interim check (2026-10-11, members s0 and s1 only):** it showed the same
   calibration and floors, slightly weaker.
+
+### 43.5 R_gamma floor: a bounded target and a strip below the box (decided 2026-10-11)
+
+**Decision:** do options (a) and (b) of §43.4 for R_gamma, and keep the ρ floor
+at 0.5. The floor is a theoretical guideline: ρ much below it, and certainly
+below 0.3, is not meaningful.
+
+**(b) The strip.** `scripts/run_optionA2_strip.sh` adds 3,072 draws with
+R_gamma on [1.021, 1.025), so the prior widens to [1.021, 1.075] without
+regenerating the main run.
+- 1.021 stays above R_free = 1.0203, below which the illiquid asset is
+  dominated (§18).
+- **Same generative process as the main run:** comphs, card 50/50, R_gamma and
+  card per block of 16, M = 16, full grid, panels stored, fixed solver, PSID
+  seed pool.
+- **(β, δ, ρ)** come from the A2 mixture alone (`A2_STRIP` =
+  `EdgeMixture(**EDGE_A2)`, proposal `a2_strip`), the same draws as 87% of the
+  main run.
+- **Seed 100000,** so income shocks and starting states (seed + draw + 1) never
+  repeat the main run's (1–32,768).
+- **6 shards of 512, the last held out.** That leaves 2,560 training draws,
+  the main run's training density per unit of R_gamma (2,560 / 0.004 vs
+  31,744 / 0.050), so the weights are nearly continuous across 1.025.
+- **Smoke test, 32 draws:**
+  - θ is the `a2_strip` sequence, with one R_gamma and card per block;
+  - starting states match and everything is finite;
+  - 63% of households hold no illiquid wealth, against 60% in the main run at
+    R_gamma < 1.030 and 30% at R_gamma > 1.060.
+- **Launched** at 16:27 UTC on 2026-10-11, at about 12.8 s per draw: about 11 h.
+
+**Weights for two runs** (`prior.proposal_log_weight` with `{"parts": [...]}`).
+The network learns the posterior under the empirical mixture
+Σ_k (n_k / n) q_k(β, δ, ρ) · U(R_gamma; range_k). The prior is uniform on the
+union, so R_gamma's density no longer cancels as it does within one run. At
+the designed sizes every weight is below 2.1.
+
+**(a) Logit target for R_gamma**, as for β (§37): `rgamma_to_flow` /
+`rgamma_from_flow` map [rgamma_low, rgamma_high] onto the whole line. The flow
+can then put no mass past the floor; with the linear target it did, and
+held-out coverage fell to 0.74 where the posterior mean sat within 0.005 of
+the floor (§43.4). `_log_q` adds R_gamma's Jacobian back, so held-out log q
+stays on θ's own scale.
+
+**Code**, `scripts/optionA.py`:
+- A run's box and flow targets are a `Spec`, read from its `results.json` by
+  `spec_of`. Runs before §43.5 record neither and get the A box and a linear
+  R_gamma, which maps bit-identically to before (tested).
+- `load_shards` takes several directories. It concatenates their draws, gives
+  each shard its run's offset (draw ids stay unique for the grouped
+  validation split), and requires the R_gamma ranges to tile one interval and
+  every other solver setting to agree. Each run's held-out count comes from
+  `RUN_SIZE`.
+- `train --rgamma_transform logit` and `--shards` (several) record
+  `rgamma_range` and `rgamma_transform` only when they differ from the
+  defaults.
+- `_weighting` refuses a two-run ensemble given a bare β-transform name, so the
+  older scripts (`oos_optionA`, `sbc_households`, `tail_diagnostic`) fail
+  loudly on it instead of using the wrong box.
+- `load_posterior` treats a `parts` proposal as weighted.
+
+The held-out check, the household figures and the population figure
+(`plot_optionA2_psid.py --series`) read the Spec and the shard list. Figure 38
+reproduces byte-identically.
+
+**Tests:** `tests/test_rgamma_strip.py`, 18 tests:
+- the R_gamma map round-trips in numpy and torch, and its Jacobian matches a
+  finite difference;
+- the default Spec equals the pre-§43.5 maps for all three β targets;
+- the wide logit Spec puts every flow point inside the box;
+- two-run weights recover the uniform prior on the union, with mass 0.004 /
+  0.054 below 1.025, and stay bounded and nearly continuous across 1.025;
+- one part reduces to the single-run weight;
+- fake shard directories combine with the right offsets, held-out counts and
+  `parts`, and a settings mismatch or a gap in R_gamma is refused.
+
+The full suite passes: 465 passed, 8 skipped.
+
+**End-to-end smoke test on CPU:** one main shard plus the 32-draw strip, logit
+β and R_gamma, 2 epochs. `train`, `verify`, `psid`, the held-out check, and
+figures 36/37 all run on the widened box.
+
+**Queued after the strip:** `scripts/run_optionA2w_model.sh` (A2w). It:
+- verifies both runs together;
+- trains 5 members (logit β, logit R_gamma);
+- runs PSID for couples and all 889;
+- runs the held-out check, including the strip's held-out shard and the floor
+  table against A2;
+- makes figures 39 (simulated household), 40 (typical PSID couple) and 41
+  (A2w against A2).

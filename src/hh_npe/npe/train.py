@@ -187,9 +187,12 @@ def load_posterior(path: str | Path, map_location=None,
     """
     ck = torch.load(Path(path), weights_only=False, map_location=map_location)
     prop = ck.get("proposal")
-    if prop is not None and prop["name"] != "uniform" and not weighted_ok:
+    # Several runs (RESULTS 43.5) record {"parts": [...]}, one per run; their
+    # R_gamma ranges differ, so even all-uniform parts need weights.
+    weighted = prop is not None and ("parts" in prop or prop["name"] != "uniform")
+    if weighted and not weighted_ok:
         raise SystemExit(
-            f"{path} was trained on draws from the {prop['name']!r} proposal "
+            f"{path} was trained on draws from the {prop.get('name', prop)!r} proposal "
             f"(n_train={prop.get('n_train')}). Its raw draws are not the "
             f"posterior under the uniform prior. Sample it through "
             f"hh_npe.evaluation.weighted.sample_weighted, which applies the "

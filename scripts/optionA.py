@@ -56,6 +56,7 @@ import argparse
 import dataclasses
 import json
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import torch
@@ -65,19 +66,27 @@ from hh_npe.data.windows import build_windowed, window_panel
 from hh_npe.evaluation.weighted import sample_weighted, sbc_from_u
 from hh_npe.npe.embedder import TrajectoryTransformer
 from hh_npe.npe.prior import (
+    A2_STRIP,
     BETA_TRANSFORMS,
     PHASE3,
     PHASE3_RGAMMA,
+    RGAMMA_TRANSFORMS,
     SWITCHED_A2,
     EdgeMixture,
+    PriorBox,
     SwitchedProposal,
     beta_flow_bounds,
     beta_from_flow,
     beta_log_jacobian,
     beta_to_flow,
+    check_rgamma_tiling,
     from_log1m,
     log1m_box,
     proposal_log_weight,
+    rgamma_flow_bounds,
+    rgamma_from_flow,
+    rgamma_log_jacobian,
+    rgamma_to_flow,
     sample_sobol,
     to_log1m,
 )
@@ -91,6 +100,13 @@ OUT = Path("outputs/optionA")
 BOX = PHASE3_RGAMMA
 N_TOTAL = 32768
 N_HELDOUT_SHARDS = 2
+#: Runs that are not 32,768 draws with 2 held-out shards: the R_gamma strip
+#: (RESULTS 43.5) holds out 1 of its 6 shards, leaving the main run's training
+#: density per unit of R_gamma.
+RUN_SIZE = {"a2_strip": (3072, 1)}
+#: Settings that may differ between runs trained together; every other
+#: solver_config key must agree, or two simulators would be mixed.
+PER_RUN_KEYS = ("proposal", "seed", "rgamma_range")
 WINDOW = dict(n_waves=7, start_low=24, start_high=45, wave_years=2, with_age=True)
 ARCH = dict(d_model=128, n_layers=3, output_dim=64)
 STATIC = ("age", "log_mean_income")
@@ -104,20 +120,19 @@ CUTS = {"beta": (0.30, 0.80, 0.95, 1.00), "delta": (0.85, 0.95, 0.98, 1.00),
 
 # --------------------------------------------------------------------------- data
 
-def load_shards(shards: Path, train_shards: int | None = None,
-                need_complete: bool = False):
-    """theta and card per draw from the shards, the train / held-out split, and
-    the proposal the training draws came from.
+class Shard(NamedTuple):
+    """A shard file and the offset of its run's draws in the combined index:
+    0 for the first run, the first run's size for the next (RESULTS 43.5)."""
+    path: Path
+    offset: int
 
-    Held out: the last ``N_HELDOUT_SHARDS`` shards. Training: every shard before
-    them, or only the first ``train_shards`` (smoke tests). Training draws are
-    always a prefix ``[0, n_train)`` of the generation sequence, which is what
-    ``SwitchedProposal.log_weight(theta, n_train)`` assumes.
-    """
+
+def _load_run(shards: Path, train_shards: int | None, need_complete: bool):
+    """One generation run: its draws, checked against the proposal it recorded,
+    and its train / held-out shards."""
     cfg = json.loads((shards / "solver_config.json").read_text())
-    if tuple(cfg.get("rgamma_range") or ()) != (BOX.rgamma_low, BOX.rgamma_high):
-        raise SystemExit(f"{shards}: rgamma_range {cfg.get('rgamma_range')} does not "
-                         f"match the box {BOX.rgamma_low}-{BOX.rgamma_high}")
+    if not cfg.get("rgamma_range"):
+        raise SystemExit(f"{shards}: not an R_gamma run")
     if not cfg.get("card_types") or cfg.get("educ") != "comphs":
         raise SystemExit(f"{shards}: expected a comphs card-types run, got {cfg}")
     files = sorted(shards.glob("shard_*.npz"))
@@ -126,17 +141,18 @@ def load_shards(shards: Path, train_shards: int | None = None,
         d = np.load(f)
         meta.append((int(d["lo"]), int(d["hi"]), d["theta"], d["card"], f))
     meta.sort(key=lambda t: t[0])
-    if [m[0] for m in meta] != [0] + [m[1] for m in meta[:-1]]:
+    if not meta or [m[0] for m in meta] != [0] + [m[1] for m in meta[:-1]]:
         raise SystemExit(f"{shards}: shards do not tile a contiguous range from 0")
     n = meta[-1][1]
-    if need_complete and n != N_TOTAL:
-        raise SystemExit(f"{shards}: {n} of {N_TOTAL} draws generated")
+    name = cfg["proposal"]
+    total, n_held = RUN_SIZE.get(name, (N_TOTAL, N_HELDOUT_SHARDS))
+    if need_complete and n != total:
+        raise SystemExit(f"{shards}: {n} of {total} draws generated")
     theta_all = np.concatenate([m[2] for m in meta])
     card_all = np.concatenate([m[3] for m in meta])
 
     # The weights are only right for these exact draws: regenerate the
     # proposal's sequence and compare.
-    name = cfg["proposal"]
     # "uniform": the option A2 pilot (RESULTS 43). generate_dataset draws the
     # whole run's Sobol sequence and the pilot is its prefix; Sobol points are
     # sequential, so the prefix is sample_sobol(n).
@@ -145,22 +161,81 @@ def load_shards(shards: Path, train_shards: int | None = None,
            "uniform": lambda: sample_sobol(n, PHASE3, seed=cfg["seed"]),
            # The rest of the option A2 run: the uniform pilot, then the mixture
            # re-aimed at PSID couples (RESULTS 43.3).
-           "a2_switched": lambda: SWITCHED_A2.sample(n, seed=cfg["seed"])}
+           "a2_switched": lambda: SWITCHED_A2.sample(n, seed=cfg["seed"]),
+           # The R_gamma strip below it (RESULTS 43.5).
+           "a2_strip": lambda: A2_STRIP.sample(n, seed=cfg["seed"])}
     if name not in ref:
         raise SystemExit(f"proposal {name!r} not handled here")
     if not np.allclose(theta_all[:, :3], ref[name](), rtol=0, atol=1e-12):
         raise SystemExit(f"{shards}: stored theta is not the {name} sequence")
+    lo, hi = cfg["rgamma_range"]
+    if not ((theta_all[:, 3] >= lo) & (theta_all[:, 3] <= hi)).all():
+        raise SystemExit(f"{shards}: R_gamma outside the recorded range {lo}-{hi}")
 
-    if len(meta) <= N_HELDOUT_SHARDS:
-        raise SystemExit("not enough shards for a held-out set")
-    held = meta[-N_HELDOUT_SHARDS:]
-    train = meta[:-N_HELDOUT_SHARDS]
+    if len(meta) <= n_held:
+        raise SystemExit(f"{shards}: not enough shards for a held-out set")
+    held, train = meta[-n_held:], meta[:-n_held]
     if train_shards is not None:
         train = train[:train_shards]
-    n_train = train[-1][1]
-    proposal = {"name": name, "n_train": int(n_train)}
     return (theta_all, card_all, [m[4] for m in train], [m[4] for m in held],
-            proposal, cfg)
+            {"name": name, "n_train": int(train[-1][1])}, cfg)
+
+
+def load_shards(shards: Path | list[Path], train_shards: int | None = None,
+                need_complete: bool = False):
+    """theta and card per draw from the shards, the train / held-out split, and
+    the proposal the training draws came from.
+
+    Held out: the last ``N_HELDOUT_SHARDS`` shards of a run (``RUN_SIZE`` for
+    others). Training: every shard before them, or only the first
+    ``train_shards`` of each run (smoke tests). Training draws are always a
+    prefix ``[0, n_train)`` of the generation sequence, which is what
+    ``SwitchedProposal.log_weight(theta, n_train)`` assumes.
+
+    **Several runs** (RESULTS 43.5: the main A2 run, then the R_gamma strip
+    below it) are combined in the order given: their draws are concatenated,
+    each shard carries its run's offset (:class:`Shard`), their R_gamma ranges
+    must tile one interval, and every solver setting except
+    ``PER_RUN_KEYS`` must agree. The proposal is then ``{"parts": [...]}``, one
+    per run with its ``rgamma_range``, which ``proposal_log_weight`` reads; one
+    run keeps the ``{"name", "n_train"}`` its checkpoints always recorded.
+    The returned config is the first run's, with ``rgamma_range`` the union.
+    """
+    dirs = [shards] if isinstance(shards, (str, Path)) else list(shards)
+    runs = [_load_run(Path(d), train_shards, need_complete) for d in dirs]
+    base = {k: v for k, v in runs[0][5].items()
+            if not k.startswith("_") and k not in PER_RUN_KEYS}
+    for d, r in zip(dirs[1:], runs[1:]):
+        other = {k: v for k, v in r[5].items() if not k.startswith("_") and k not in PER_RUN_KEYS}
+        if other != base:
+            diff = sorted(k for k in set(base) | set(other) if base.get(k) != other.get(k))
+            raise SystemExit(f"{d}: generated under different settings than {dirs[0]}: {diff}")
+    lo, hi = check_rgamma_tiling([r[5]["rgamma_range"] for r in runs])
+    offsets = np.cumsum([0] + [len(r[0]) for r in runs[:-1]])
+    train = [Shard(f, int(o)) for r, o in zip(runs, offsets) for f in r[2]]
+    held = [Shard(f, int(o)) for r, o in zip(runs, offsets) for f in r[3]]
+    if len(runs) == 1:
+        proposal = runs[0][4]
+    else:
+        proposal = {"parts": [{**r[4], "rgamma_range": [float(x) for x in r[5]["rgamma_range"]]}
+                              for r in runs]}
+    cfg = {**runs[0][5], "rgamma_range": [lo, hi]}
+    if len(runs) > 1:
+        cfg["runs"] = [{"shards": str(d), "n_draws": len(r[0]),
+                        **{k: r[5][k] for k in PER_RUN_KEYS}} for d, r in zip(dirs, runs)]
+    return (np.concatenate([r[0] for r in runs]), np.concatenate([r[1] for r in runs]),
+            train, held, proposal, cfg)
+
+
+def n_train(proposal: dict) -> int:
+    return sum(p["n_train"] for p in proposal.get("parts", [proposal]))
+
+
+def box_of(cfg: dict) -> PriorBox:
+    """The prior box of a run, from the R_gamma range its data cover (the A box
+    for every run before RESULTS 43.5)."""
+    lo, hi = cfg.get("rgamma_range") or (BOX.rgamma_low, BOX.rgamma_high)
+    return dataclasses.replace(BOX, rgamma_low=float(lo), rgamma_high=float(hi))
 
 
 def transform(x: torch.Tensor):
@@ -169,9 +244,25 @@ def transform(x: torch.Tensor):
     return anchor_log(x, feats), feats
 
 
+def windows_raw(files, theta_all, seed, n_waves=WINDOW["n_waves"]):
+    """``build_windowed`` over shards of one or more runs, untransformed.
+    ``files`` are :class:`Shard`\\ s or plain paths (one run, offset 0). Draw
+    ids, and the window seeds (``seed + lo``), are offset per run, so ids stay
+    unique for the grouped validation split; one run is exactly as before."""
+    groups: dict[int, list[Path]] = {}
+    for f in files:
+        path, off = (f.path, f.offset) if isinstance(f, Shard) else (Path(f), 0)
+        groups.setdefault(off, []).append(path)
+    out = []
+    for off, paths in groups.items():
+        th, x, pid = build_windowed(paths, theta_all[off:], k=1, seed=seed + off,
+                                    **{**WINDOW, "n_waves": n_waves})
+        out.append((th, x, pid + off))
+    return tuple(torch.cat(t) for t in zip(*out))
+
+
 def windows(files, theta_all, seed, n_waves=WINDOW["n_waves"]):
-    th, x, pid = build_windowed(files, theta_all, k=1, seed=seed,
-                                **{**WINDOW, "n_waves": n_waves})
+    th, x, pid = windows_raw(files, theta_all, seed, n_waves)
     x, feats = transform(x)
     return th, x, pid, feats
 
@@ -186,32 +277,102 @@ def one_per_draw(pid: torch.Tensor, seed: int) -> np.ndarray:
 
 # --------------------------------------------------------------- flow targets
 
-def flow_box(beta_transform: str = "linear"):
-    """The box the flow lives in: ``log(1 - delta)`` always, beta's column as
-    ``beta_transform`` (RESULTS 37)."""
-    lo, hi = beta_flow_bounds(BOX, beta_transform)
-    return dataclasses.replace(log1m_box(BOX), beta_low=lo, beta_high=hi)
+@dataclasses.dataclass(frozen=True)
+class Spec:
+    """A run's prior box and flow targets: ``log(1 - delta)`` always, beta's and
+    R_gamma's columns as their transforms (RESULTS 37, 43.5). Checkpoints from
+    before 43.5 record no R_gamma settings and get the defaults: the A box and
+    a linear R_gamma (:func:`spec_of`)."""
+
+    box: PriorBox = BOX
+    beta_transform: str = "linear"
+    rgamma_transform: str = "linear"
+
+    def __post_init__(self) -> None:
+        if self.beta_transform not in BETA_TRANSFORMS:
+            raise ValueError(f"beta transform {self.beta_transform!r}")
+        if self.rgamma_transform not in RGAMMA_TRANSFORMS:
+            raise ValueError(f"R_gamma transform {self.rgamma_transform!r}")
+
+    @property
+    def prior_sd(self) -> np.ndarray:
+        return (self.box.high - self.box.low) / np.sqrt(12)
+
+    @property
+    def cuts(self) -> dict:
+        """``CUTS``, with R_gamma's thirds of this box's range."""
+        return {**CUTS, "R_gamma": tuple(np.linspace(self.box.rgamma_low,
+                                                     self.box.rgamma_high, 4).round(4))}
+
+    def flow_box(self) -> PriorBox:
+        """The box the flow lives in."""
+        blo, bhi = beta_flow_bounds(self.box, self.beta_transform)
+        rlo, rhi = rgamma_flow_bounds(self.box, self.rgamma_transform)
+        return dataclasses.replace(log1m_box(self.box), beta_low=blo, beta_high=bhi,
+                                   rgamma_low=rlo, rgamma_high=rhi)
+
+    def to_flow(self, theta):
+        t = beta_to_flow(to_log1m(theta, self.box), self.box, self.beta_transform)
+        return rgamma_to_flow(t, self.box, self.rgamma_transform)
+
+    def from_flow(self, t):
+        t = rgamma_from_flow(t, self.box, self.rgamma_transform)
+        return from_log1m(beta_from_flow(t, self.box, self.beta_transform), self.box)
+
+    def log_jacobian(self, theta: np.ndarray) -> np.ndarray:
+        """beta's and R_gamma's ``log |dt / dtheta|`` (delta stays in log space,
+        see ``_log_q``)."""
+        th = np.asarray(theta, dtype=float)
+        return (beta_log_jacobian(th[:, 0], self.box, self.beta_transform)
+                + rgamma_log_jacobian(th[:, 3], self.box, self.rgamma_transform))
+
+    def describe(self) -> str:
+        return (f"box R_gamma {self.box.rgamma_low}-{self.box.rgamma_high}; beta target "
+                f"{self.beta_transform}; R_gamma target {self.rgamma_transform}")
 
 
-def to_flow(theta, beta_transform: str = "linear"):
-    return beta_to_flow(to_log1m(theta, BOX), BOX, beta_transform)
+def spec_of(cfg: dict) -> Spec:
+    """The Spec a run's ``results.json`` config describes."""
+    return Spec(box=box_of(cfg), beta_transform=cfg.get("beta_transform", "linear"),
+                rgamma_transform=cfg.get("rgamma_transform", "linear"))
 
 
-def from_flow(t, beta_transform: str = "linear"):
-    return from_log1m(beta_from_flow(t, BOX, beta_transform), BOX)
+def _spec(s) -> Spec:
+    """A Spec, or a beta transform name meaning the pre-43.5 Spec with it."""
+    return s if isinstance(s, Spec) else Spec(beta_transform=s)
+
+
+def flow_box(spec="linear"):
+    """The box the flow lives in (``spec``: a :class:`Spec` or, for runs before
+    RESULTS 43.5, beta's transform name)."""
+    return _spec(spec).flow_box()
+
+
+def to_flow(theta, spec="linear"):
+    return _spec(spec).to_flow(theta)
+
+
+def from_flow(t, spec="linear"):
+    return _spec(spec).from_flow(t)
 
 
 # --------------------------------------------------------------------------- train
 
 def train(args) -> None:
-    theta_all, card_all, train_f, held_f, proposal, _cfg = load_shards(
+    theta_all, card_all, train_f, held_f, proposal, cfg = load_shards(
         args.shards, args.train_shards)
+    spec = Spec(box=box_of(cfg), beta_transform=args.beta_transform,
+                rgamma_transform=args.rgamma_transform)
     th, x, pid, feats = windows(train_f, theta_all, seed=0, n_waves=args.n_waves)
     drawn = np.unique(pid.numpy())
-    assert drawn.min() == 0 and drawn.max() < proposal["n_train"]
+    train_ids = np.concatenate([f.offset + np.arange(int(np.load(f.path)["lo"]),
+                                                     int(np.load(f.path)["hi"]))
+                                for f in train_f])
+    assert np.isin(drawn, train_ids).all()
     print(f"train: {len(th)} rows from {len(drawn)} draws (n_train "
-          f"{proposal['n_train']}, proposal {proposal['name']}); cardholder share "
-          f"{card_all[drawn].mean():.3f}; channels {list(feats)}", flush=True)
+          f"{n_train(proposal)}, proposal {proposal}); cardholder share "
+          f"{card_all[drawn].mean():.3f}; {spec.describe()}; channels {list(feats)}",
+          flush=True)
     keep = torch.tensor([f in STATIC for f in feats])
     f_mean = torch.where(keep, x.mean((0, 1)), torch.zeros(len(feats)))
     f_std = torch.where(keep, x.std((0, 1)), torch.ones(len(feats)))
@@ -221,19 +382,26 @@ def train(args) -> None:
     dev = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     over = {"max_num_epochs": args.max_epochs} if args.max_epochs else {}
     torch.manual_seed(args.seed)
-    bt = args.beta_transform
-    post, _d, _i = train_npe(to_flow(th, bt).float(), x, embedder=emb,
-                             box=flow_box(bt), device=dev, group_ids=pid,
+    post, _d, _i = train_npe(spec.to_flow(th).float(), x, embedder=emb,
+                             box=spec.flow_box(), device=dev, group_ids=pid,
                              **{**TRAINING, "batch_size": 1024,
                                 "learning_rate": 1e-3, **over})
     out = args.out / f"s{args.seed}"
     out.mkdir(parents=True, exist_ok=True)
-    save_posterior(post, emb, flow_box(bt), out / f"posterior_{args.n_waves}w.pt",
+    save_posterior(post, emb, spec.flow_box(), out / f"posterior_{args.n_waves}w.pt",
                    proposal=proposal)
+    # Keys runs before RESULTS 43.5 never recorded, written only when they
+    # differ from the defaults, so a run like those writes the same config.
+    extra = {}
+    if (spec.box.rgamma_low, spec.box.rgamma_high) != (BOX.rgamma_low, BOX.rgamma_high):
+        extra["rgamma_range"] = cfg["rgamma_range"]
+    if spec.rgamma_transform != "linear":
+        extra["rgamma_transform"] = spec.rgamma_transform
     (out / "results.json").write_text(json.dumps({"_config": {
-        "shards": str(args.shards), "train_shards": args.train_shards,
+        "shards": str(args.shards[0]) if len(args.shards) == 1 else list(map(str, args.shards)),
+        "train_shards": args.train_shards,
         "proposal": proposal, "box": list(BOX.names), "delta_transform": True,
-        "beta_transform": bt,
+        "beta_transform": spec.beta_transform, **extra,
         "window": {**WINDOW, "n_waves": args.n_waves}, "features": list(feats),
         "anchor_log": True,
         "mean_income_channel": True, "static_norm_channels": list(STATIC),
@@ -263,6 +431,7 @@ def load_members(run_dirs, device=None, n_waves=WINDOW["n_waves"]):
         posts.append(p)
         props.append(ck.get("proposal"))
         cfg.setdefault("beta_transform", "linear")     # runs before RESULTS 37
+        cfg.setdefault("rgamma_transform", "linear")   # runs before RESULTS 43.5
         cfgs.append({k: v for k, v in cfg.items() if k != "train_seed"})
     if any(c != cfgs[0] for c in cfgs) or any(p != props[0] for p in props):
         raise SystemExit("ensemble members differ in configuration or proposal")
@@ -271,22 +440,31 @@ def load_members(run_dirs, device=None, n_waves=WINDOW["n_waves"]):
     return posts, props[0], cfgs[0]
 
 
-def _weighting(proposal, beta_transform):
-    inv = lambda t: from_flow(t, beta_transform)
+def _weighting(proposal, spec):
+    """Inversion from flow space and the log importance weight. ``spec`` is the
+    run's :class:`Spec` (``spec_of(cfg)``); a beta transform name still works
+    for runs before RESULTS 43.5, and is refused for later ones, whose box and
+    R_gamma target it cannot describe."""
+    if not isinstance(spec, Spec) and "parts" in proposal:
+        raise SystemExit("this ensemble was trained on several runs (RESULTS 43.5); "
+                         "pass spec_of(cfg), not a beta transform name")
+    s = _spec(spec)
+    inv = lambda t: s.from_flow(t)
     lw = lambda th: proposal_log_weight(proposal, th)
     return inv, lw
 
 
-def _recovery(r: dict, truth: np.ndarray) -> dict:
+def _recovery(r: dict, truth: np.ndarray, spec: Spec = Spec()) -> dict:
     ok = np.isfinite(r["mean"][:, 0])
     m, s, t = r["mean"][ok], r["sd"][ok], truth[ok]
     cov = (r["lo"][ok] <= t) & (t <= r["hi"][ok])
+    sd = spec.prior_sd
     out = {}
     for j, n in enumerate(BOX.names):
         e = np.abs(m[:, j] - t[:, j]).mean()
         out[n] = {"corr": float(np.corrcoef(m[:, j], t[:, j])[0, 1]),
-                  "mae": float(e), "mae_over_prior_sd": float(e / PRIOR_SD[j]),
-                  "contraction": float(1 - (s[:, j] ** 2).mean() / PRIOR_SD[j] ** 2),
+                  "mae": float(e), "mae_over_prior_sd": float(e / sd[j]),
+                  "contraction": float(1 - (s[:, j] ** 2).mean() / sd[j] ** 2),
                   "coverage_90_interval": float(cov[:, j].mean())}
     out["n"] = int(ok.sum())
     out["median_in_box"] = float(np.median(r["in_box_frac"]))
@@ -294,13 +472,13 @@ def _recovery(r: dict, truth: np.ndarray) -> dict:
     return out
 
 
-def _by_region(v: np.ndarray, u: np.ndarray) -> dict:
+def _by_region(v: np.ndarray, u: np.ndarray, spec: Spec = Spec()) -> dict:
     """Coverage within each region of ``v`` (one column per parameter), and
     which side the misses fall on: ``above_95`` is the share of truths above
     the 95th percentile (an upper tail too short), ``below_5`` below the 5th."""
     out = {}
     for j, n in enumerate(BOX.names):
-        c = CUTS[n]
+        c = spec.cuts[n]
         out[n] = []
         for a, b in zip(c[:-1], c[1:]):
             m = (v[:, j] >= a) & ((v[:, j] < b) if b < c[-1] else (v[:, j] <= b))
@@ -313,27 +491,29 @@ def _by_region(v: np.ndarray, u: np.ndarray) -> dict:
     return out
 
 
-def _sbc(r: dict, truth: np.ndarray) -> dict:
+def _sbc(r: dict, truth: np.ndarray, spec: Spec = Spec()) -> dict:
     ok = np.isfinite(r["u"]).all(1)
     cov, ks = sbc_from_u(r["u"])
     u = r["u"][ok]
     return {"coverage_90": dict(zip(BOX.names, map(float, cov))),
             "ks_p": dict(zip(BOX.names, map(float, ks))),
-            "by_posterior_mean": _by_region(r["mean"][ok], u),
-            "by_true_theta": _by_region(truth[ok], u),
-            "recovery": _recovery(r, truth)}
+            "by_posterior_mean": _by_region(r["mean"][ok], u, spec),
+            "by_true_theta": _by_region(truth[ok], u, spec),
+            "recovery": _recovery(r, truth, spec)}
 
 
-def _log_q(members, theta: torch.Tensor, x: torch.Tensor, beta_transform: str,
-           batch=1024) -> float:
+def _log_q(members, theta: torch.Tensor, x: torch.Tensor, spec, batch=1024,
+           per_row: bool = False):
     """Mean held-out log density of the equal-weight mixture, with delta as
-    ``log(1 - delta)`` and beta on its own scale (the beta transform's Jacobian
-    added back, so arms with different beta targets compare), and without the
-    box-truncation renormalisation sbi's ``log_prob`` adds -- comparable between
-    option A runs, not to earlier models."""
+    ``log(1 - delta)`` and beta and R_gamma on their own scales (their
+    transforms' Jacobians added back, so arms with different targets compare),
+    and without the box-truncation renormalisation sbi's ``log_prob`` adds --
+    comparable between option A runs, not to earlier models. ``per_row``: one
+    value per household instead of the mean."""
+    spec = _spec(spec)
     dev = torch.device(getattr(members[0], "_device", "cpu"))
-    th_flow = to_flow(theta, beta_transform)
-    jac = torch.from_numpy(beta_log_jacobian(theta[:, 0].numpy(), BOX, beta_transform))
+    th_flow = spec.to_flow(theta)
+    jac = torch.from_numpy(spec.log_jacobian(theta.numpy()))
     out = []
     with torch.no_grad():
         for b0 in range(0, len(x), batch):
@@ -341,18 +521,19 @@ def _log_q(members, theta: torch.Tensor, x: torch.Tensor, beta_transform: str,
             lp = torch.stack([m.posterior_estimator.log_prob(tb[None], condition=xb)[0]
                               for m in members])
             out.append((torch.logsumexp(lp, 0) - np.log(len(members))).cpu())
-    return float((torch.cat(out).double() + jac).mean())
+    v = torch.cat(out).double() + jac
+    return v.numpy() if per_row else float(v.mean())
 
 
 def evaluate(args) -> None:
     members, proposal, cfg = load_members(args.run_dirs, args.device)
-    bt = cfg["beta_transform"]
-    inv, lw = _weighting(proposal, bt)
-    fb = flow_box(bt)
-    print(f"{len(members)} members; proposal {proposal}; beta transform {bt}")
+    spec = spec_of(cfg)
+    inv, lw = _weighting(proposal, spec)
+    fb = spec.flow_box()
+    print(f"{len(members)} members; proposal {proposal}; {spec.describe()}")
 
     cache = torch.load(args.sbc_cache, weights_only=False)
-    if (tuple(cache["rgamma_range"]) != (BOX.rgamma_low, BOX.rgamma_high)
+    if (tuple(cache["rgamma_range"]) != (spec.box.rgamma_low, spec.box.rgamma_high)
             or not cache["card_types"] or cache["educ"] != "comphs"):
         raise SystemExit(f"{args.sbc_cache} was not simulated for option A")
     th_sbc, x_sbc, _ids = window_panel(cache["panels"], cache["thetas"].numpy(),
@@ -362,7 +543,10 @@ def evaluate(args) -> None:
     if args.n_sbc:
         th_sbc, x_sbc = th_sbc[:args.n_sbc], x_sbc[:args.n_sbc]
 
-    theta_all, _card, _tr, held_f, _p, _cfg = load_shards(args.shards)
+    theta_all, _card, _tr, held_f, _p, sh_cfg = load_shards(args.shards)
+    if box_of(sh_cfg) != spec.box:
+        raise SystemExit(f"{args.shards} cover R_gamma {sh_cfg['rgamma_range']}, the "
+                         f"ensemble's box {spec.box.rgamma_low}-{spec.box.rgamma_high}")
     th_ho, x_ho, pid_ho, _f = windows(held_f, theta_all, seed=HELD_SEED)
     pick = one_per_draw(pid_ho, seed=0)[:args.n_heldout]
     th_ho, x_ho = th_ho[pick], x_ho[pick]
@@ -378,9 +562,9 @@ def evaluate(args) -> None:
                             invert=inv, log_weight=lw, truth=th_sbc)
         q = sample_weighted(ms, x_ho, args.n_draws, fb.low, fb.high,
                             invert=inv, log_weight=None, truth=th_ho.numpy())
-        res[name] = {"sbc": _sbc(r, th_sbc),
-                     "heldout_q": {**_recovery(q, th_ho.numpy()),
-                                   "log_q": _log_q(ms, th_ho, x_ho, bt)}}
+        res[name] = {"sbc": _sbc(r, th_sbc, spec),
+                     "heldout_q": {**_recovery(q, th_ho.numpy(), spec),
+                                   "log_q": _log_q(ms, th_ho, x_ho, spec)}}
         if name == "ensemble" or len(sets) == 1:
             np.savez(args.out / f"sbc_{name}.npz", u=r["u"], mean=r["mean"],
                      sd=r["sd"], truth=th_sbc)
@@ -443,9 +627,10 @@ def psid(args) -> None:
     from scripts.psid_posterior import graded_correction
 
     members, proposal, cfg = load_members(args.run_dirs, args.device)
-    bt = cfg["beta_transform"]
-    inv, lw = _weighting(proposal, bt)
-    fb = flow_box(bt)
+    spec = spec_of(cfg)
+    box = spec.box
+    inv, lw = _weighting(proposal, spec)
+    fb = spec.flow_box()
     d = torch.load(args.x, weights_only=False)
     if list(d["features"]) != list(FEATURES_TWOASSET_AGE):
         raise SystemExit(f"{args.x}: features {d['features']} are not "
@@ -454,17 +639,20 @@ def psid(args) -> None:
     keep = np.flatnonzero(d["educ"].numpy() == EDUC_GROUPS.index("comphs"))
     x_raw = d["x"].numpy()[keep]
     print(f"{args.x}: {len(keep)} comphs households; {len(members)} members; "
-          f"proposal {proposal}; beta transform {bt}")
+          f"proposal {proposal}; {spec.describe()}")
     args.out.mkdir(parents=True, exist_ok=True)
     np.save(args.out / "household_index.npy", keep)
 
     ci = FEATURES_TWOASSET_AGE.index("consumption")
     arms = {"uncorrected": x_raw, "corrected": graded_correction(x_raw, cons_idx=ci)}
-    names = list(BOX.names)
-    lit_lo = np.append(META[0], BOX.rgamma_low)      # R_gamma: no literature band
-    lit_hi = np.append(META[1], BOX.rgamma_high)
+    names = list(box.names)
+    lit_lo = np.append(META[0], box.rgamma_low)      # R_gamma: no literature band
+    lit_hi = np.append(META[1], box.rgamma_high)
     ref = np.append(LAIBSON, 1.05)                   # their calibrated R_gamma
-    summary = {"proposal": proposal, "beta_transform": bt, "n_households": int(len(keep))}
+    summary = {"proposal": proposal, "beta_transform": spec.beta_transform,
+               "rgamma_transform": spec.rgamma_transform,
+               "rgamma_range": [box.rgamma_low, box.rgamma_high],
+               "n_households": int(len(keep))}
     for arm, xa in arms.items():
         torch.manual_seed(0)
         xt, _ = transform(torch.from_numpy(xa).float())
@@ -515,16 +703,16 @@ def psid(args) -> None:
     m = np.load(args.out / "posterior_uncorrected.npz")["mean"]
     m = m[np.isfinite(m[:, 0])]
     contour_corner(
-        {f"household posterior means, option A  N={len(m)}": m}, BOX,
+        {f"household posterior means  N={len(m)}": m}, box,
         truth={"Laibson et al. MSM (R_gamma: calibrated 1.05)": ref},
         truth_markers=("*",), truth_colors=("#d62728",),
         bands={"meta-analytic range (lit.; R_gamma none)": (lit_lo, lit_hi)},
         reflect_axes=("delta",),
-        axis_limits=(BOX.low, np.where(np.array(names) == "delta", 1.04, BOX.high)),
+        axis_limits=(box.low, np.where(np.array(names) == "delta", 1.04, box.high)),
         path=args.out / "psid_household_means.png",
-        title="Per-household posterior means, PSID comphs, option A (4 parameters)"
-              + ("" if bt == "linear" else f", beta target {bt}") + "\n"
-              "importance-weighted to the uniform prior; card type marginalised")
+        title=f"Per-household posterior means, PSID comphs, {args.out.name} (4 parameters)\n"
+              f"{spec.describe()}; importance-weighted to the uniform prior; "
+              "card type marginalised")
     print(f"\nwrote {args.out}")
 
 
@@ -541,11 +729,11 @@ def verify(args) -> None:
         raise SystemExit("R_gamma is not constant within blocks")
     if not (card_all.reshape(-1, tb) == card_all.reshape(-1, tb)[:, :1]).all():
         raise SystemExit("card type is not constant within blocks")
-    lo, hi = BOX.low, BOX.high
-    if not ((theta_all >= lo) & (theta_all <= hi)).all():
+    box = box_of(cfg)
+    if not ((theta_all >= box.low) & (theta_all <= box.high)).all():
         raise SystemExit("theta outside the prior box")
     bad = []
-    for f in train_f + held_f:
+    for f in (s.path for s in train_f + held_f):
         d = np.load(f)
         for k in d.files:
             if (k.startswith("panel_") or k == "x") and not np.isfinite(d[k]).all():
@@ -560,9 +748,10 @@ def verify(args) -> None:
                 bad.append(f"{f.name}:init_state")
     if bad:
         raise SystemExit(f"non-finite values or bad initial conditions: {bad}")
+    names = [p["name"] for p in proposal.get("parts", [proposal])]
     print(f"OK: {len(theta_all)} draws in {len(train_f) + len(held_f)} shards, "
-          f"theta matches {proposal['name']}, R_gamma and card per block of {tb}, "
-          f"all panels finite. Training {proposal['n_train']} draws "
+          f"theta matches {' + '.join(names)}, R_gamma and card per block of {tb}, "
+          f"all panels finite. Training {n_train(proposal)} draws "
           f"({len(train_f)} shards), held out {len(held_f)} shards. Cardholder share "
           f"{card_all.mean():.3f}; R_gamma {theta_all[:, 3].min():.4f}-"
           f"{theta_all[:, 3].max():.4f}.")
@@ -573,17 +762,21 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     v = sub.add_parser("verify", help="Check the shards before training.")
-    v.add_argument("--shards", type=Path, default=SHARDS)
+    v.add_argument("--shards", type=Path, nargs="+", default=[SHARDS],
+                   help="Shard directories; several are combined in order (RESULTS 43.5).")
     v.add_argument("--partial", action="store_true",
                    help="Accept an unfinished run (checks the shards so far).")
     t = sub.add_parser("train", help="Train one ensemble member.")
     t.add_argument("--seed", type=int, default=0)
-    t.add_argument("--shards", type=Path, default=SHARDS)
+    t.add_argument("--shards", type=Path, nargs="+", default=[SHARDS],
+                   help="Shard directories; several are combined in order (RESULTS 43.5).")
     t.add_argument("--train_shards", type=int, default=None,
                    help="Use only the first N training shards (smoke tests).")
     t.add_argument("--max_epochs", type=int, default=None,
                    help="Cap epochs (smoke tests); default TRAINING's.")
     t.add_argument("--device", default=None)
+    t.add_argument("--rgamma_transform", choices=RGAMMA_TRANSFORMS, default="linear",
+                   help="R_gamma's flow target (RESULTS 43.5).")
     t.add_argument("--beta_transform", choices=BETA_TRANSFORMS, default="linear",
                    help="beta's flow target (RESULTS 37); delta is always log(1 - delta).")
     t.add_argument("--n_waves", type=int, default=WINDOW["n_waves"],
@@ -591,7 +784,8 @@ def main() -> None:
     t.add_argument("--out", type=Path, default=OUT)
     e = sub.add_parser("evaluate", help="SBC and held-out scores, ensemble and members.")
     e.add_argument("--run_dirs", type=Path, nargs="+", required=True)
-    e.add_argument("--shards", type=Path, default=SHARDS)
+    e.add_argument("--shards", type=Path, nargs="+", default=[SHARDS],
+                   help="Shard directories; several are combined in order (RESULTS 43.5).")
     e.add_argument("--sbc_cache", type=Path, default=SBC_CACHE)
     e.add_argument("--n_draws", type=int, default=2000,
                    help="Raw posterior draws per household, split across members.")

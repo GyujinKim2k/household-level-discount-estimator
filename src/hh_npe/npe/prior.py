@@ -248,6 +248,75 @@ def beta_log_jacobian(beta, box: PriorBox, kind: str) -> np.ndarray:
     return -np.log(box.beta_high - box.beta_low) - np.log(s) - np.log1p(-s)
 
 
+#: Flow targets for R_gamma's column (RESULTS.md 43.5). ``logit`` maps
+#: ``[rgamma_low, rgamma_high]`` onto the whole line, as for beta: with the
+#: linear target the flow leaks mass past the floor, and held-out coverage fell
+#: to 0.74 where the posterior mean sat within 0.005 of it (43.4).
+RGAMMA_TRANSFORMS = ("linear", "logit")
+
+
+def _rgamma_unit(r, box: PriorBox, xp):
+    """R_gamma rescaled to [0, 1] and clipped ``LOG1M_EPS`` inside both ends."""
+    clip = xp.clamp if xp.__name__ == "torch" else np.clip
+    return clip((r - box.rgamma_low) / (box.rgamma_high - box.rgamma_low),
+                LOG1M_EPS, 1.0 - LOG1M_EPS)
+
+
+def rgamma_to_flow(theta, box: PriorBox, kind: str):
+    """Replace R_gamma's column by its flow target ``kind``; a copy (numpy or
+    torch in, the same kind out), or ``theta`` itself for ``linear``."""
+    if kind not in RGAMMA_TRANSFORMS:
+        raise ValueError(f"R_gamma transform {kind!r} not in {RGAMMA_TRANSFORMS}")
+    if kind == "linear":
+        return theta
+    j = box.names.index("R_gamma")
+    if hasattr(theta, "clone"):
+        import torch as xp
+
+        out = theta.clone()
+    else:
+        xp = np
+        out = np.array(theta, copy=True, dtype=float)
+    s = _rgamma_unit(out[:, j], box, xp)
+    out[:, j] = xp.log(s) - xp.log(1.0 - s)
+    return out
+
+
+def rgamma_from_flow(t, box: PriorBox, kind: str):
+    """Invert :func:`rgamma_to_flow` (any leading shape; R_gamma's column on the
+    last axis)."""
+    if kind == "linear":
+        return t
+    j = box.names.index("R_gamma")
+    if hasattr(t, "clone"):
+        import torch
+
+        out, sig = t.clone(), torch.sigmoid
+    else:
+        from scipy.special import expit
+
+        out, sig = np.array(t, copy=True, dtype=float), expit
+    out[..., j] = box.rgamma_low + (box.rgamma_high - box.rgamma_low) * sig(out[..., j])
+    return out
+
+
+def rgamma_flow_bounds(box: PriorBox, kind: str) -> tuple[float, float]:
+    """Image of ``[rgamma_low, rgamma_high]`` under ``kind``."""
+    if kind == "linear":
+        return float(box.rgamma_low), float(box.rgamma_high)
+    e = float(np.log(LOG1M_EPS) - np.log1p(-LOG1M_EPS))
+    return e, -e
+
+
+def rgamma_log_jacobian(r, box: PriorBox, kind: str) -> np.ndarray:
+    """``log |d t / d R_gamma|`` at ``r`` (numpy), as :func:`beta_log_jacobian`."""
+    r = np.asarray(r, dtype=float)
+    if kind == "linear":
+        return np.zeros_like(r)
+    s = _rgamma_unit(r, box, np)
+    return -np.log(box.rgamma_high - box.rgamma_low) - np.log(s) - np.log1p(-s)
+
+
 def sample_sobol(
     n_samples: int,
     box: PriorBox = PriorBox(),
@@ -452,14 +521,17 @@ class SwitchedProposal:
             parts.append(self.second.sample(n - n1, seed=seed + self.second_seed_offset))
         return np.concatenate(parts)
 
+    def density(self, theta, n: int) -> np.ndarray:
+        """The empirical density of the first ``n`` draws at each row of (beta,
+        delta, rho); a 4th column is ignored."""
+        th = np.asarray(theta, dtype=float)[:, :3]
+        f1 = min(n, self.n_first) / n
+        return f1 * self.first.density(th) + (1 - f1) * self.second.density(th)
+
     def log_weight(self, theta, n: int) -> np.ndarray:
         """``log p(theta) - log q_n(theta)`` for a network trained on the first
         ``n`` draws. Only (beta, delta, rho) matter; a 4th column is ignored."""
-        th = np.asarray(theta, dtype=float)[:, :3]
-        f1 = min(n, self.n_first) / n
-        pu = self.first._uniform_density()
-        return np.log(pu) - np.log(f1 * self.first.density(th)
-                                   + (1 - f1) * self.second.density(th))
+        return np.log(self.first._uniform_density()) - np.log(self.density(theta, n))
 
 
 #: RESULTS.md 43.3: the option A2 run -- its 4,096 uniform pilot draws, then the
@@ -492,8 +564,13 @@ def proposal_log_weight(proposal: dict, theta) -> np.ndarray:
     recorded it in ``solver_config.json``, ``n_train`` the number of draws
     trained on, which only the switched proposal needs. ``theta`` is in theta
     space (delta, not ``log(1 - delta)``); only (beta, delta, rho) enter.
+
+    A network trained on several runs records ``{"parts": [{"name", "n_train",
+    "rgamma_range"}, ...]}`` instead (RESULTS 43.5), and R_gamma enters too.
     """
     th = np.asarray(theta, dtype=float)
+    if "parts" in proposal:
+        return _parts_log_weight(proposal["parts"], th)
     name = proposal["name"]
     if name == "uniform":
         return np.zeros(len(th))
@@ -504,6 +581,58 @@ def proposal_log_weight(proposal: dict, theta) -> np.ndarray:
     if name == "a2_switched":
         return SWITCHED_A2.log_weight(th, int(proposal["n_train"]))
     raise ValueError(f"unknown proposal {name!r}; known: {PROPOSALS}")
+
+
+def _part_density(part: dict, theta: np.ndarray) -> np.ndarray:
+    """One generation run's empirical (beta, delta, rho) density over its
+    ``n_train`` training draws."""
+    name, n = part["name"], int(part["n_train"])
+    if name == "uniform":
+        return UniformProposal().density(theta)
+    if name == "edge_mixture":
+        return EdgeMixture().density(theta)
+    if name == "edge_mixture_switched":
+        return SwitchedProposal().density(theta, n)
+    if name == "a2_switched":
+        return SWITCHED_A2.density(theta, n)
+    if name == "a2_strip":
+        return A2_STRIP.density(theta)
+    raise ValueError(f"unknown proposal {name!r}; known: {PROPOSALS}")
+
+
+def check_rgamma_tiling(ranges) -> tuple[float, float]:
+    """The R_gamma ranges of several runs, sorted, must tile one interval with
+    no gap or overlap; returns its ends."""
+    rs = sorted((float(a), float(b)) for a, b in ranges)
+    for (_, b), (a, _) in zip(rs[:-1], rs[1:]):
+        if not np.isclose(a, b, rtol=0, atol=1e-12):
+            raise ValueError(f"R_gamma ranges {rs} do not tile one interval")
+    return rs[0][0], rs[-1][1]
+
+
+def _parts_log_weight(parts: list[dict], th: np.ndarray) -> np.ndarray:
+    """Weights for a network trained on several generation runs, each on its
+    own R_gamma range (RESULTS 43.5): the main A2 run on [1.025, 1.075] and the
+    strip below it.
+
+    Training draws come from the empirical mixture ``sum_k (n_k / n) q_k``,
+    where run k's density is its (beta, delta, rho) density times R_gamma
+    uniform on its range. The prior is uniform on the union, so unlike a single
+    run the R_gamma factor no longer cancels. Range ends are half-open
+    ``[a, b)`` except the top one: no generated draw sits on a shared end, the
+    per-block stream drawing ``a + u (b - a)`` with ``u < 1``.
+    """
+    lo, hi = check_rgamma_tiling([p["rgamma_range"] for p in parts])
+    n = sum(int(p["n_train"]) for p in parts)
+    r = th[:, 3]
+    dens = np.zeros(len(th))
+    for p in parts:
+        a, b = map(float, p["rgamma_range"])
+        inside = (r >= a) & ((r < b) | ((b == hi) & (r <= b)))
+        dens += np.where(inside, int(p["n_train"]) / n * _part_density(p, th[:, :3])
+                         / (b - a), 0.0)
+    with np.errstate(divide="ignore"):
+        return np.log(UniformProposal()._uniform_density() / (hi - lo)) - np.log(dens)
 
 
 def make_sbi_prior(box: PriorBox = PriorBox(),

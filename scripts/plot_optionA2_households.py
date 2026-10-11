@@ -33,14 +33,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from hh_npe.data.windows import build_windowed
 from hh_npe.evaluation.plots import contour_corner
 from hh_npe.evaluation.weighted import resample, sample_weighted, summarize
 from hh_npe.evaluation.sbc import posterior_device
 from scripts import optionA as oa
 from scripts.literature_ranges import LAIBSON, META
 
-BOX = oa.BOX
 FEATS = ("income", "consumption", "liquid_assets", "illiquid_assets")
 
 
@@ -68,6 +66,7 @@ def describe(x_raw: np.ndarray) -> str:
 
 def report(d: np.ndarray, lw: np.ndarray, truth=None, ref=None) -> np.ndarray:
     s = summarize(d, lw, None)
+    BOX = oa.BOX
     print(f"  {len(d):,} draws kept, ESS {s['ess']:,.0f}")
     print(f"  {'':8s}" + (f"{'true':>9s}" if truth is not None else "")
           + f"{'estimate':>10s}{'90% interval':>24s}"
@@ -81,9 +80,13 @@ def report(d: np.ndarray, lw: np.ndarray, truth=None, ref=None) -> np.ndarray:
     return s["mean"]
 
 
-def simulated(args, members, fb, inv, lw, label) -> None:
-    theta_all, card_all, _tr, held_f, _p, _cfg = oa.load_shards(args.shards)
-    th, x_raw, pid = build_windowed(held_f, theta_all, k=1, seed=oa.HELD_SEED, **oa.WINDOW)
+def simulated(args, members, spec, inv, lw, label) -> None:
+    fb, BOX = spec.flow_box(), spec.box
+    theta_all, card_all, _tr, held_f, _p, sh_cfg = oa.load_shards(args.shards)
+    if oa.box_of(sh_cfg) != BOX:
+        raise SystemExit(f"{args.shards} cover R_gamma {sh_cfg['rgamma_range']}, not the "
+                         f"ensemble's box")
+    th, x_raw, pid = oa.windows_raw(held_f, theta_all, seed=oa.HELD_SEED)
     pick1 = oa.one_per_draw(pid, seed=0)
     # one_per_draw's rows are grouped by window start age; sample, not a prefix.
     pool = np.sort(np.random.default_rng(1).choice(pick1, min(args.pool, len(pick1)),
@@ -93,7 +96,7 @@ def simulated(args, members, fb, inv, lw, label) -> None:
     torch.manual_seed(0)
     r = sample_weighted(members, x, args.pool_draws, fb.low, fb.high, invert=inv,
                         log_weight=lw)
-    err = np.sqrt((((r["mean"] - th) / oa.PRIOR_SD) ** 2).mean(1))
+    err = np.sqrt((((r["mean"] - th) / spec.prior_sd) ** 2).mean(1))
     span = BOX.high - BOX.low
     interior = ((th > BOX.low + 0.1 * span) & (th < BOX.high - 0.1 * span)).all(1)
     cand = np.flatnonzero(interior & np.isfinite(err))
@@ -123,12 +126,13 @@ def simulated(args, members, fb, inv, lw, label) -> None:
     print(f"wrote {out}")
 
 
-def psid(args, members, fb, inv, lw, label) -> None:
+def psid(args, members, spec, inv, lw, label) -> None:
+    fb, BOX = spec.flow_box(), spec.box
     m = np.load(args.psid_out / "posterior_uncorrected.npz")["mean"]
     keep = np.load(args.psid_out / "household_index.npy")
     ok = np.isfinite(m[:, 0])
     med = np.median(m[ok], axis=0)
-    dist = np.sqrt((((m - med) / oa.PRIOR_SD) ** 2).sum(1))
+    dist = np.sqrt((((m - med) / spec.prior_sd) ** 2).sum(1))
     dist[~ok] = np.inf
     pick = int(np.argmin(dist))
     dd = torch.load(args.x, weights_only=False)
@@ -164,7 +168,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run_dirs", type=Path, nargs="+", required=True)
-    ap.add_argument("--shards", type=Path, default=Path("data/processed/couples_dataset_shards"))
+    ap.add_argument("--shards", type=Path, nargs="+",
+                    default=[Path("data/processed/couples_dataset_shards")],
+                    help="The ensemble's shard directories, in training order.")
     ap.add_argument("--psid_out", type=Path, required=True)
     ap.add_argument("--x", type=Path, default=Path("data/processed/psid_x_comphs_couples.pt"))
     ap.add_argument("--pool", type=int, default=300)
@@ -182,13 +188,12 @@ def main() -> None:
     args = ap.parse_args()
 
     members, proposal, cfg = oa.load_members(args.run_dirs, args.device)
-    bt = cfg["beta_transform"]
-    inv, lw = oa._weighting(proposal, bt)
-    fb = oa.flow_box(bt)
-    print(f"{len(members)} members; proposal {proposal}; beta transform {bt}")
+    spec = oa.spec_of(cfg)
+    inv, lw = oa._weighting(proposal, spec)
+    print(f"{len(members)} members; proposal {proposal}; {spec.describe()}")
     args.fig_dir.mkdir(parents=True, exist_ok=True)
-    simulated(args, members, fb, inv, lw, args.label)
-    psid(args, members, fb, inv, lw, args.label)
+    simulated(args, members, spec, inv, lw, args.label)
+    psid(args, members, spec, inv, lw, args.label)
 
 
 if __name__ == "__main__":
