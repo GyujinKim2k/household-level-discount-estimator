@@ -466,6 +466,11 @@ class SwitchedProposal:
 #: mixture re-aimed at where PSID couples sat in the pilot.
 SWITCHED_A2 = SwitchedProposal(first=UniformProposal(), second=EdgeMixture(**EDGE_A2))
 
+#: RESULTS.md 43.5: the R_gamma strip below the A2 box, [1.021, 1.025). Its
+#: (beta, delta, rho) come from the A2 mixture alone -- the same draws as
+#: 87% of the main run -- and R_gamma from the generator's per-block stream.
+A2_STRIP = EdgeMixture(**EDGE_A2)
+
 #: The proposals ``generate_dataset.py --proposal`` can record, and their
 #: samplers (``n``, ``seed``) -> theta of (beta, delta, rho).
 PROPOSAL_SAMPLERS = {
@@ -473,6 +478,7 @@ PROPOSAL_SAMPLERS = {
     "edge_mixture": EdgeMixture().sample,
     "edge_mixture_switched": SwitchedProposal().sample,
     "a2_switched": SWITCHED_A2.sample,
+    "a2_strip": A2_STRIP.sample,
 }
 PROPOSALS = tuple(PROPOSAL_SAMPLERS)
 

@@ -315,7 +315,7 @@ def main() -> None:
                              "reweighting.")
     parser.add_argument("--proposal",
                         choices=["uniform", "edge_mixture", "edge_mixture_switched",
-                                 "a2_switched"],
+                                 "a2_switched", "a2_strip"],
                         default="uniform",
                         help="How theta is drawn for training. 'uniform' is the "
                              "prior itself (every run before RESULTS 30). "
@@ -330,7 +330,10 @@ def main() -> None:
                              "(RESULTS 32.2). 'a2_switched' (SWITCHED_A2) keeps "
                              "the first 4,096 uniform draws -- the option A2 "
                              "pilot -- and draws the rest from the mixture "
-                             "re-aimed at PSID couples (RESULTS 43.3).")
+                             "re-aimed at PSID couples (RESULTS 43.3). 'a2_strip' "
+                             "(A2_STRIP) is that mixture alone, for the R_gamma "
+                             "strip below the A2 box (RESULTS 43.5): run it with "
+                             "its own --seed and --rgamma_range.")
     parser.add_argument("--rgamma_range", type=float, nargs=2, default=None,
                         metavar=("LOW", "HIGH"),
                         help="Estimate the illiquid return R_gamma as a 4th "
@@ -383,6 +386,9 @@ def main() -> None:
     elif args.proposal == "a2_switched":
         from hh_npe.npe.prior import SWITCHED_A2
         theta_np = SWITCHED_A2.sample(args.n_samples, seed=args.seed)
+    elif args.proposal == "a2_strip":
+        from hh_npe.npe.prior import A2_STRIP
+        theta_np = A2_STRIP.sample(args.n_samples, seed=args.seed)
     else:
         theta_np = sample_sobol(args.n_samples, box, seed=args.seed)
     # Drawn once, from the run seed, so it is identical on every resume: a
