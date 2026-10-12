@@ -5718,3 +5718,168 @@ figures 36/37 all run on the widened box.
   table against A2;
 - makes figures 39 (simulated household), 40 (typical PSID couple) and 41
   (A2w against A2).
+
+### 43.6 A2w results: the R_gamma edge is fixed; ρ sits lower, and PSID's consumption volatility puts it there
+
+**Run.** The strip finished at 03:05 UTC on 2026-10-12 (6 shards, rc = 0).
+`optionA.py verify` passed on both runs together at 03:09: 35,840 draws in 70
+shards, 34,304 for training, 3 shards held out, cardholder share 0.497, R_gamma
+1.0210–1.0750. The five members (logit β, logit R_gamma) stopped after 80–116
+epochs and finished between 04:34 and 07:53. PSID, the held-out check and
+figures 39–41 followed by 07:58. Every step returned rc = 0.
+
+**Held-out simulated households.** 1,536 draws: the main run's 2 held-out shards
+and the strip's last. Each case is weighted by p / q_held (0.099–2.778, ESS
+758), so the table estimates prior-averaged quantities on the widened box. A2's
+values (§43.4) are in brackets.
+
+| 5-member ensemble | 90% coverage | truth < 5% / > 95% | corr | MAE / prior sd | contraction |
+|---|---|---|---|---|---|
+| β | 0.903 (0.931) | 0.052 / 0.045 | 0.798 | 0.470 | 0.624 (0.634) |
+| δ | 0.906 (0.900) | 0.057 / 0.037 | 0.842 | 0.390 | 0.708 (0.718) |
+| ρ | 0.907 (0.899) | 0.042 / 0.052 | 0.881 | 0.364 | 0.769 (0.789) |
+| R_gamma | 0.922 (0.919) | 0.033 / 0.045 | 0.787 | 0.428 | 0.606 (0.609) |
+
+- Single members cover 0.85–0.89; the weighted held-out log q is 7.151 (A2:
+  7.152).
+- **The R_gamma edge defect is gone.** By posterior-mean R_gamma, 90% coverage
+  is 0.975 in [1.021, 1.025) (n = 197, no truth above the 95th percentile) and
+  0.906 in [1.025, 1.030) (n = 161), where A2 had 0.740 (n = 41). Every other
+  bin covers 0.912–0.942.
+- ρ near its floor still covers: 0.904 in [0.5, 0.75) (n = 18) and 0.931 in
+  [0.75, 1.0) (n = 60).
+
+**PSID**, uncorrected arm; A2 in brackets:
+
+| | couples (409) median | p10 / p90 | median posterior sd | all 889 median |
+|---|---|---|---|---|
+| β | 0.753 (0.746) | 0.515 / 0.917 | 0.158 (0.155) | 0.795 |
+| δ | 0.9827 (0.9845) | 0.9498 / 0.9939 | 0.0073 (0.0071) | 0.9817 |
+| ρ | 0.794 (0.921) | 0.572 / 1.685 | 0.281 (0.365) | 0.930 |
+| R_gamma | 1.0368 (1.0382) | 1.0234 / 1.0629 | 0.0086 (0.0078) | 1.0439 |
+
+- Per-couple correlation with A2's means: β 0.84, δ 0.92, ρ 0.87, R_gamma 0.94.
+  Couples' ρ moves down by a median of 0.08 and R_gamma by 0.002.
+- Median ESS / kept 0.82, in-box median 0.94, no household unrepresentable.
+- Couples' 90% intervals cover Laibson et al.'s β for 71%, δ 68%, ρ 32%,
+  R_gamma = 1.05 for 55%.
+
+**The floors** (`check_optionA2_heldout.py`; "floor" is each model's own
+R_gamma floor, 1.021 for A2w and 1.025 for A2):
+
+| share of households | couples, A2w | couples, A2 | all 889, A2w | all 889, A2 |
+|---|---|---|---|---|
+| ρ mean < 1.0 | 0.689 | 0.555 | 0.538 | 0.439 |
+| ρ lower 5% < 0.55 | 0.736 | 0.575 | 0.697 | 0.516 |
+| ρ upper 95% < 1.0 | 0.306 | 0.203 | 0.223 | 0.150 |
+| R_gamma mean < floor + 0.005 | 0.186 | 0.267 | 0.134 | 0.191 |
+| R_gamma lower 5% < floor + 0.0025 | 0.526 | 0.619 | 0.506 | 0.637 |
+| R_gamma mean < 1.025 | 0.161 | – | 0.115 | – |
+| either floor | 0.866 | 0.880 | 0.841 | 0.867 |
+| both floors | 0.396 | 0.313 | 0.362 | 0.286 |
+
+- **R_gamma:** the strip took the pile. 16% of couples' means are now below the
+  old floor, and the share within 0.005 of the floor fell from 27% to 19%. Half
+  of couples' intervals still reach 1.021, which is as low as the box can go
+  (R_free = 1.0203).
+- **ρ:** lower again. 31% of couples have a 90% interval entirely below 1.
+
+**Figures.**
+- **39:** held-out simulated household, draw 32655, cardholder, ages 34–46: the
+  median-error household of 102 interior ones (standardised error 0.324). All
+  four 90% intervals cover the truth: β 0.688 → 0.688 [0.46, 0.93], δ 0.9523 →
+  0.9674 [0.942, 0.984], ρ 4.10 → 3.44 [2.05, 4.71], R_gamma 1.0432 → 1.0396
+  [1.034, 1.046].
+- **40:** PSID couple #169, ages 30–42, nearest the couples' median (distance
+  0.130): β 0.754 [0.38, 0.99], δ 0.9834 [0.971, 0.995], ρ 0.67 [0.51, 1.09],
+  R_gamma 1.0383 [1.026, 1.054].
+- **41:** per-household means, A2w couples and all 889 against A2 couples.
+
+**Why ρ is at the floor** (`scripts/rho_floor_diagnostic.py`, written to
+`outputs/optionA2w/rho_floor_diagnostic.json`). Nothing is simulated for it.
+
+*1. Where PSID sits on simple statistics.* Seven-wave windows, simulated
+households in couples' region (β 0.60–0.90, δ 0.970–0.995, R_gamma
+1.025–1.050; 13,696 windows from every third shard), by true ρ; medians, or
+means for shares:
+
+```
+                                    rho 0.5-0.75  0.75-1   1-1.5  1.5-2.5  2.5-3.5  3.5-5   PSID couples (p25-p75)
+illiquid / mean income                 2.334      2.366    1.931   1.727    1.548   1.694   1.082 (0.311-1.964)
+liquid / mean income                   0.000      0.000    0.039   0.086    0.201   0.364   0.000 (-0.048-0.018)
+in debt, cardholders (share of waves)  0.527      0.460    0.362   0.350    0.253   0.179   0.457 (all couples)
+log c growth / year                    0.025      0.018    0.017   0.013    0.012   0.013   0.012
+sd dlog c (2 years)                    0.190      0.181    0.153   0.123    0.107   0.094   0.246 (0.189-0.336)
+sd dlog y (2 years)                    0.431      0.423    0.423   0.423    0.423   0.422   0.238 (0.155-0.362)
+sd dlog c / sd dlog y                  0.475      0.440    0.359   0.293    0.245   0.220   1.100 (0.693-1.640)
+```
+
+- **Consumption volatility is the statistic that moves most with ρ**: in the
+  model, wave-to-wave sd of log consumption halves from ρ = 0.5 to ρ = 4.
+  PSID couples' 0.246 is above what the model produces even at the floor
+  (0.190), and against income it is 1.10, where the model never exceeds 0.48.
+- The liquid buffer and debt point the same way, more weakly: PSID's median
+  liquid wealth of zero is the model's at ρ < 1.
+- Illiquid wealth points the other way: the model holds more of it at low ρ.
+- Separately, **the model's income is far riskier than couples'**: 2-year sd
+  of Δlog income 0.42 at every ρ (Laibson et al.'s process, σ²_ε = 0.057,
+  σ²_ν = 0.045, two heads), against 0.24 for PSID couples.
+
+*2. Which input the network reads it from.* The ensemble's posterior for PSID
+couples after changing one input channel; the same change on 368 held-out
+simulated households in couples' region with true ρ in [1.5, 2.5) (median
+1.95) is the control. "Smoothed" replaces a series by the household's own
+least-squares trend across the 7 waves (log-linear for income and
+consumption), keeping its level and growth. 10,000 draws per household.
+
+```
+                                    PSID couples: rho median   mean < 1   lo < 0.55   shift   control shift
+base                                       0.796                0.69       0.74          -         (2.778)
+consumption smoothed                       1.492                0.28       0.34       +0.697      -0.590
+all four smoothed                          1.543                0.29       0.35       +0.747      -0.356
+income smoothed                            0.763                0.70       0.76       -0.032      -1.168
+illiquid smoothed                          0.742                0.76       0.77       -0.054      -0.252
+liquid smoothed                            0.787                0.72       0.76       -0.009      -0.516
+illiquid x2 / x0.5                     0.773 / 0.851                                 -0.022 / +0.055  -0.444 / +0.284
+no card debt (liquid >= 0)                 0.784                0.70       0.77       -0.011      -0.001
+consumption x0.85 / x1.15              0.766 / 0.803                                 -0.029 / +0.008  -0.028 / -0.251
+all dollars x0.75 (income level)           0.799                0.68       0.74       +0.003      -0.429
+```
+
+- **Smoothing consumption is the only change that moves PSID's ρ**: the
+  median goes from 0.80 to 1.49, and the share of couples with a mean below 1
+  from 69% to 28%. On simulated households the same change moves ρ the other
+  way (−0.59), so the rise comes from PSID's consumption, not from the change.
+- Nothing else moves PSID's ρ by more than 0.06: not wealth levels, not
+  wealth or income noise, not card debt, not the consumption or income level.
+  §43.4's guess that the data want low ρ for their wealth is wrong.
+
+**Reading.** ρ at the floor is the network reading PSID couples' wave-to-wave
+consumption volatility. In the model, consumption that moves while income does
+not means weak smoothing, which only low ρ produces; PSID's volatility is
+beyond what the model produces at any ρ in the box, so the posterior presses on
+the floor. The model has no measurement error in consumption. PSID's
+consumption is a reported expenditure aggregate, and owners' rent for
+2011–2017 is imputed backwards from their 2019+ value (median error 19%, p90
+62%; `impute_rental_value.py`). The data here cannot separate measurement error
+from consumption that really is that volatile, but the model produces the
+latter at no θ in the box. As a rough size: if the model's ρ ≈ 2 volatility of
+0.12 is the truth, iid noise of σ_c ≈ 0.15 per wave makes up PSID's 0.246.
+
+**Options, not started; the user decides:**
+- **(a) Consumption measurement error as an estimated nuisance.** Multiply each
+  simulated wave's consumption by exp(σ_c z − σ_c²/2), with σ_c drawn per draw
+  (e.g. uniform on [0, 0.4]), and add σ_c to the flow as a fifth parameter.
+  Retraining only, on the existing draws: a 2-member screen is about 1.5
+  GPU-h, five members about 4. Unlike §9.4's gate (σ = 0.30 fixed, on all four
+  dollar series), this is one channel and its size is estimated. The budget
+  constraint ties true consumption to income and wealth changes, which is what
+  separates noise from smoothing; with waves two years apart that separation
+  is partial, so the σ_c prior matters and is part of the result. Recovery of
+  ρ on simulated data will fall; calibration is the test, as after §9.4.
+- **(b) Consumption level only:** feed consumption's household mean instead of
+  its path. A robustness arm, also retraining only.
+- **(c) Couples' income process:** the model's income risk is about twice
+  couples'. Changing it means regenerating (days). It does not move ρ in the
+  ablation, but it shapes the buffer-stock motive that ρ and β are read
+  through.
