@@ -34,6 +34,18 @@ never do). The same weight serves every rule, so rules still differ only in
 their parameters. Scores are also reported at weight 0 (the §24.1 proxy: no
 card unless seen borrowing) and 0.5.
 
+**Option A2n** (RESULTS 43.12). The ensemble's own :class:`Spec` sets the box,
+the flow targets and the importance weights, so a two-run, logit-R_gamma
+ensemble trained with observation noise works as option A's did. With
+``--init_pool`` the model's own households (the never-borrow share and the
+level table) start from that pool, as A2's training households did; its hash
+must match the training generation's. When the ensemble was trained with
+observation noise (RESULTS 43.7), forecasts are scored twice: as simulated,
+and with the same noise added to every forecast sample (sigma per household
+and feature uniform on its range, the draws shared across rules), since
+PSID's targets are observed with it. Wave 5's state is used as observed: the
+model has no filter for the noise in a starting value.
+
 Also reported, at the population theta:
 
 * the §24 wealth-dynamics table: two-year changes from wave 5 to 6, model
@@ -60,12 +72,12 @@ import torch
 from hh_npe.data.waves import FEATURES_TWOASSET, aggregate_waves
 from hh_npe.evaluation.weighted import sample_weighted
 from hh_npe.simulator import laibson_calibration as cal
-from hh_npe.simulator.dispatch import AGE_START_SIM
+from hh_npe.simulator.dispatch import AGE_START_SIM, draw_initial_conditions
 from hh_npe.simulator.twoasset import GRIDS, simulate, simulate_from
 from hh_npe.simulator.twoasset_gpu import solve_batch
 from scripts.oos_prediction import FEATS, HORIZON_WAVES, N_IN, TARGETS, WAVE_YEARS, g
 from scripts.oos_prediction import LAIBSON as LAIBSON3
-from scripts.optionA import BOX, PSID_X, _weighting, flow_box, load_members, transform
+from scripts.optionA import PSID_X, _weighting, load_members, spec_of, transform
 from scripts.wealth_dynamics import describe, header
 
 LAIBSON = np.append(LAIBSON3, 1.05)
@@ -150,10 +162,39 @@ def median_mix(a, b, w):
     return s[np.arange(len(s)), np.minimum(i, s.shape[1] - 1)]
 
 
-def never_borrow_share(sol, ages: np.ndarray, n: int, seed: int) -> dict:
+def own_households(sol, n: int, seed: int, pool: np.ndarray | None):
+    """The model's own households from age 20: from Laibson et al.'s seed, or
+    with ``pool`` from PSID's, drawn as generation draws them."""
+    if pool is None:
+        return simulate(sol, n_households=n, seed=seed)
+    init, s0 = draw_initial_conditions(pool, seed, 0, n, sol.states, sol.P,
+                                       sol.spec.calib.ywork_sigmanu)
+    return simulate(sol, n_households=n, seed=seed, initial_wealth=init, initial_state=s0)
+
+
+def with_noise(rules: dict, noise, H: int, n_sims: int) -> dict:
+    """Every rule's forecast samples with observation noise on the targets:
+    ``v * exp(sigma * z)``, sigma per household and feature uniform on its
+    range, z per sample and year. One draw per feature, shared by all rules
+    and both card types, so rules still differ only in their parameters."""
+    out = {rn: {c: dict(sim[c]) for c in sim} for rn, sim in rules.items()}
+    for f, lo, hi in noise:
+        if f not in TARGETS or hi == 0:
+            continue
+        rng = np.random.default_rng([437_000, TARGETS.index(f)])
+        sig = lo + (hi - lo) * rng.random(H)
+        z = rng.standard_normal((H, n_sims, HORIZON + 1))
+        mult = np.exp(sig[:, None, None] * z)
+        for rn in out:
+            for c in out[rn]:
+                out[rn][c][f] = rules[rn][c][f] * mult
+    return out
+
+
+def never_borrow_share(sol, ages: np.ndarray, n: int, seed: int, pool=None) -> dict:
     """For each wave-1 age, the share of the model's own households (``sol``,
     from age 20) with no negative liquid wealth over five waves from it."""
-    panel = simulate(sol, n_households=n, seed=seed)
+    panel = own_households(sol, n, seed, pool)
     li = FEATURES_TWOASSET.index("liquid_assets")
     out = {}
     for a in np.unique(ages):
@@ -177,6 +218,10 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None,
                     help="Use only the first N households (smoke test).")
     ap.add_argument("--grid", default="full", help="'coarse' for smoke tests only.")
+    ap.add_argument("--init_pool", type=Path, default=None,
+                    help="Start the model's own households from this PSID seed pool "
+                         "(option A2: data/processed/seed_pool_couples_income.npz); "
+                         "checked against the training generation's hash.")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else None)
     ap.add_argument("--out", type=Path, default=Path("outputs/oos_optionA"))
     args = ap.parse_args()
@@ -195,9 +240,17 @@ def main() -> None:
 
     # --- 1. parameters from waves 1-5 only --------------------------------
     members, proposal, cfg = load_members(args.run_dirs, args.device, n_waves=N_IN)
-    bt = cfg["beta_transform"]
-    inv, lw = _weighting(proposal, bt)
-    fb = flow_box(bt)
+    spec = spec_of(cfg)
+    box = spec.box
+    inv, lw = _weighting(proposal, spec)
+    fb = spec.flow_box()
+    pool = None
+    if args.init_pool is not None:
+        import hashlib
+        pool = np.ascontiguousarray(np.load(args.init_pool)["pool"], dtype=np.float64)
+        gen = json.loads((Path(cfg["shards"][0]) / "solver_config.json").read_text())
+        if hashlib.sha256(pool.tobytes()).hexdigest() != gen.get("init_pool_sha256"):
+            raise SystemExit(f"{args.init_pool} is not the pool the training data used")
     torch.manual_seed(0)
     xt, _ = transform(torch.from_numpy(x[:, :N_IN]).float())
     r = sample_weighted(members, xt, args.n_draws, fb.low, fb.high, invert=inv, log_weight=lw)
@@ -207,7 +260,7 @@ def main() -> None:
     bad = ~np.isfinite(mean[:, 0])
     pop = np.median(mean[~bad], axis=0)
     mean[bad] = pop
-    print(f"  {len(args.run_dirs)} members, beta target {bt}; household thetas: median "
+    print(f"  {len(args.run_dirs)} members; {spec.describe()}; household thetas: median "
           f"{pop.round(4)}, {bad.sum()} fell back to the population", flush=True)
 
     # --- 2. starting state and card access --------------------------------
@@ -222,7 +275,8 @@ def main() -> None:
 
     pop_sols = {(c, 0): solve_batch(pop[None, :3], spec_for(c, pop[3], args.grid),
                                     theta_batch=16, chunk=16)[0] for c in (0, 1)}
-    a_by_age, own_card = never_borrow_share(pop_sols[(1, 0)], age1, args.n_own, seed=1)
+    a_by_age, own_card = never_borrow_share(pop_sols[(1, 0)], age1, args.n_own, seed=1,
+                                            pool=pool)
     a = np.array([a_by_age[int(v)] for v in age1])
     w_head = np.where(borrower, 1.0, a / (1 + a))
     weights = {"headline": w_head, "proxy (no card unless seen borrowing)":
@@ -233,7 +287,7 @@ def main() -> None:
           flush=True)
 
     # --- 3. forecasts --------------------------------------------------------
-    rg_hh = np.clip(np.round(mean[:, 3] / RG_STEP) * RG_STEP, BOX.rgamma_low, BOX.rgamma_high)
+    rg_hh = np.clip(np.round(mean[:, 3] / RG_STEP) * RG_STEP, box.rgamma_low, box.rgamma_high)
     kw = dict(state=state, n_sims=args.n_sims, grid=args.grid)
     rules = {}
     print("  forecasting: household", flush=True)
@@ -247,52 +301,63 @@ def main() -> None:
     # --- 4. score ------------------------------------------------------------
     rng = np.random.default_rng(0)
     boot = rng.integers(0, H, size=(args.n_boot, H))
-    res = {}
-    for wname, w in weights.items():
-        per_hh, res[wname] = {}, {}
-        for f in TARGETS:
-            for k in range(HORIZON_WAVES):
-                wave, yrs = N_IN + k, (k + 1) * WAVE_YEARS
-                y = g(x[:, wave, fi[f]])
-                row = {}
-                for rn, sim in rules.items():
-                    pc, pn = g(sim[1][f][:, :, yrs]), g(sim[0][f][:, :, yrs])
-                    row[rn] = {"ae": np.abs(median_mix(pc, pn, w) - y),
-                               "crps": crps_mix(pc, pn, w, y)}
-                persist = np.abs(g(x[:, last, fi[f]]) - y)
-                row["persistence"] = {"ae": persist, "crps": persist}
-                key = f"{f} wave {wave + 1}"
-                per_hh[key] = row
-                dl = row["household"]["crps"] - row["population"]["crps"]
-                bd = dl[boot].mean(1)
-                res[wname][key] = {rn: {m: float(v[m].mean()) for m in ("ae", "crps")}
-                                   for rn, v in row.items()}
-                res[wname][key]["household_minus_population_crps"] = {
-                    "mean": float(dl.mean()), "ci95": np.percentile(bd, [2.5, 97.5]).tolist(),
-                    "share_households_better": float((dl < 0).mean())}
-        all_d = np.mean([per_hh[k]["household"]["crps"] - per_hh[k]["population"]["crps"]
-                         for k in per_hh], axis=0)
-        bd = all_d[boot].mean(1)
-        res[wname]["overall_household_minus_population_crps"] = {
-            "mean": float(all_d.mean()), "ci95": np.percentile(bd, [2.5, 97.5]).tolist(),
-            "share_households_better": float((all_d < 0).mean())}
 
-    for wname in weights:
-        rw = res[wname]
-        print(f"\n=== card weight: {wname} ===\nCRPS (lower is better)")
-        print(f"{'':24s}" + "".join(f"{n:>13s}" for n in
-                                    ("household", "population", "laibson", "persistence")))
-        for key in S22:
-            print(f"{key:24s}" + "".join(f"{rw[key][n]['crps']:13.3f}" for n in
-                                         ("household", "population", "laibson", "persistence")))
-        print("household minus population (negative = own parameters help)   §22")
-        for key in S22:
-            h = rw[key]["household_minus_population_crps"]
-            print(f"  {key:22s} {h['mean']:+.3f}  [{h['ci95'][0]:+.3f}, {h['ci95'][1]:+.3f}]"
-                  f"  better {h['share_households_better']:.1%}   {S22[key]:+.3f}")
-        o = rw["overall_household_minus_population_crps"]
-        print(f"  {'all, averaged':22s} {o['mean']:+.3f}  [{o['ci95'][0]:+.3f}, "
-              f"{o['ci95'][1]:+.3f}]  better {o['share_households_better']:.1%}   +0.004")
+    def score(rs: dict) -> dict:
+        res = {}
+        for wname, w in weights.items():
+            per_hh, res[wname] = {}, {}
+            for f in TARGETS:
+                for k in range(HORIZON_WAVES):
+                    wave, yrs = N_IN + k, (k + 1) * WAVE_YEARS
+                    y = g(x[:, wave, fi[f]])
+                    row = {}
+                    for rn, sim in rs.items():
+                        pc, pn = g(sim[1][f][:, :, yrs]), g(sim[0][f][:, :, yrs])
+                        row[rn] = {"ae": np.abs(median_mix(pc, pn, w) - y),
+                                   "crps": crps_mix(pc, pn, w, y)}
+                    persist = np.abs(g(x[:, last, fi[f]]) - y)
+                    row["persistence"] = {"ae": persist, "crps": persist}
+                    key = f"{f} wave {wave + 1}"
+                    per_hh[key] = row
+                    dl = row["household"]["crps"] - row["population"]["crps"]
+                    bd = dl[boot].mean(1)
+                    res[wname][key] = {rn: {m: float(v[m].mean()) for m in ("ae", "crps")}
+                                       for rn, v in row.items()}
+                    res[wname][key]["household_minus_population_crps"] = {
+                        "mean": float(dl.mean()), "ci95": np.percentile(bd, [2.5, 97.5]).tolist(),
+                        "share_households_better": float((dl < 0).mean())}
+            all_d = np.mean([per_hh[k]["household"]["crps"] - per_hh[k]["population"]["crps"]
+                             for k in per_hh], axis=0)
+            bd = all_d[boot].mean(1)
+            res[wname]["overall_household_minus_population_crps"] = {
+                "mean": float(all_d.mean()), "ci95": np.percentile(bd, [2.5, 97.5]).tolist(),
+                "share_households_better": float((all_d < 0).mean())}
+        return res
+
+    def report(res: dict, title: str) -> None:
+        for wname in weights:
+            rw = res[wname]
+            print(f"\n=== {title}; card weight: {wname} ===\nCRPS (lower is better)")
+            print(f"{'':24s}" + "".join(f"{n:>13s}" for n in
+                                        ("household", "population", "laibson", "persistence")))
+            for key in S22:
+                print(f"{key:24s}" + "".join(f"{rw[key][n]['crps']:13.3f}" for n in
+                                             ("household", "population", "laibson", "persistence")))
+            print("household minus population (negative = own parameters help)   §22")
+            for key in S22:
+                h = rw[key]["household_minus_population_crps"]
+                print(f"  {key:22s} {h['mean']:+.3f}  [{h['ci95'][0]:+.3f}, {h['ci95'][1]:+.3f}]"
+                      f"  better {h['share_households_better']:.1%}   {S22[key]:+.3f}")
+            o = rw["overall_household_minus_population_crps"]
+            print(f"  {'all, averaged':22s} {o['mean']:+.3f}  [{o['ci95'][0]:+.3f}, "
+                  f"{o['ci95'][1]:+.3f}]  better {o['share_households_better']:.1%}   +0.004")
+
+    res = score(rules)
+    report(res, "forecasts as simulated")
+    res_noise = None
+    if spec.obs_noise:
+        res_noise = score(with_noise(rules, spec.obs_noise, H, args.n_sims))
+        report(res_noise, "forecasts with the training observation noise")
 
     # --- 5. wealth dynamics at the population theta (§24) --------------------
     sim = rules["population"]
@@ -313,7 +378,7 @@ def main() -> None:
         dyn[tag] = describe(tag, mx - x0[m], mz - z0[m], z0[m])
 
     # --- 6. levels: the model's own households against PSID (§24) -----------
-    own = {1: own_card, 0: simulate(pop_sols[(0, 0)], n_households=args.n_own, seed=1)}
+    own = {1: own_card, 0: own_households(pop_sols[(0, 0)], args.n_own, 1, pool)}
     psid_age = x[:, :, fi["age"]].ravel()
     psid_liq = x[:, :, fi["liquid_assets"]].ravel()
     levels = {}
@@ -336,7 +401,9 @@ def main() -> None:
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "oos_results.json").write_text(json.dumps(
-        {"n_households": H, "run_dirs": list(map(str, args.run_dirs)), "beta_transform": bt,
+        {"n_households": H, "run_dirs": list(map(str, args.run_dirs)), "spec": spec.describe(),
+         "x": str(args.x), "init_pool": None if args.init_pool is None else str(args.init_pool),
+         "results_with_obs_noise": res_noise,
          "population_theta": pop.tolist(), "n_fallback": int(bad.sum()),
          "borrower_share": float(borrower.mean()),
          "never_borrow_share_by_age": a_by_age, "results": res,

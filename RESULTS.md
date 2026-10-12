@@ -6184,3 +6184,170 @@ all dollars x0.75 (income level)           2.618                0.01       0.02 
   OOS, and the penalty and α sensitivities.
 - **(b) consumption level only,** as a robustness arm (retraining only).
 - **(c) couples' income process** (regeneration, days).
+
+### 43.9 The observation-noise method, every feature (reference for A2n)
+
+This section collects in one place how A2n's noise was measured, how each
+feature's range was decided, and how it is applied. §43.7 records the decision
+as it was made; the numbers here are the same run's
+(`scripts/noise_calibration.py`, `outputs/optionA2n/noise_calibration.json`,
+`logs/noise_calibration.log`).
+
+**1. What is added.** Classical measurement error, multiplicative and
+independent across waves. For simulated household i, feature f and wave t:
+
+    observed_ift = true_ift × exp(σ_if · z_ift),   z_ift ~ N(0, 1) iid,
+    σ_if ~ Uniform[low_f, high_f], drawn once per household and feature.
+
+- **Features:** income, consumption, liquid wealth and illiquid wealth.
+  Age is exact and never perturbed.
+- **Mean zero in logs:** medians are unchanged; a zero stays zero, and a
+  debt stays a debt.
+- **Each household its own σ:** how noisy a household's records are is
+  unknown, so the network learns a posterior that integrates over it.
+- **PSID gets no added noise.** Its records already carry their own; the
+  point is to train on simulated data that look like that.
+
+**2. Measuring PSID's volatility, per feature.** The statistic must separate
+noise from real shocks. The model's income, consumption and wealth changes are
+persistent, while measurement error is not. Let V_k be the variance of k-wave
+changes of a series. Persistent shocks make V_k grow with k; iid noise of
+size σ adds the same 2σ² to every V_k. So the noise signature is
+
+    a = 2 V₁ − V₂ = −2 cov(Δz_t, Δz_{t−1}),
+
+which iid noise raises by 2σ² and a random walk leaves at zero. Details:
+- **Scale:** each feature on the network's own input scale. Income and
+  consumption are log(value / household mean income), floored at 1%; liquid
+  and illiquid wealth are asinh(value / household mean income).
+- **Robust variance:** V_k is IQR-based, ((p75 − p25) / 1.349)², pooled over
+  all of a sample's k-wave changes. PSID's changes are heavy-tailed (income
+  kurtosis 36; 5% of changes carry 66% of the variance), so a few extreme
+  records do not set the noise for everyone.
+- **Sample:** PSID couples (409 households, 7 waves, 2011–2023).
+- **Uncertainty:** 200 bootstrap resamples of households give a 90%
+  interval for a.
+
+**3. What the model already produces.** The model has transitory movement of
+its own, more at some θ than at others. So the requirement is not PSID's a
+itself but the noise the model needs, at a given θ, to reach it.
+- **Cells:** θ is split into cells: 6 ρ bins (0.5, 0.75, 1, 1.5, 2.5, 3.5, 5)
+  × halves of β, δ and R_gamma within the region × card type. That gives 96
+  cells, every one with at least 400 simulated windows. The windows are
+  286,720, from every second training shard, with no noise.
+- **Curve a(σ) per cell:** noise of size σ is added to that one feature of the
+  cell's windows, for σ on a grid from 0 to 2 in steps of 0.005. The same z
+  draws are used at every σ (common random numbers), so the curve is smooth in
+  σ.
+- **A cell's requirement** is the smallest σ at which its a(σ) reaches PSID's
+  a; it is 0 if the cell already does without noise. It is ∞ if no σ ≤ 2
+  does. That happens where most households hold exactly zero of the asset,
+  because multiplicative noise keeps zeros.
+
+**4. Minimum and typical.**
+- **Minimum:** the smallest requirement over the region's cells. Below it, no
+  θ in the region can produce what PSID shows. Its 90% interval is the
+  minimum at PSID's a at its bootstrap 5th and 95th percentiles.
+- **Typical:** the prior-weighted median of the cells' requirements. Cells
+  are equal parts of β, δ, R_gamma and card within the region, so a cell's
+  prior weight is its ρ bin's width. Cells that cannot reach count as ∞, so
+  they push the median up and never down.
+- **Region applied:** couples' region, β ≥ 0.40 and δ ≥ 0.95 (the training
+  proposal's concentrated region, `EDGE_A2`, where 87–88% of couples'
+  posterior means lay in the pilot, §43.2), with ρ, R_gamma and card left
+  free so the rule does not presuppose ρ.
+- **Region reported for reference:** the whole prior box (β ≥ 0.3,
+  δ ≥ 0.85).
+
+**5. Every feature, couples' region:**
+
+| | income | consumption | liquid | illiquid |
+|---|---|---|---|---|
+| PSID a (90% interval) | 0.0195 (0.0122–0.0292) | 0.0460 (0.0340–0.0561) | 0.0043 (0.0028–0.0061) | 0.0633 (0.0227–0.1022) |
+| PSID V₁ / V₂ | 0.0469 / 0.0743 | 0.0701 / 0.0942 | 0.0069 / 0.0095 | 0.1748 / 0.2864 |
+| model a without noise: median cell / max cell | 0.0751 / 0.1010 | −0.0055 / 0.0781 | 0.0015 / 0.0935 | −0.0225 / 0.0000 |
+| minimum σ (90% interval) | 0 (0–0) | 0 (0–0) | 0 (0–0) | 0.175 (0.115–0.220) |
+| typical σ | 0 | 0.150 | 0.080 | 0.455 |
+| cells that cannot reach PSID at σ ≤ 2 | 0 of 96 | 0 | 17 | 25 |
+| **applied range [low, high]** | **0 – 0** | **0 – 0.15** | **0 – 0.08** | **0.175 – 0.455** |
+| whole box: minimum / typical | 0 / 0 | 0 / 0.150 | 0 / 0.145 | 0.260 (0.180–0.325) / ∞ |
+
+Requirement by ρ bin, couples' region (smallest / median over the bin's 16
+cells):
+
+| ρ bin | income | consumption | liquid | illiquid |
+|---|---|---|---|---|
+| 0.5–0.75 | 0 / 0 | 0 / 0.133 | 0 / 0.060 | 0.175 / 0.397 |
+| 0.75–1 | 0 / 0 | 0 / 0.133 | 0 / 0.122 | 0.195 / 0.475 |
+| 1–1.5 | 0 / 0 | 0.090 / 0.138 | 0 / 0.128 | 0.215 / 0.552 |
+| 1.5–2.5 | 0 / 0 | 0.125 / 0.145 | 0 / 0.050 | 0.235 / 0.573 |
+| 2.5–3.5 | 0 / 0 | 0.135 / 0.150 | 0 / 0.092 | 0.225 / 0.542 |
+| 3.5–5 | 0 / 0 | 0.145 / 0.152 | 0 / 0.065 | 0.260 / 0.440 |
+
+**6. Reading, feature by feature.**
+- **Income: no noise.** PSID couples' a (0.0195) is below every cell's,
+  without noise (the median cell is 0.075). The model's income already has
+  more transitory variation than PSID shows: its process (Laibson et al.'s,
+  two earners) is about twice as risky as the typical couple's at every gap
+  (§43.7's lag profiles). Adding noise would only widen that gap, so the
+  rule gives 0 at every cell, and income is left exact.
+- **Consumption: 0 to 0.15.** PSID's a (0.046) is reached without noise only
+  by cells with ρ < 1, where consumption tracks transitory income. Every
+  cell with ρ ≥ 1 needs noise, and more the higher ρ (0.09 to 0.145 at the
+  least, 0.138 to 0.152 typically). The minimum is therefore 0. It is 0
+  because low ρ alone can produce the signature, and a minimum over θ always
+  resolves that ambiguity as "low ρ, no noise". The typical cell needs
+  0.15.
+- **Liquid wealth: 0 to 0.08.** PSID's a is small (0.0043), and some cells
+  reach it without noise at every ρ. The typical cell needs 0.08; 17 cells
+  cannot reach it at all, because their liquid wealth is mostly exactly
+  zero.
+- **Illiquid wealth: 0.175 to 0.455,** the only feature with a positive
+  minimum. No cell reaches PSID's a without noise: the model's illiquid
+  path is smooth (deposits and growth), while PSID's jumps. The least any
+  cell needs is 0.175 (90% interval 0.115–0.220); the typical cell needs
+  0.455. 25 cells cannot reach it, mostly with zero illiquid wealth. Part of
+  PSID's excess illiquid volatility is persistent (house purchases, price and
+  pension swings) and is not represented by iid noise at all (§43.7).
+
+**7. The range decision.** For each feature, the range is [minimum, typical].
+- **Why not the minimum alone:** for consumption it is 0, and the floor
+  question is exactly whether PSID's consumption volatility is noise or low
+  ρ. Training with the minimum would build the answer "low ρ" into the model.
+- **Why not the typical value alone:** a fixed σ of 0.15 would rule out the
+  answer "no consumption noise, low ρ". The range keeps both explanations
+  open, and the data decide between them.
+- **Why not a ρ-specific requirement:** giving each draw the noise its own ρ
+  needs would tell the network ρ through the noise. The range is the same
+  for every draw.
+- **Why the typical rather than the largest requirement:** the largest is ∞
+  for liquid and illiquid, and it sits in corners the couples' posteriors
+  never reach.
+- **Why per household, uniform on the range:** the user's choice ("range,
+  marginalised", 2026-10-12). The network does not know a household's σ and
+  integrates over it.
+- **The same rule for every feature.** No feature is singled out: income gets
+  0 because the rule says so, not because it was left out.
+
+**8. Where it is applied** (`optionA.add_obs_noise`; ranges in each
+checkpoint's `results.json` as `obs_noise`, read back by `spec_of`):
+- Training windows. Each run's windows draw their own noise, seeded
+  `437,000 + window seed + run offset`, so it is fixed per run and never
+  reuses the window's own stream.
+- Every simulated window the ensemble is scored on: the held-out check, the
+  ρ ablation and recovery, the household figures, `optionA.py evaluate`'s
+  SBC and the A2n SBC (§43.11). Each uses its own seed, with the same ranges.
+- Out-of-sample forecasts (§43.12): scored as simulated, and with the same
+  noise on the forecast samples, since PSID's targets carry it.
+- **Not applied:** PSID inputs, age, and the generator (shards hold the
+  noise-free simulations; the noise is added when windows are built).
+
+**9. Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/noise_calibration.py              # ranges -> outputs/optionA2n/noise_calibration.json
+    PYTHONPATH=. .venv/bin/python scripts/noise_calibration.py --profiles   # §43.7's lag profiles and tails
+    ./scripts/run_optionA2n_model.sh                                        # A2n, reads sigma_range from the JSON
+
+Tests: `tests/test_obs_noise.py` (10). Among them: the calibration recovers a
+known σ for consumption, liquid and illiquid, and the signature is 2σ² for
+noise and about 0 for a random walk.

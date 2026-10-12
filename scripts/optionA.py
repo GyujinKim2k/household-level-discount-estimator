@@ -705,8 +705,16 @@ def psid(args) -> None:
     from hh_npe.simulator.laibson_calibration import EDUC_GROUPS
     keep = np.flatnonzero(d["educ"].numpy() == EDUC_GROUPS.index("comphs"))
     x_raw = d["x"].numpy()[keep]
+    if args.debt_scale != 1.0:
+        # The alpha check (RESULTS 42.3, 43.11): card debt (negative liquid
+        # wealth) scaled as Laibson et al. scale SCF's under-reported balances.
+        li = FEATURES_TWOASSET_AGE.index("liquid_assets")
+        x_raw = x_raw.copy()
+        x_raw[..., li] = np.where(x_raw[..., li] < 0, args.debt_scale * x_raw[..., li],
+                                  x_raw[..., li])
     print(f"{args.x}: {len(keep)} comphs households; {len(members)} members; "
-          f"proposal {proposal}; {spec.describe()}")
+          f"proposal {proposal}; {spec.describe()}"
+          + (f"; card debt x {args.debt_scale}" if args.debt_scale != 1.0 else ""))
     args.out.mkdir(parents=True, exist_ok=True)
     np.save(args.out / "household_index.npy", keep)
 
@@ -722,6 +730,8 @@ def psid(args) -> None:
                "n_households": int(len(keep))}
     if spec.obs_noise:     # the training windows' noise; PSID itself gets none
         summary["training_obs_noise"] = {f: [lo, hi] for f, lo, hi in spec.obs_noise}
+    if args.debt_scale != 1.0:
+        summary["debt_scale"] = args.debt_scale
     for arm, xa in arms.items():
         torch.manual_seed(0)
         xt, _ = transform(torch.from_numpy(xa).float())
@@ -874,6 +884,9 @@ def main() -> None:
                         "sample size, most for posteriors near delta = 1 "
                         "(at 4,000 the ESS p10 was 106; RESULTS 36).")
     p.add_argument("--device", default=None)
+    p.add_argument("--debt_scale", type=float, default=1.0,
+                   help="Multiply PSID's negative liquid wealth (card debt) by this: "
+                        "the alpha = 2.02 check (RESULTS 42.3, 43.11).")
     p.add_argument("--out", type=Path, default=Path("outputs/psid_optionA"))
     args = ap.parse_args()
     if args.cmd == "evaluate":

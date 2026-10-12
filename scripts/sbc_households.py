@@ -86,7 +86,9 @@ def load_sbc_shards(shards: Path, train_shards: Path = SHARDS):
     return theta, [m[3] for m in meta], cfg
 
 
-def score(r: dict, th: np.ndarray, pid: np.ndarray, one: np.ndarray) -> dict:
+def score(r: dict, th: np.ndarray, pid: np.ndarray, one: np.ndarray, cuts=CUTS) -> dict:
+    """Coverage with a block bootstrap, KS on one household per draw, and
+    coverage by posterior-mean region (``cuts`` per parameter)."""
     ok = np.isfinite(r["u"]).all(1)
     u, mean, blk = r["u"], r["mean"], pid // BLOCK
     counts, b = _boot_counts(blk[ok])
@@ -102,7 +104,7 @@ def score(r: dict, th: np.ndarray, pid: np.ndarray, one: np.ndarray) -> dict:
         else:
             pick = ok & one
         out["ks_p_one_per_draw"][n] = float(stats.kstest(u[pick, j], "uniform").pvalue)
-        c, rows = CUTS[n], []
+        c, rows = cuts[n], []
         for a, hi in zip(c[:-1], c[1:]):
             m = (mean[ok, j] >= a) & ((mean[ok, j] < hi) if hi < c[-1] else (mean[ok, j] <= hi))
             row = {"lo": a, "hi": hi, "n": int(m.sum()),

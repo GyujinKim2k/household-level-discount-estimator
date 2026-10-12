@@ -116,6 +116,7 @@ def simulate_batch_twoasset_gpu(
     return_panels: bool = False, n_households: int = 1,
     educ: np.ndarray | None = None, card: np.ndarray | None = None,
     r_gamma: np.ndarray | None = None, init_pool: np.ndarray | None = None,
+    liqpen_scale: float = 1.0,
 ) -> tuple[np.ndarray, ...]:
     """Phase 3 on the GPU: many draws per backward induction, one panel each.
 
@@ -167,6 +168,11 @@ def simulate_batch_twoasset_gpu(
     leaves the forward pass exactly as before. The draws are a pure function of
     ``seed_base``, the draw index and the calibration, so callers that need
     them (to store per shard) recompute them the same way.
+
+    ``liqpen_scale`` scales the illiquid liquidation penalty schedule
+    (``ModelSpec.liqpen_scale``; 1 is Laibson et al.'s and leaves the solve
+    exactly as before). It is fixed in estimation (RESULTS 41.3); other values
+    are for the misspecification check of RESULTS 43.11.
 
     The forward pass and wave aggregation stay on the CPU and are shared with
     :func:`simulate_one_twoasset` verbatim; only the solver differs.
@@ -228,6 +234,8 @@ def simulate_batch_twoasset_gpu(
             calib = dataclasses.replace(calib, c0_credit=0.0, c1_credit=0.0,
                                         c2_credit=0.0)
         spec = dataclasses.replace(GRIDS[grid], calib=calib)
+        if liqpen_scale != 1.0:
+            spec = dataclasses.replace(spec, liqpen_scale=float(liqpen_scale))
         if rg is not None:
             spec = dataclasses.replace(spec, R_gamma=rg)
         for s0 in range(0, len(idx), theta_batch):

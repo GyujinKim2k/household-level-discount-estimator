@@ -89,6 +89,9 @@ def _solver_config(args) -> dict:
         # before the fix lack the key, so resuming one under the fix is refused.
         from hh_npe.simulator.twoasset import GRIDS
         cfg["crra_centred"] = GRIDS[args.grid].crra_centred
+    if args.liqpen_scale != 1.0:
+        # Only when changed, so every existing shard directory still resumes.
+        cfg["liqpen_scale"] = args.liqpen_scale
     if args.init_pool is not None:
         # Only when used, so shard directories from before the pool existed
         # still resume. A different pool is a different simulator.
@@ -362,6 +365,13 @@ def main() -> None:
                              "Recorded by hash in solver_config.json; the drawn "
                              "starts are stored per shard as `init_wealth` and "
                              "`init_state`. cuda, comphs only.")
+    parser.add_argument("--liqpen_scale", type=float, default=1.0,
+                        help="Scale the illiquid liquidation penalty schedule "
+                             "(1 = Laibson et al.'s, fixed in estimation; RESULTS "
+                             "41.3). Other values are for the misspecification "
+                             "check (RESULTS 43.11): generated with the SBC set's "
+                             "seed, the same draws and shocks at another penalty. "
+                             "Recorded in solver_config.json when not 1. cuda only.")
     parser.add_argument("--max_draws", type=int, default=None,
                         help="Stop after the shards covering the first N draws "
                              "(a multiple of --block). For a pilot that is "
@@ -412,6 +422,8 @@ def main() -> None:
 
     if args.init_pool is not None and args.device != "cuda":
         raise SystemExit("--init_pool is wired into the cuda path only")
+    if args.liqpen_scale != 1.0 and args.device != "cuda":
+        raise SystemExit("--liqpen_scale is wired into the cuda path only")
     if args.init_pool is not None and args.educ != "comphs":
         # The initial-state posterior uses the group's income process; storing
         # it per shard below assumes the one comphs process.
@@ -485,7 +497,7 @@ def main() -> None:
                 None if educ_np is None else educ_np[lo:hi],
                 None if card_np is None else card_np[lo:hi],
                 None if args.rgamma_range is None else theta_np[lo:hi, 3],
-                pool,
+                pool, args.liqpen_scale,
             )
             xb, ab = out_batch[0], out_batch[1]
             if store_panel:
