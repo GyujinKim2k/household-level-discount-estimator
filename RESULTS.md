@@ -6172,7 +6172,7 @@ all dollars x0.75 (income level)           2.618                0.01       0.02 
   couples have higher ρ.
 - **The result depends on the noise range** (consumption 0–0.15), which
   comes from PSID's own signature (§43.7). How far ρ's location moves with
-  the range's upper end has not been tested.
+  the range's upper end has not been tested. (§43.10 tests it.)
 - **Not addressed:** illiquid wealth's persistent excess volatility, and the
   model's income risk being about twice couples' (§43.6 (c)).
 
@@ -6351,3 +6351,133 @@ checkpoint's `results.json` as `obs_noise`, read back by `spec_of`):
 Tests: `tests/test_obs_noise.py` (10). Among them: the calibration recovers a
 known σ for consumption, liquid and illiquid, and the signature is 2σ² for
 noise and about 0 for a random walk.
+
+### 43.10 Noise-range sensitivity: couples' ρ reads 1.8–2.1 across the ranges
+
+**Question.** How far do couples' results under A2n move when the noise ranges
+of §43.9 move? Two kinds of arm. Consumption alone, since it carries the floor
+question. And every noisy feature together, so that no feature is singled out.
+
+| arm | income | consumption | liquid | illiquid |
+|---|---|---|---|---|
+| A2n as calibrated (reference) | 0 | 0–0.15 | 0–0.08 | 0.175–0.455 |
+| consumption 0–0.10 | 0 | 0–0.10 | 0–0.08 | 0.175–0.455 |
+| consumption 0–0.20 | 0 | 0–0.20 | 0–0.08 | 0.175–0.455 |
+| every range × 2/3 | 0 | 0–0.10 | 0–0.053 | 0.117–0.303 |
+| every range × 4/3 | 0 | 0–0.20 | 0–0.107 | 0.233–0.607 |
+
+- **Income stays at 0 in every arm.** The rule gives 0 (§43.9), and scaling 0
+  leaves 0.
+- **Illiquid's lower end** at × 2/3 and × 4/3 (0.117, 0.233) spans about the
+  90% interval of its minimum (0.115–0.220).
+- **What is retrained:** only the flow, two members per arm (seeds 0 and 1),
+  on A2n's data and setup (main run plus R_gamma strip, logit β and R_gamma).
+  The noise is the only change. The reference is A2n's own members 0 and 1, so
+  every arm is compared at two members with the same seeds.
+- **Per arm:** PSID couples (409), the held-out check (held-out windows carry
+  the arm's own noise) and the known-ρ recovery in couples' A2n region
+  (§43.8).
+
+**Run.** `scripts/run_optionA2n_noise_sensitivity.sh`, 14:08–18:35 UTC on
+2026-10-12, every step rc = 0 (`logs/optionA2n_sens.log`).
+
+**The yardstick: what two members give with the noise unchanged.** PSID
+couples and the recovery were also run on all 10 pairs of A2n's five members
+(16:34–16:48 UTC, with the commands now in
+`scripts/run_optionA2n_member_pairs.sh`). Pairs share members (each member is
+in four), so their range is a guide to seed noise, not a confidence interval.
+
+**PSID couples,** medians of the per-household posterior means (uncorrected
+arm). "Known-ρ scale" maps couples' median mean to the true ρ of simulated
+households that give the same median mean, by linear interpolation on each
+arm's own recovery groups (as in §43.8, where it gave about 2.0).
+
+| arm | β | δ | ρ | R_gamma | ρ, known-ρ scale | ρ median 90% width |
+|---|---|---|---|---|---|---|
+| A2n as calibrated (members 0, 1) | 0.591 | 0.9852 | 2.78 | 1.0552 | 2.07 | 3.12 |
+| consumption 0–0.10 | 0.609 | 0.9883 | 2.56 | 1.0513 | 1.85 | 3.16 |
+| consumption 0–0.20 | 0.580 | 0.9832 | 2.70 | 1.0543 | 2.09 | 3.27 |
+| every range × 2/3 | 0.619 | 0.9870 | 2.52 | 1.0485 | 1.79 | 3.12 |
+| every range × 4/3 | 0.610 | 0.9833 | 2.81 | 1.0552 | 2.08 | 3.14 |
+| *A2n member pairs (10), min–max* | *0.591–0.612* | *0.9831–0.9864* | *2.63–2.82* | *1.0529–1.0552* | *1.83–2.23* | *3.08–3.22* |
+
+- **Corrected arm, ρ medians:** 2.73, 2.50, 2.63, 2.43 and 2.73, in the same
+  order.
+- **The known-ρ mapping itself barely moves.** The median mean of the true ρ
+  1.5–2.5 group is 2.56–2.68 across arms (pairs 2.54–2.68).
+
+**The floors** (couples; share of households):
+
+| arm | ρ mean < 1 | ρ lower 5% < 0.55 | either floor | both floors |
+|---|---|---|---|---|
+| A2n as calibrated | 0.010 | 0.015 | 0.156 | 0.002 |
+| consumption 0–0.10 | 0.010 | 0.022 | 0.196 | 0.005 |
+| consumption 0–0.20 | 0.007 | 0.017 | 0.183 | 0.002 |
+| every range × 2/3 | 0.015 | 0.032 | 0.244 | 0.010 |
+| every range × 4/3 | 0.005 | 0.005 | 0.127 | 0.000 |
+
+A2w, with no noise, had 0.689 of couples with ρ mean < 1 (§43.8).
+
+**Held-out calibration,** 2-member ensembles, each on windows carrying its own
+noise:
+
+| arm | 90% coverage, four parameters | contraction β / ρ | weighted log q |
+|---|---|---|---|
+| A2n as calibrated | 0.881–0.906 | 0.366 / 0.604 | 4.754 |
+| consumption 0–0.10 | 0.898–0.903 | 0.389 / 0.620 | 4.757 |
+| consumption 0–0.20 | 0.885–0.911 | 0.342 / 0.587 | 4.409 |
+| every range × 2/3 | 0.880–0.904 | 0.415 / 0.622 | 4.974 |
+| every range × 4/3 | 0.893–0.904 | 0.344 / 0.593 | 4.266 |
+
+Log q is not a model comparison here: each arm is scored on windows with its
+own noise, so the data differ. It falls as the noise grows because noisier
+windows say less.
+
+**Ranking.** Per-couple correlation of posterior means with the reference:
+ρ 0.81–0.87 across arms, β 0.87–0.90, δ 0.90–0.93 and R_gamma 0.90–0.95.
+Two pairs of A2n members that share no member correlate 0.79–0.89 on ρ, β
+0.88–0.91, δ 0.89–0.95 and R_gamma 0.92–0.95 (15 such comparisons). The noise
+range moves couples' ranking no more than the training seeds do.
+
+**Figure 47:** PSID couples' per-household means, the five arms overlaid.
+
+**Reading.**
+- **Widening the ranges changes nothing.** Consumption 0–0.20 and every
+  range × 4/3 put couples at 2.08–2.09 on the known-ρ scale, against 2.07 as
+  calibrated, and their floors are the same or lower. By §43.9's table, every
+  ρ bin's typical consumption need is 0.13–0.15, so room beyond 0.15 goes
+  unused.
+- **Narrowing them lowers ρ a little.** Consumption 0–0.10 gives 1.85, every
+  range × 2/3 gives 1.79: 0.2–0.3 below the reference, at or just below the
+  lowest member pair (1.83). A cap of 0.10 is below every ρ bin's typical
+  need. Part of PSID's consumption volatility can then only be read as weak
+  smoothing, the mechanism that put A2w at the floor, here in small measure.
+- **Every range × 2/3 also moves R_gamma** to 1.0485, below every member pair
+  (1.0529–1.0552). Its share of couples on either floor rises to 0.24.
+- **Across every range tried, couples read as true ρ 1.8–2.1.** Laibson et
+  al.'s 1.94 lies inside that interval. At most 1.5% of couples have a ρ mean
+  below 1. Raising the ranges leaves §43.8's conclusion unchanged; lowering
+  them shaves about 0.25 off ρ. The calibrated ranges are the ones §43.9's
+  rule gives.
+- **Calibration holds in every arm** (90% coverage 0.880–0.911).
+- **Decision:** A2n keeps its calibrated ranges. The SBC, penalty, α and OOS
+  checks (§43.11–43.12) run on its five members.
+
+**Limits.**
+- Two members per arm, on one seed pair.
+- The noise's form (iid, multiplicative) is not varied, only its size.
+  Illiquid's persistent excess (§43.7) is still not represented.
+
+**Reproduce.**
+
+    ./scripts/run_optionA2n_noise_sensitivity.sh       # arms -> outputs/optionA2n_sens/, outputs/psid_optionA2n_sens_*_couples
+    ./scripts/run_optionA2n_member_pairs.sh            # yardstick -> outputs/optionA2n_sens/pairs/
+    PYTHONPATH=. .venv/bin/python scripts/optionA2n_noise_sensitivity.py   # tables -> outputs/optionA2n_sens/summary.json
+    PYTHONPATH=. .venv/bin/python scripts/plot_optionA2_psid.py \
+        --series "A2n as calibrated=outputs/psid_optionA2n_sens_a2n_2m_couples" \
+                 "consumption 0-0.10=outputs/psid_optionA2n_sens_cons010_couples" \
+                 "consumption 0-0.20=outputs/psid_optionA2n_sens_cons020_couples" \
+                 "every range x 2/3=outputs/psid_optionA2n_sens_all067_couples" \
+                 "every range x 4/3=outputs/psid_optionA2n_sens_all133_couples" \
+        --out figures/47_optionA2n_noise_sensitivity.png \
+        --title "PSID couples' posterior means under A2n's noise ranges moved (2 members each)"
