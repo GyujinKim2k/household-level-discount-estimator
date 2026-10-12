@@ -182,7 +182,7 @@ def _posterior(members, xr, spec, inv, lw, n_draws, chunk=64):
 
 
 def ablate(args) -> dict:
-    members, proposal, cfg = oa.load_members(RUN_DIRS, args.device)
+    members, proposal, cfg = oa.load_members(args.run_dirs, args.device)
     spec = oa.spec_of(cfg)
     inv, lw = oa._weighting(proposal, spec)
     j = list(spec.box.names).index("crra")
@@ -190,7 +190,8 @@ def ablate(args) -> dict:
     theta, _, _, held, _, _ = oa.load_shards([MAIN, STRIP])
     # Every household of every held-out draw: one per draw leaves too few in
     # couples' region.
-    th, xs, _ = oa.windows_raw(held, theta, seed=oa.HELD_SEED)
+    # Held-out households carry the run's observation noise, as in training.
+    th, xs, _ = oa.windows_raw(held, theta, seed=oa.HELD_SEED, noise=spec.obs_noise)
     th, xs = th.numpy(), xs.numpy().astype(np.float64)
     names = list(spec.box.names)
     inr = np.ones(len(th), bool)
@@ -248,6 +249,7 @@ def main() -> None:
     a = sub.add_parser("ablate")
     a.add_argument("--device", default="cuda")
     a.add_argument("--n_draws", type=int, default=10_000)
+    a.add_argument("--run_dirs", type=Path, nargs="+", default=RUN_DIRS)
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args()
     res = stats(args) if args.cmd == "stats" else ablate(args)

@@ -86,7 +86,8 @@ def simulated(args, members, spec, inv, lw, label) -> None:
     if oa.box_of(sh_cfg) != BOX:
         raise SystemExit(f"{args.shards} cover R_gamma {sh_cfg['rgamma_range']}, not the "
                          f"ensemble's box")
-    th, x_raw, pid = oa.windows_raw(held_f, theta_all, seed=oa.HELD_SEED)
+    th, x_raw, pid = oa.windows_raw(held_f, theta_all, seed=oa.HELD_SEED,
+                                     noise=spec.obs_noise)
     pick1 = oa.one_per_draw(pid, seed=0)
     # one_per_draw's rows are grouped by window start age; sample, not a prefix.
     pool = np.sort(np.random.default_rng(1).choice(pick1, min(args.pool, len(pick1)),

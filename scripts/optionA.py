@@ -244,11 +244,56 @@ def transform(x: torch.Tensor):
     return anchor_log(x, feats), feats
 
 
-def windows_raw(files, theta_all, seed, n_waves=WINDOW["n_waves"]):
+#: Dollar features that may carry observation noise (RESULTS 43.7); age is exact.
+NOISY = ("income", "consumption", "liquid_assets", "illiquid_assets")
+#: Added to a window seed for its noise stream, so noise never reuses it.
+NOISE_SEED = 437_000
+
+
+def _noise_range(v) -> tuple[float, float]:
+    """A feature's noise as ``(low, high)``: a number is a fixed sigma."""
+    lo, hi = (float(v), float(v)) if np.isscalar(v) else map(float, v)
+    if not 0 <= lo <= hi:
+        raise ValueError(f"observation noise range {v!r}: need 0 <= low <= high")
+    return lo, hi
+
+
+def add_obs_noise(x: torch.Tensor, noise, seed: int) -> torch.Tensor:
+    """Classical measurement error on raw (dollar) windows (RESULTS 43.7).
+
+    ``noise`` maps features to a sigma or a ``(low, high)`` range (a dict or
+    its items; :class:`Spec`'s ``obs_noise`` holds ``(feature, low, high)``).
+    Each household (row) draws its own sigma per feature, uniformly on the
+    range, since how noisy a household's data are is unknown and the network
+    should marginalise over it; then every wave is multiplied by
+    ``exp(sigma * z)``, ``z`` iid N(0, 1). The noise has mean zero on the log
+    scale, so medians are kept; zero stays zero and signs are kept. Age is
+    never touched. Unlike ``compare_windows.add_obs_noise`` (§9.4: one sigma
+    on every feature), each feature has its own range."""
+    items = noise.items() if isinstance(noise, dict) else noise
+    rng = {e[0]: _noise_range(e[1] if len(e) == 2 else e[1:]) for e in items}
+    if bad := set(rng) - set(NOISY):
+        raise ValueError(f"no observation noise on {sorted(bad)}")
+    if not any(hi for _lo, hi in rng.values()):
+        return x
+    g = torch.Generator().manual_seed(seed)
+    z = torch.randn(x.shape, generator=g, dtype=x.dtype)
+    u = torch.rand((x.shape[0], x.shape[-1]), generator=g, dtype=x.dtype)
+    out = x.clone()
+    for f, (lo, hi) in rng.items():
+        j = FEATURES_TWOASSET_AGE.index(f)
+        s = lo + (hi - lo) * u[:, j]
+        out[..., j] = x[..., j] * torch.exp(s[:, None] * z[..., j])
+    return out
+
+
+def windows_raw(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=()):
     """``build_windowed`` over shards of one or more runs, untransformed.
     ``files`` are :class:`Shard`\\ s or plain paths (one run, offset 0). Draw
     ids, and the window seeds (``seed + lo``), are offset per run, so ids stay
-    unique for the grouped validation split; one run is exactly as before."""
+    unique for the grouped validation split; one run is exactly as before.
+    ``noise`` (a :class:`Spec`'s ``obs_noise``) adds observation noise, seeded
+    by the window seed."""
     groups: dict[int, list[Path]] = {}
     for f in files:
         path, off = (f.path, f.offset) if isinstance(f, Shard) else (Path(f), 0)
@@ -257,12 +302,13 @@ def windows_raw(files, theta_all, seed, n_waves=WINDOW["n_waves"]):
     for off, paths in groups.items():
         th, x, pid = build_windowed(paths, theta_all[off:], k=1, seed=seed + off,
                                     **{**WINDOW, "n_waves": n_waves})
+        x = add_obs_noise(x, noise, seed=NOISE_SEED + seed + off)
         out.append((th, x, pid + off))
     return tuple(torch.cat(t) for t in zip(*out))
 
 
-def windows(files, theta_all, seed, n_waves=WINDOW["n_waves"]):
-    th, x, pid = windows_raw(files, theta_all, seed, n_waves)
+def windows(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=()):
+    th, x, pid = windows_raw(files, theta_all, seed, n_waves, noise)
     x, feats = transform(x)
     return th, x, pid, feats
 
@@ -282,17 +328,28 @@ class Spec:
     """A run's prior box and flow targets: ``log(1 - delta)`` always, beta's and
     R_gamma's columns as their transforms (RESULTS 37, 43.5). Checkpoints from
     before 43.5 record no R_gamma settings and get the defaults: the A box and
-    a linear R_gamma (:func:`spec_of`)."""
+    a linear R_gamma (:func:`spec_of`).
+
+    ``obs_noise``: the observation noise its simulated training windows carried
+    (RESULTS 43.7), ``((feature, low, high), ...)``, each household's sigma
+    uniform on [low, high]; every simulated window scored against the run must
+    carry the same (``windows(..., noise=spec.obs_noise)``). PSID never gets
+    any."""
 
     box: PriorBox = BOX
     beta_transform: str = "linear"
     rgamma_transform: str = "linear"
+    obs_noise: tuple = ()
 
     def __post_init__(self) -> None:
         if self.beta_transform not in BETA_TRANSFORMS:
             raise ValueError(f"beta transform {self.beta_transform!r}")
         if self.rgamma_transform not in RGAMMA_TRANSFORMS:
             raise ValueError(f"R_gamma transform {self.rgamma_transform!r}")
+        if bad := {e[0] for e in self.obs_noise} - set(NOISY):
+            raise ValueError(f"no observation noise on {sorted(bad)}")
+        for e in self.obs_noise:
+            _noise_range(e[1:])
 
     @property
     def prior_sd(self) -> np.ndarray:
@@ -327,14 +384,19 @@ class Spec:
                 + rgamma_log_jacobian(th[:, 3], self.box, self.rgamma_transform))
 
     def describe(self) -> str:
+        noise = ("; observation noise sigma " + ", ".join(
+            f"{f} {lo:g}" + (f"-{hi:g}" if hi != lo else "") for f, lo, hi in self.obs_noise)
+            if self.obs_noise else "")
         return (f"box R_gamma {self.box.rgamma_low}-{self.box.rgamma_high}; beta target "
-                f"{self.beta_transform}; R_gamma target {self.rgamma_transform}")
+                f"{self.beta_transform}; R_gamma target {self.rgamma_transform}{noise}")
 
 
 def spec_of(cfg: dict) -> Spec:
     """The Spec a run's ``results.json`` config describes."""
     return Spec(box=box_of(cfg), beta_transform=cfg.get("beta_transform", "linear"),
-                rgamma_transform=cfg.get("rgamma_transform", "linear"))
+                rgamma_transform=cfg.get("rgamma_transform", "linear"),
+                obs_noise=tuple((f, *_noise_range(v))
+                                for f, v in cfg.get("obs_noise", {}).items()))
 
 
 def _spec(s) -> Spec:
@@ -361,9 +423,12 @@ def from_flow(t, spec="linear"):
 def train(args) -> None:
     theta_all, card_all, train_f, held_f, proposal, cfg = load_shards(
         args.shards, args.train_shards)
+    noise = tuple((f, *_noise_range([float(v) for v in r.split(":")] if ":" in r else float(r)))
+                  for f, r in (e.split("=") for e in args.obs_noise))
     spec = Spec(box=box_of(cfg), beta_transform=args.beta_transform,
-                rgamma_transform=args.rgamma_transform)
-    th, x, pid, feats = windows(train_f, theta_all, seed=0, n_waves=args.n_waves)
+                rgamma_transform=args.rgamma_transform, obs_noise=noise)
+    th, x, pid, feats = windows(train_f, theta_all, seed=0, n_waves=args.n_waves,
+                                noise=spec.obs_noise)
     drawn = np.unique(pid.numpy())
     train_ids = np.concatenate([f.offset + np.arange(int(np.load(f.path)["lo"]),
                                                      int(np.load(f.path)["hi"]))
@@ -397,6 +462,8 @@ def train(args) -> None:
         extra["rgamma_range"] = cfg["rgamma_range"]
     if spec.rgamma_transform != "linear":
         extra["rgamma_transform"] = spec.rgamma_transform
+    if spec.obs_noise:
+        extra["obs_noise"] = {f: [lo, hi] for f, lo, hi in spec.obs_noise}
     (out / "results.json").write_text(json.dumps({"_config": {
         "shards": str(args.shards[0]) if len(args.shards) == 1 else list(map(str, args.shards)),
         "train_shards": args.train_shards,
@@ -538,7 +605,7 @@ def evaluate(args) -> None:
         raise SystemExit(f"{args.sbc_cache} was not simulated for option A")
     th_sbc, x_sbc, _ids = window_panel(cache["panels"], cache["thetas"].numpy(),
                                        k=1, seed=SBC_SEED, **WINDOW)
-    x_sbc, _ = transform(x_sbc)
+    x_sbc, _ = transform(add_obs_noise(x_sbc, spec.obs_noise, seed=NOISE_SEED + SBC_SEED))
     th_sbc = th_sbc.numpy().astype(float)
     if args.n_sbc:
         th_sbc, x_sbc = th_sbc[:args.n_sbc], x_sbc[:args.n_sbc]
@@ -547,7 +614,7 @@ def evaluate(args) -> None:
     if box_of(sh_cfg) != spec.box:
         raise SystemExit(f"{args.shards} cover R_gamma {sh_cfg['rgamma_range']}, the "
                          f"ensemble's box {spec.box.rgamma_low}-{spec.box.rgamma_high}")
-    th_ho, x_ho, pid_ho, _f = windows(held_f, theta_all, seed=HELD_SEED)
+    th_ho, x_ho, pid_ho, _f = windows(held_f, theta_all, seed=HELD_SEED, noise=spec.obs_noise)
     pick = one_per_draw(pid_ho, seed=0)[:args.n_heldout]
     th_ho, x_ho = th_ho[pick], x_ho[pick]
     print(f"SBC: {len(th_sbc)} uniform-prior draws; held-out: {len(th_ho)} proposal "
@@ -653,6 +720,8 @@ def psid(args) -> None:
                "rgamma_transform": spec.rgamma_transform,
                "rgamma_range": [box.rgamma_low, box.rgamma_high],
                "n_households": int(len(keep))}
+    if spec.obs_noise:     # the training windows' noise; PSID itself gets none
+        summary["training_obs_noise"] = {f: [lo, hi] for f, lo, hi in spec.obs_noise}
     for arm, xa in arms.items():
         torch.manual_seed(0)
         xt, _ = transform(torch.from_numpy(xa).float())
@@ -781,6 +850,10 @@ def main() -> None:
                    help="beta's flow target (RESULTS 37); delta is always log(1 - delta).")
     t.add_argument("--n_waves", type=int, default=WINDOW["n_waves"],
                    help="Window length; 5 for the out-of-sample test (oos_optionA.py).")
+    t.add_argument("--obs_noise", nargs="*", default=[], metavar="FEATURE=LOW:HIGH",
+                   help="Observation noise on the simulated windows, per dollar feature: "
+                        "each household's sigma uniform on [LOW, HIGH], or a fixed SIGMA "
+                        "(RESULTS 43.7; noise_calibration.py's sigma_range).")
     t.add_argument("--out", type=Path, default=OUT)
     e = sub.add_parser("evaluate", help="SBC and held-out scores, ensemble and members.")
     e.add_argument("--run_dirs", type=Path, nargs="+", required=True)

@@ -5883,3 +5883,127 @@ latter at no θ in the box. As a rough size: if the model's ρ ≈ 2 volatility 
   couples'. Changing it means regenerating (days). It does not move ρ in the
   ablation, but it shapes the buffer-stock motive that ρ and β are read
   through.
+
+### 43.7 Observation noise on every feature, calibrated from PSID (decided 2026-10-12)
+
+**Decision:** option (a) of §43.6, but not on consumption alone, which would
+be cherry-picking. Every observed feature except the exact one (age) gets
+noise at a level computed from PSID for that feature. This is not §9.4's
+single fixed σ = 0.30.
+
+**The signature** (`scripts/noise_calibration.py`, `outputs/optionA2n/noise_calibration.json`).
+Classical measurement error multiplies a value by exp(σz), with z iid across
+waves. It adds 2σ² to the variance of a change over any gap, while real
+persistent shocks add more the longer the gap. So its signature is
+
+    a = 2 V₁ − V₂ = −2 cov(Δz_t, Δz_{t−1}),
+
+with V_k the variance of k-wave changes. Noise raises a by 2σ²; persistent
+shocks leave it alone. Everything is on the network's input scale: log for
+income and consumption, asinh for wealth, all over the household's mean
+income. V_k is IQR-based, ((p75 − p25)/1.349)², because PSID's changes are
+heavy-tailed: income changes have kurtosis 36, and 5% of them carry 66% of
+the variance.
+
+**Variance of k-wave changes, IQR-based** (`noise_calibration.py --profiles`;
+model: cardholders, all β, δ, R_gamma; every second shard):
+
+```
+                         k = 1     2      6
+income       PSID        0.047  0.074  0.205
+             model       0.180  0.284  0.527    (the same at every rho)
+consumption  PSID        0.070  0.094  0.160
+             rho 0.5-0.75 0.064 0.127  0.371
+             rho 1.5-2.5 0.026  0.068  0.209
+             rho 3.5-5   0.012  0.038  0.134
+liquid       PSID        0.007  0.009  0.018
+             rho 0.5-0.75 0.001 0.003  0.023
+             rho 1.5-2.5 0.016  0.030  0.086
+illiquid     PSID        0.175  0.286  0.965
+             rho 0.5-0.75 0.001 0.007  0.120
+             rho 1.5-2.5 0.002  0.015  0.227
+```
+
+- **Income:** the typical couple's income is far smoother than the model's
+  at every gap, about half its sd. §43.6's "about twice as risky" holds for
+  the typical couple. Pooled variances differ less (0.180 against 0.225),
+  because PSID's tails are heavy.
+- **Consumption:** PSID has excess variance at short gaps but is smoother
+  than the model at long gaps. The long gaps are confounded by the model's
+  riskier income, so they do not settle ρ either.
+- **Illiquid:** PSID is far more volatile at every gap. Part of that is
+  iid-like; part is persistent (lumpy housing transactions, price and pension
+  returns), which no iid noise represents and which is left unaddressed.
+
+**The minimum required noise, and why it is not enough.** The minimum for a
+feature is the smallest σ at which some cell (ρ bins × halves of β, δ,
+R_gamma × card) reaches PSID couples' signature, with the noise added to the
+cell's own simulated windows.
+- **Over the whole box,** consumption needs none: corners of very impatient
+  households without a card (δ < 0.925) track transitory income closely
+  enough to show PSID's signature by themselves. Couples are nowhere near
+  there.
+- **Over couples' region** (the proposal's β ≥ 0.40, δ ≥ 0.95, from §43.2;
+  ρ, R_gamma and card free): income 0, consumption 0, liquid 0, illiquid
+  0.175 (90% interval 0.115–0.220).
+- **Consumption still needs none,** because cells with ρ < 1 reach PSID's
+  signature without noise (cell maximum 0.078 against PSID's 0.046). That is
+  the very ambiguity in question: a minimum taken over θ always resolves it
+  as "low ρ, no noise". Cells at higher ρ need σ ≥ 0.09 (ρ 1–1.5), ≥ 0.125
+  (1.5–2.5) and ≥ 0.145 (3.5–5).
+- A first version split β, δ, R_gamma into thirds. That left the ρ < 1 cells
+  below 400 windows, so they dropped out silently and gave consumption 0.06.
+  Halves keep every ρ bin.
+
+**Applied (the user's choice): a range, marginalised.** Each simulated
+household draws its own σ for each feature, uniform between the minimum and
+the typical requirement. The typical requirement is the prior-weighted median
+of the cells' own requirements over couples' region. The network marginalises
+over how noisy a household's data are. PSID gets no added noise.
+
+| feature | σ range | note |
+|---|---|---|
+| income | 0 | PSID is below the model at every cell |
+| consumption | 0 – 0.15 | |
+| liquid | 0 – 0.08 | 17 of 96 cells cannot reach PSID's signature at any σ ≤ 2 |
+| illiquid | 0.175 – 0.455 | 25 cells cannot (mostly zero illiquid: multiplicative noise keeps zeros) |
+
+**Code.**
+- `optionA.add_obs_noise`: per household and feature, σ uniform on the
+  range; each wave is multiplied by exp(σz). The noise is mean zero in logs,
+  so medians are kept; zeros and signs are kept; age is never touched.
+- `Spec.obs_noise` is written to `results.json` by `train --obs_noise
+  FEATURE=LOW:HIGH` and read back by `spec_of`.
+- `windows` / `windows_raw` add it, seeded from the window seed. So training,
+  `evaluate`, the held-out check, the household figure and the ρ ablation's
+  control households all carry the run's noise.
+- `psid` records it as `training_obs_noise`.
+- **Tests** (`tests/test_obs_noise.py`, 10):
+  - zero noise is the identity; age is untouched; zeros and signs are kept;
+  - per-household σ is uniform on the range, and a fixed σ is fixed;
+  - bad features and bad ranges are refused;
+  - Spec round-trips, and legacy configs read as no noise;
+  - windows carry the noise per run, seeded;
+  - the signature is about 0 for random walks and 2σ² with noise;
+  - the calibration recovers a known σ for consumption, illiquid and liquid.
+
+  With the strip and weighting tests, 49 passed.
+- **CPU smoke test** (2 epochs, one shard per run): train, psid, the
+  held-out check, figures and the ablation all run, and held-out wealth comes
+  off the simulation grid.
+
+**Launched** at 10:32 UTC on 2026-10-12: `scripts/run_optionA2n_model.sh`
+(A2n). It runs:
+- five members, two at a time (logit β and R_gamma, main run + strip);
+- PSID for couples and all 889;
+- the held-out check;
+- the ρ ablation on the new ensemble;
+- figures 42–44.
+
+**What would count, stated before the result:**
+- If couples' ρ moves well off the floor, the floor came from noise the model
+  did not have. The range includes zero noise for consumption, so the data
+  were free to keep it.
+- If ρ stays at the floor with the noise available, low ρ survives a fair
+  chance for noise.
+- Held-out calibration under the same noise must hold in either case.
