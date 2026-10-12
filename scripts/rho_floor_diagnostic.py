@@ -15,10 +15,16 @@ the control: a change that shifts ρ on PSID far more than on simulated
 households is a channel through which PSID's data, not the change itself,
 pull ρ down.
 
+``recovery``: the posterior held-out simulated households in couples' region
+get, by their true ρ, next to PSID couples' (RESULTS 43.8). Where ρ is weakly
+identified a posterior mean is not an estimate of the true value, so PSID's
+posterior means are read against what known ρ produces.
+
 Usage::
 
     PYTHONPATH=. .venv/bin/python scripts/rho_floor_diagnostic.py stats
     PYTHONPATH=. .venv/bin/python scripts/rho_floor_diagnostic.py ablate --device cuda
+    PYTHONPATH=. .venv/bin/python scripts/rho_floor_diagnostic.py recovery --region a2n
 """
 
 from __future__ import annotations
@@ -45,6 +51,9 @@ INC, CONS, LIQ, ILLIQ, AGE = (FEATURES_TWOASSET_AGE.index(k) for k in
 #: Couples' region of the other three parameters: roughly their p25-p75 of
 #: posterior means under A2w (beta 0.75, delta 0.983, R_gamma 1.037 medians).
 REGION = {"beta": (0.60, 0.90), "delta": (0.97, 0.995), "R_gamma": (1.025, 1.05)}
+#: The same under A2n (RESULTS 43.8): couples' p25-p75 of posterior means.
+REGIONS = {"a2w": REGION,
+           "a2n": {"beta": (0.50, 0.70), "delta": (0.965, 0.995), "R_gamma": (1.043, 1.062)}}
 RHO_BINS = (0.5, 0.75, 1.0, 1.5, 2.5, 3.5, 5.0)
 
 
@@ -181,22 +190,28 @@ def _posterior(members, xr, spec, inv, lw, n_draws, chunk=64):
     return out
 
 
+def _held_out(spec, region: dict):
+    """Every household of every held-out draw (one per draw leaves too few in
+    couples' region), carrying the run's observation noise as in training,
+    and which of them lie in ``region``."""
+    theta, _, _, held, _, _ = oa.load_shards([MAIN, STRIP])
+    th, xs, _ = oa.windows_raw(held, theta, seed=oa.HELD_SEED, noise=spec.obs_noise)
+    th, xs = th.numpy(), xs.numpy().astype(np.float64)
+    names = list(spec.box.names)
+    inr = np.ones(len(th), bool)
+    for k, (lo, hi) in region.items():
+        inr &= (th[:, names.index(k)] >= lo) & (th[:, names.index(k)] < hi)
+    return th, xs, inr
+
+
 def ablate(args) -> dict:
     members, proposal, cfg = oa.load_members(args.run_dirs, args.device)
     spec = oa.spec_of(cfg)
     inv, lw = oa._weighting(proposal, spec)
     j = list(spec.box.names).index("crra")
     psid_x = torch.load(PSID_X, weights_only=False)["x"].numpy().astype(np.float64)
-    theta, _, _, held, _, _ = oa.load_shards([MAIN, STRIP])
-    # Every household of every held-out draw: one per draw leaves too few in
-    # couples' region.
-    # Held-out households carry the run's observation noise, as in training.
-    th, xs, _ = oa.windows_raw(held, theta, seed=oa.HELD_SEED, noise=spec.obs_noise)
-    th, xs = th.numpy(), xs.numpy().astype(np.float64)
+    th, xs, inr = _held_out(spec, REGION)
     names = list(spec.box.names)
-    inr = np.ones(len(th), bool)
-    for k, (lo, hi) in REGION.items():
-        inr &= (th[:, names.index(k)] >= lo) & (th[:, names.index(k)] < hi)
     # Control: held-out households in couples' region whose true rho is
     # Laibson-like, so a shift there is the change's own effect on the network.
     sel = np.flatnonzero(inr & (th[:, j] >= 1.5) & (th[:, j] < 2.5))
@@ -240,6 +255,65 @@ def ablate(args) -> dict:
     return out
 
 
+# ------------------------------------------------------------------- recovery
+
+def recovery(args) -> dict:
+    members, proposal, cfg = oa.load_members(args.run_dirs, args.device)
+    spec = oa.spec_of(cfg)
+    inv, lw = oa._weighting(proposal, spec)
+    j = list(spec.box.names).index("crra")
+    prior_var = float(spec.prior_sd[j]) ** 2
+    region = REGIONS[args.region]
+    th, xs, inr = _held_out(spec, region)
+    th, xs = th[inr], xs[inr]
+    psid_x = torch.load(PSID_X, weights_only=False)["x"].numpy().astype(np.float64)
+    print(f"{spec.describe()}\ncouples' region ({args.region}) {region}: {len(th)} held-out "
+          f"households; PSID couples {len(psid_x)}; prior sd of rho {prior_var ** 0.5:.3f}")
+
+    def summ(r, t=None):
+        ok = np.isfinite(r["mean"][:, j])
+        m, sd, lo, hi = (r[k][ok, j] for k in ("mean", "sd", "lo", "hi"))
+        s = {"n": int(ok.sum()), "median_of_means": float(np.median(m)),
+             "p10_of_means": float(np.percentile(m, 10)),
+             "p90_of_means": float(np.percentile(m, 90)),
+             "median_sd": float(np.median(sd)),
+             "contraction": float(1 - (sd ** 2).mean() / prior_var),
+             "mean_lt_1": float((m < 1).mean()), "lo_lt_0.55": float((lo < 0.55).mean()),
+             "failed": int(r["failed"])}
+        if t is not None:
+            t = t[ok]
+            s["true_median"] = float(np.median(t))
+            s["cov90"] = float(((lo <= t) & (t <= hi)).mean())
+        return s
+
+    sim = _posterior(members, xs, spec, inv, lw, args.n_draws)
+    out = {"region": region, "region_name": args.region, "by_true_rho": []}
+    print(f"{'':22s}{'n':>6s}{'true med':>10s}{'mean: med':>11s}{'p10':>7s}{'p90':>7s}"
+          f"{'sd med':>8s}{'contr':>7s}{'<1':>6s}{'lo<.55':>8s}{'cov90':>7s}")
+
+    def line(k, s):
+        print(f"{k:22s}{s['n']:6d}" + (f"{s['true_median']:10.3f}" if "true_median" in s
+                                       else f"{'':10s}")
+              + f"{s['median_of_means']:11.3f}{s['p10_of_means']:7.3f}{s['p90_of_means']:7.3f}"
+              f"{s['median_sd']:8.3f}{s['contraction']:7.3f}{s['mean_lt_1']:6.2f}"
+              f"{s['lo_lt_0.55']:8.2f}" + (f"{s['cov90']:7.3f}" if "cov90" in s else "")
+              + (f"   failed {s['failed']}" if s["failed"] else ""))
+
+    rho = th[:, j]
+    for a, b in zip(RHO_BINS[:-1], RHO_BINS[1:]):
+        k = (rho >= a) & (rho < b)
+        r = {f: (v[k] if f != "failed" else int(np.isnan(sim["mean"][k, j]).sum()))
+             for f, v in sim.items()}
+        s = {"lo": a, "hi": b, **summ(r, rho[k])}
+        out["by_true_rho"].append(s)
+        line(f"sim, true rho {a:g}-{b:g}", s)
+    out["all_in_region"] = summ(sim, rho)
+    line("sim, all in region", out["all_in_region"])
+    out["psid"] = summ(_posterior(members, psid_x, spec, inv, lw, args.n_draws))
+    line("PSID couples", out["psid"])
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -250,11 +324,17 @@ def main() -> None:
     a.add_argument("--device", default="cuda")
     a.add_argument("--n_draws", type=int, default=10_000)
     a.add_argument("--run_dirs", type=Path, nargs="+", default=RUN_DIRS)
+    r = sub.add_parser("recovery")
+    r.add_argument("--device", default="cuda")
+    r.add_argument("--n_draws", type=int, default=10_000)
+    r.add_argument("--run_dirs", type=Path, nargs="+", default=RUN_DIRS)
+    r.add_argument("--region", choices=sorted(REGIONS), default="a2w")
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args()
-    res = stats(args) if args.cmd == "stats" else ablate(args)
+    res = {"stats": stats, "ablate": ablate, "recovery": recovery}[args.cmd](args)
     prev = json.loads(args.out.read_text()) if args.out.exists() else {}
-    prev[args.cmd] = res
+    key = f"recovery_{args.region}" if args.cmd == "recovery" else args.cmd
+    prev[key] = res
     args.out.write_text(json.dumps(prev, indent=2))
     print(f"wrote {args.out}")
 

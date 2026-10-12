@@ -6007,3 +6007,180 @@ over how noisy a household's data are. PSID gets no added noise.
 - If ρ stays at the floor with the noise available, low ρ survives a fair
   chance for noise.
 - Held-out calibration under the same noise must hold in either case.
+
+### 43.8 A2n results: with noise available, couples' ρ leaves the floor and reads as about 2
+
+**Run.** `scripts/run_optionA2n_model.sh`, launched 10:32 UTC on 2026-10-12.
+The five members stopped after 56–69 epochs and finished between 11:29 and
+13:24. PSID, the held-out check, the ρ ablation and figures 42–44 followed by
+13:31. Every step returned rc = 0.
+
+**Held-out simulated households, carrying the same noise.** The cases and
+weights are §43.6's: 1,536 draws, weighted by p / q_held (ESS 758). A2w's values
+are in brackets.
+
+| 5-member ensemble | 90% coverage | truth < 5% / > 95% | corr | MAE / prior sd | contraction |
+|---|---|---|---|---|---|
+| β | 0.908 (0.903) | 0.043 / 0.049 | 0.602 (0.798) | 0.665 (0.470) | 0.363 (0.624) |
+| δ | 0.894 (0.906) | 0.057 / 0.048 | 0.722 (0.842) | 0.546 (0.390) | 0.538 (0.708) |
+| ρ | 0.905 (0.907) | 0.050 / 0.044 | 0.773 (0.881) | 0.507 (0.364) | 0.598 (0.769) |
+| R_gamma | 0.896 (0.922) | 0.056 / 0.048 | 0.722 (0.787) | 0.524 (0.428) | 0.529 (0.606) |
+
+- **Calibration holds under the noise.** Coverage is 0.894–0.908, with the
+  misses balanced on both sides. Single members cover 0.861–0.908.
+- **The noise costs identification everywhere,** β most: β's contraction
+  falls from 0.62 to 0.36. The weighted held-out log q falls from 7.151 to
+  4.872.
+- **By posterior-mean ρ,** coverage is 0.895–0.918 in every bin from 0.75 up.
+  Only 5 held-out households have a mean below 0.75: under noise, even
+  households whose true ρ is at the floor get means above it (next table).
+- **By posterior-mean R_gamma,** coverage is 0.974 in [1.021, 1.025) (n = 143)
+  and 0.854 in [1.025, 1.030) (n = 149). The other bins cover 0.868–0.925.
+
+**PSID**, uncorrected arm; A2w in brackets:
+
+| | couples (409) median | p10 / p90 | median posterior sd | all 889 median |
+|---|---|---|---|---|
+| β | 0.600 (0.753) | 0.438 / 0.785 | 0.164 (0.158) | 0.683 |
+| δ | 0.9847 (0.9827) | 0.9429 / 0.9971 | 0.0115 (0.0073) | 0.9840 |
+| ρ | 2.718 (0.794) | 1.955 / 3.519 | 0.984 (0.281) | 2.603 |
+| R_gamma | 1.0538 (1.0368) | 1.0308 / 1.0672 | 0.0100 (0.0086) | 1.0535 |
+
+- **Corrected arm:** couples' medians are β 0.594, δ 0.9766, ρ 2.663 and
+  R_gamma 1.0564.
+- **Laibson et al.'s values inside couples' 90% intervals:** β for 93% of
+  couples (A2w 71%), δ 71% (68%), ρ 94% (32%), and R_gamma = 1.05 for 73% (55%).
+- **Posterior mass inside the box:** median 0.999 (A2w 0.937). Median ESS /
+  kept 0.74; no household is unrepresentable.
+- **Per-couple correlation with A2w's means:** β 0.37, δ 0.65, ρ 0.23,
+  R_gamma 0.59. Couples are re-ranked, most of all on ρ.
+
+**The floors** (`check_optionA2_heldout.py`; the R_gamma floor is 1.021 for both):
+
+| share of households | couples, A2n | couples, A2w | all 889, A2n | all 889, A2w |
+|---|---|---|---|---|
+| ρ mean < 1.0 | 0.007 | 0.689 | 0.007 | 0.538 |
+| ρ lower 5% < 0.55 | 0.017 | 0.736 | 0.047 | 0.697 |
+| R_gamma mean < floor + 0.005 | 0.046 | 0.186 | 0.034 | 0.134 |
+| R_gamma lower 5% < floor + 0.0025 | 0.159 | 0.526 | 0.184 | 0.506 |
+| R_gamma mean < 1.025 | 0.034 | 0.161 | 0.026 | 0.115 |
+| either floor | 0.174 | 0.866 | 0.219 | 0.841 |
+| both floors | 0.002 | 0.396 | 0.012 | 0.362 |
+
+No couple's 90% interval now lies entirely below ρ = 1 (A2w: 31%). Most of
+R_gamma's pile at its floor went with ρ's.
+
+**What a known ρ looks like** (`rho_floor_diagnostic.py recovery`; written to
+`outputs/optionA2n/rho_floor_diagnostic.json` and, for A2w,
+`outputs/optionA2w/rho_floor_diagnostic.json`). The question it answers: are
+couples' A2n means of about 2.7 a high ρ, or the prior's centre (2.75)? It
+uses held-out simulated households in couples' A2n region (β 0.50–0.70, δ
+0.965–0.995, R_gamma 1.043–1.062: couples' p25–p75 of A2n means), with the
+run's noise, grouped by their true ρ. 784 households, 10,000 draws each,
+uncorrected arm. Run as `rho_floor_diagnostic.py --out
+outputs/optionA2n/rho_floor_diagnostic.json recovery --run_dirs
+outputs/optionA2n/s{0..4} --region a2n`, and again with `--region a2w` and
+with A2w's members.
+
+```
+A2n                         n   true med   means: med    p10    p90   sd med  contraction  mean<1  lo<0.55  cov90
+sim, true rho 0.5-0.75     32     0.612          1.152  0.656  1.634    0.494        0.828    0.38     0.50  0.562
+sim, true rho 0.75-1       80     0.944          1.402  0.836  2.385    0.640        0.678    0.25     0.24  0.863
+sim, true rho 1-1.5       128     1.303          1.984  1.341  2.920    0.888        0.527    0.00     0.05  0.852
+sim, true rho 1.5-2.5      96     1.868          2.634  1.982  3.440    0.951        0.472    0.00     0.00  0.948
+sim, true rho 2.5-3.5     160     2.871          3.282  2.505  3.734    0.967        0.440    0.00     0.00  0.994
+sim, true rho 3.5-5       288     4.195          3.754  3.119  4.147    0.882        0.524    0.00     0.00  0.976
+sim, all in region        784     2.813          3.110  1.385  3.965    0.900        0.529    0.04     0.05  0.927
+PSID couples              409                    2.725  1.952  3.516    0.985        0.417    0.01     0.02
+
+A2w, same region, no noise: true rho 0.5-0.75 -> means 0.747; 1.5-2.5 -> 2.295; PSID couples 0.796
+```
+
+- **Posterior means are not estimates of the true ρ here.** In this region
+  they sit above the truth for true ρ up to 3, and below it for ρ 3.5–5. That
+  is what a weakly identified parameter on a bounded prior does.
+- **On this scale, couples read as true ρ of about 2.** Their median mean of
+  2.725 lies between the 1.5–2.5 group's 2.634 and the 2.5–3.5 group's
+  3.282; interpolating gives true ρ ≈ 2.0. Their p10–p90 spread (1.95–3.52) is
+  that of a single 1.5–2.5 group (1.98–3.44), so the data show no
+  heterogeneity in ρ across couples beyond what the estimator's own noise
+  produces. Laibson et al.'s population estimate is 1.94.
+- **It is not just widening.** If couples were at ρ 0.5–0.75, A2n would still
+  put 38% of their means below 1 and 50% of their lower bounds below 0.55.
+  Couples have 1% and 2%, below even the simulated mix in their region (4%,
+  5%).
+- **PSID is a little less informative than simulated households:**
+  contraction 0.42 against 0.47 for the 1.5–2.5 group.
+- Coverage conditional on the true value is not a calibration test: an exact
+  posterior also under-covers near the box's edges. Under A2n it is 0.56 for
+  true ρ 0.5–0.75 here (A2w 0.63).
+- **In A2w's region of §43.6,** A2n gives the 1.5–2.5 group means of 3.48;
+  under A2w they were 2.78. Its coverage conditional on the true value falls
+  to 0.60–0.69 for true ρ 1–2.5 there. A2n's means overstate ρ more for
+  high-β, low-R_gamma households, so couples' means are read on their own
+  A2n region's scale, above.
+
+**Ablation under A2n** (`rho_floor_diagnostic.py ablate`; control: the 368
+households of §43.6, now carrying the noise):
+
+```
+                                    PSID couples: rho median   mean < 1   lo < 0.55   shift   control shift
+base                                       2.725                0.01       0.02          -         (3.482)
+consumption smoothed                       2.816                0.01       0.01       +0.092      +0.158
+all four smoothed                          2.526                0.02       0.05       -0.199      +0.036
+income smoothed                            2.713                0.01       0.01       -0.011      +0.013
+illiquid smoothed                          2.597                0.01       0.05       -0.127      -0.081
+liquid smoothed                            2.575                0.01       0.03       -0.150      +0.033
+illiquid x2 / x0.5                     2.629 / 2.735                                 -0.096 / +0.010  -0.203 / +0.058
+no card debt (liquid >= 0)                 2.317                0.01       0.06       -0.408      -0.147
+consumption x0.85 / x1.15              2.699 / 2.714                                 -0.025 / -0.010  +0.081 / -0.089
+all dollars x0.75 (income level)           2.618                0.01       0.02       -0.106      +0.059
+```
+
+- **PSID's consumption is no longer special.** Smoothing it moves couples' ρ
+  by +0.09 and the control's by +0.16, the same way and about as much. Under
+  A2w it moved PSID by +0.70 and the control by −0.59.
+- **The largest remaining lever is card debt.** Zeroing negative liquid wealth
+  lowers couples' ρ by 0.41, against 0.15 for the control. The network reads
+  "no debt and no liquid buffer" as lower ρ. No other change moves couples'
+  ρ by more than 0.2.
+
+**Figures.**
+- **42:** held-out simulated household, draw 31955, cardholder, ages 36–48:
+  the median-error household of 102 interior ones (standardised error 0.593).
+  All four 90% intervals cover the truth: β 0.909 → 0.744 [0.47, 0.98], δ
+  0.9540 → 0.9758 [0.952, 0.994], ρ 3.13 → 3.89 [2.30, 4.93], R_gamma 1.0661
+  → 1.0618 [1.048, 1.073].
+- **43:** PSID couple #7, ages 44–56, nearest the couples' median (distance
+  0.206): β 0.635 [0.34, 0.93], δ 0.9837 [0.969, 0.994], ρ 2.62 [0.97, 4.61],
+  R_gamma 1.0552 [1.038, 1.072].
+- **44:** per-household means for A2n couples and all 889, against A2w
+  couples.
+
+**Reading, against the test stated in §43.7.**
+- **Couples' ρ moved well off the floor while zero consumption noise was
+  available,** and held-out calibration holds under the same noise. By the
+  pre-stated rule, A2w's floor came from noise the model did not have:
+  PSID's wave-to-wave consumption volatility, read as weak smoothing.
+- **With that volatility allowed to be noise,** couples' posteriors look like
+  those of households with true ρ ≈ 2, close to Laibson et al.'s 1.94. β also
+  moves toward their value (0.60 against 0.53). R_gamma's floor pile mostly
+  goes, and posterior mass stays in the box.
+- **What it costs:** per-household ρ is now weakly identified. The median 90%
+  interval spans 3.2 of the box's 4.5, and couples' A2n means correlate 0.23
+  with A2w's. A2n speaks to where couples sit as a group, not to which
+  couples have higher ρ.
+- **The result depends on the noise range** (consumption 0–0.15), which
+  comes from PSID's own signature (§43.7). How far ρ's location moves with
+  the range's upper end has not been tested.
+- **Not addressed:** illiquid wealth's persistent excess volatility, and the
+  model's income risk being about twice couples' (§43.6 (c)).
+
+**Options, not started; the user decides:**
+- **Noise-range sensitivity:** retrain with consumption 0–0.10 and 0–0.20,
+  others as now. Retraining only; a 2-member screen is about 1 GPU-h per
+  setting.
+- **Adopt A2n as the working model** and run what follows on it: a new SBC,
+  OOS, and the penalty and α sensitivities.
+- **(b) consumption level only,** as a robustness arm (retraining only).
+- **(c) couples' income process** (regeneration, days).
