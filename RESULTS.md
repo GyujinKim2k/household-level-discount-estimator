@@ -7246,23 +7246,36 @@ gap, and these values are self-reported and include moves, so the series
   - **House prices after 2019.** A gain common to every owner in this one
     calendar period, which no lifecycle model with a constant R_gamma
     produces.
-- **§44.5's "zero mass that does not fade" is mostly vehicles.**
+- **§44.5's zero mass is a vehicles misfit.** It locates the misfit; it
+  does not excuse it.
   - **PSID:** nearly every couple owns a vehicle (0.22–0.33 × income), which
     keeps it off zero. Without vehicles, PSID couples' share below 0.1 ×
-    income is 0.58 at 25–29 and 0.12 at 55–59, at or above the model's 0.39
-    and 0.14.
-  - **The model:** it has no durable that everyone holds, so its low-wealth
-    couples sit at Z = 0.
-  - The drains in the model (§44.5) are still small balances drained in card
-    debt, but the size of the zero mass is not a misfit once vehicles are
-    set aside.
-- **What is left:**
+    income would be 0.58 at 25–29 and 0.12 at 55–59, at or above the model's
+    0.39 and 0.14.
+  - **The model:** it has no durable that every couple holds, so its
+    low-wealth couples sit at Z = 0. They drain small balances in card debt
+    (§44.5), which almost no PSID couple does with its car.
+  - **Vehicles stay in the definition.** The model's illiquid asset is meant
+    to hold them:
+    - Laibson et al.'s illiquid wealth includes vehicles net of their loans;
+    - the R_gamma dividend stands for the service flow of durables such as
+      homes and cars;
+    - A2's seed pool, the training households' starting wealth, is on the
+      same definition (§43).
+
+    Dropping vehicles because the model does not reproduce them would fit
+    the data to the model. The without-vehicles numbers are a diagnostic of
+    where the zero mass comes from, never an estimation input.
+- **What is left, on the shared definition:**
   - **Timing:** the model's couples hold illiquid wealth too early.
+  - **No durable floor:** nearly every PSID couple keeps some illiquid
+    wealth (a vehicle), while the model lets it go to zero.
   - **No housing-specific accrual:** no purchase step, no amortisation, no
     common price gains. These make PSID couples' build-up gradual and
     tenure-driven.
 
-  Netting (§44.4) and volatility (§44.2) are not it.
+  These are limits of the model, not of the data. Netting (§44.4) and
+  volatility (§44.2) are not it.
 
 **Figure 51:**
 - mean components by age, with the median ratio;
