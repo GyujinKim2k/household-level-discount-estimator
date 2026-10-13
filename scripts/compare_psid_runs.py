@@ -4,8 +4,10 @@ Pairs the households of two runs on the same PSID tensor and splits them by
 whether they report card debt (negative liquid wealth in any wave). For a
 change to the input that only touches debt, such as ``--debt_scale``, the
 households without debt are a check: their windows are the same, so their
-shift must be zero. The shift is run B's posterior mean minus run A's, also
-in prior sds of each parameter.
+shift must be zero. With ``--x_b`` (run B on a different tensor) households
+are split instead by whether their input changed, with the same check on the
+unchanged ones. The shift is run B's posterior mean minus run A's, also in
+prior sds of each parameter.
 
 Usage::
 
@@ -36,6 +38,10 @@ def main() -> None:
     ap.add_argument("--b", type=Path, required=True, help="Changed run.")
     ap.add_argument("--x", type=Path, required=True, help="The PSID tensor both runs used.")
     ap.add_argument("--arm", default="uncorrected", choices=["uncorrected", "corrected"])
+    ap.add_argument("--x_b", type=Path, default=None,
+                    help="Run B's tensor, when it differs from A's (RESULTS 44.4): "
+                         "households are then split by whether their input changed "
+                         "instead of by card debt.")
     args = ap.parse_args()
 
     d = torch.load(args.x, weights_only=False)
@@ -51,7 +57,13 @@ def main() -> None:
     idx, ma, la, ha = runs[0]
     _, mb, lb, hb = runs[1]
     ok = np.isfinite(ma[:, 0]) & np.isfinite(mb[:, 0])
-    debt = (x[idx, :, liquid] < 0).any(1)
+    if args.x_b is None:
+        split = (x[idx, :, liquid] < 0).any(1)
+        names = ("with card debt", "without card debt")
+    else:
+        xb = torch.load(args.x_b, weights_only=False)["x"].numpy()
+        split = (xb[idx] != x[idx]).any(axis=(1, 2))
+        names = ("input changed", "input unchanged")
     rr = json.loads((args.a / "summary.json").read_text()).get("rgamma_range")
     box = dataclasses.replace(PHASE3_RGAMMA, rgamma_low=rr[0], rgamma_high=rr[1]) if rr \
         else PHASE3_RGAMMA
@@ -59,7 +71,7 @@ def main() -> None:
     width_a, width_b = ha - la, hb - lb
 
     print(f"{args.a} -> {args.b}, {args.arm} arm; {ok.sum()} households")
-    for name, g in (("with card debt", debt & ok), ("without card debt", ~debt & ok)):
+    for name, g in ((names[0], split & ok), (names[1], ~split & ok), ("all", ok)):
         s = mb[g] - ma[g]
         print(f"\n{name}: {g.sum()} ({g.sum() / ok.sum():.1%})")
         print(f"{'':10s}{'median A':>10s}{'median B':>10s}{'shift med':>11s}{'p10':>9s}{'p90':>9s}"
@@ -70,7 +82,7 @@ def main() -> None:
                   f"{q[1]:+11.4f}{q[0]:+9.4f}{q[2]:+9.4f}"
                   f"{q[1] / box_sd[j]:+18.3f}{q[0] / box_sd[j]:+8.3f}{q[2] / box_sd[j]:+8.3f}"
                   f"{np.median(width_a[g, j]):17.4f} -> {np.median(width_b[g, j]):.4f}")
-        if name.startswith("without"):
+        if name in ("without card debt", "input unchanged"):
             print(f"  largest |shift| among them: {np.abs(s).max():.3g}")
 
 

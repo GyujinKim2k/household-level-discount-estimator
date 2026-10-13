@@ -158,6 +158,13 @@ PENSION = {
 }
 
 SELFEMP_CODES = (2, 3)
+
+#: Non-card debts subtracted from illiquid wealth (``--illiquid_debts``). Home
+#: equity is already net of the mortgage (w2 - w1).
+ILLIQUID_DEBTS = {
+    "all": ("re_b", "fb_b", "stud", "med", "legal", "famloan", "othdebt"),
+    "secured": ("re_b", "fb_b"),
+}
 COMPHS_LO, COMPHS_HI = 12, 16     # SCF EDCL 2-3: HS degree or some college
 
 #: Their three education groups, from `2_buildmoments.do:69-74`:
@@ -216,6 +223,14 @@ def main() -> None:
                         "to illiquid wealth. Needs PSID-data/pension.pkl from "
                         "the J365419 extract. Off by default so existing "
                         "tensors stay reproducible.")
+    p.add_argument("--illiquid_debts", choices=list(ILLIQUID_DEBTS), default="all",
+                   help="Which non-card debts illiquid wealth is net of. 'all' "
+                        "(default, every tensor so far): every debt PSID reports "
+                        "besides the card balance. 'secured': only the debts "
+                        "secured by illiquid assets (other real estate, farm and "
+                        "business), leaving out student, medical, legal, family "
+                        "and other loans, which the model has no place for "
+                        "(RESULTS 44.4).")
     p.add_argument("--educ_groups", action="store_true",
                    help="Keep all three education groups and record each "
                         "household's group index, instead of restricting to "
@@ -344,8 +359,7 @@ def main() -> None:
         # farm/business debts are only separate from 2013; in 2011 the asset
         # legs are already net, so subtracting nothing there is correct.
         debts = sum(col(fam, k, y).loc[idx].fillna(0)
-                    for k in ("re_b", "fb_b", "stud", "med", "legal",
-                              "famloan", "othdebt"))
+                    for k in ILLIQUID_DEBTS[args.illiquid_debts])
         ill = (assets + home - debts).to_numpy() * d_stock
         # The model requires Z >= 0. Netting pushes ~29% of household-waves to
         # the floor, which is a real feature of the data -- those households
@@ -384,7 +398,7 @@ def main() -> None:
                "waves": WAVES,
                "features": list(FEATURES_TWOASSET_AGE),
                "units": "2010 USD (CPI-U, base 2010; simulator's units)",
-               "liquid_def": args.liquid_def}
+               "liquid_def": args.liquid_def, "illiquid_debts": args.illiquid_debts}
     if args.match_laibson or args.educ_groups:
         e = educ_all[idx]
         payload |= {"educ": torch.from_numpy(e).long(),

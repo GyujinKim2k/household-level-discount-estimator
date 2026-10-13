@@ -68,6 +68,7 @@ from scripts.noise_calibration import (
     input_scale,
     region,
     robust_var,
+    signature,
 )
 
 OUT = Path("outputs/optionA3/zshock_calibration.json")
@@ -184,10 +185,13 @@ def main() -> None:
     ap.add_argument("--every", type=int, default=2, help="Use every n-th shard.")
     ap.add_argument("--n_boot", type=int, default=200)
     ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--psid_x", type=Path, default=PSID_X,
+                    help="PSID couples' tensor (RESULTS 44.4: illiquid wealth on "
+                         "another definition).")
     args = ap.parse_args()
 
     noise = tuple(json.loads(NOISE.read_text())["sigma_range"][F])
-    px = torch.load(PSID_X, weights_only=False)["x"].numpy().astype(np.float64)
+    px = torch.load(args.psid_x, weights_only=False)["x"].numpy().astype(np.float64)
     theta, card, train, held, _p, cfg = oa.load_shards([MAIN, STRIP])
     box = oa.box_of(cfg)
     files = (train + held)[::args.every]
@@ -221,6 +225,8 @@ def main() -> None:
                    "the cell's d = V6 - V1 among holders (IQR-based, asinh input scale, A2n "
                    "noise on) reaches PSID couples'; first pass compounding at the wave "
                    "level with deposits kept, no behavioural response",
+           "psid_x": str(args.psid_x),
+           "psid_noise_signature_a": signature(input_scale(px, F))[0],
            "applied_population": "holders", "hold": HOLD, "region": reg,
            "obs_noise_illiquid": list(noise), "composition": comp, "populations": {}}
     boot = np.random.default_rng(0).integers(0, len(px), (args.n_boot, len(px)))

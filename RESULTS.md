@@ -6890,9 +6890,99 @@ model, sigma = 0.14                  0.214  0.292  0.372  0.453  0.531  0.621   
 - **The liquid–illiquid correlation's sign** (PSID +0.29, model −0.50) is
   also outside what a shock on Z alone can change.
 
-### 44.3 Status
+### 44.3 Status: shelved (user, 2026-10-13)
 
-- **The pilot is not launched.** The calibration that was to set its range
+- **The pilot was not launched.** The calibration that was to set its range
   shows the shock is barely needed.
-- **The simulator change is kept.** It is tested and off by default.
-- **Next step: the user decides.**
+- **The simulator change is kept,** tested and off by default.
+- **The generation flag was not added.**
+- **Next:** probe the holding-pattern misfit without regenerating (§44.4).
+
+### 44.4 Probe: PSID illiquid wealth net of secured debt only
+
+**Question.** PSID couples are mostly "in between" holders (§44.2). Is that
+an artefact of netting unsecured debts out of illiquid wealth and flooring
+it at zero?
+
+**Built.**
+- **The flag:** `build_psid_tensor.py --illiquid_debts {all,secured}`.
+  - `all` is the definition used so far: every non-card debt.
+  - `secured` subtracts only the debts that are secured by illiquid assets:
+    other real estate, and farm and business.
+  - It leaves out student, medical, legal, family and other loans, which the
+    model has no place for.
+- **The splice:** `scripts/splice_psid_column.py` took the illiquid column
+  from the `secured` build and put it into the couples tensor, giving
+  `psid_x_comphs_couples_illsecured.pt`. It refuses to splice unless both
+  hold:
+  - the `all` rebuild reproduces the couples' illiquid column exactly;
+  - the `secured` build differs from the `all` build in that column only.
+
+  Both held. The change touches 35.5% of household-waves and 71% of couples.
+
+**PSID couples under the two definitions:**
+
+| | all non-card debt (as used) | secured debt only |
+|---|---|---|
+| household-waves at zero | 14.1% | 5.0% |
+| illiquid / mean income, p25 / median / p75 | 0.22 / 1.03 / 2.36 | 0.35 / 1.17 / 2.48 |
+| holders / never / in between | 0.30 / 0.03 / 0.66 | 0.34 / 0.01 / 0.65 |
+| start below 0.5 × income and end above | 36% | 36% |
+| start above and end below | 6% | 5% |
+| holders' d (90%) | 0.389 (0.163–0.523) | 0.290 (0.137–0.529) |
+| all couples' d (90%) | 0.790 (0.684–0.938) | 0.758 (0.607–0.887) |
+| noise signature a | 0.063 | 0.051 |
+
+- **Holders:** the model's median cell has d 0.284, so under the secured
+  definition the rule's range for the shock is [0, 0]. No cell needs one.
+- **All couples:** the range is [0, 0.34], and 44 of 96 cells cannot reach
+  PSID's d. Outputs are in `outputs/optionA3/zshock_calibration_illsecured.json`.
+
+**A2n's posteriors on the secured tensor** (`optionA.py psid`, the five A2n
+members, uncorrected arm; split with `compare_psid_runs.py --x_b`):
+- **Couples' medians:** β 0.600 → 0.617, δ 0.9847 → 0.9852, ρ 2.718 →
+  2.705, R_gamma 1.0538 → 1.0555.
+- **The 290 couples whose input changed:** median shifts are about 0. The
+  p10 / p90 of the shifts are −0.30 / +0.06 for ρ and −0.002 / +0.060 for β.
+- **The 119 unchanged couples are identical,** which checks the splice.
+- **Figure 49:** couples' means under both definitions.
+
+**Reading.**
+- **Netting unsecured debt is not behind the holding-pattern misfit,** and
+  it barely moves the estimates. The headline keeps the definition used so
+  far; the secured variant is a robustness check.
+- **Without that netting, the valuation shock is not needed at all for
+  holders.** A2n's noise alone reproduces their persistence.
+- **The misfit is about when couples accumulate.**
+  - **PSID:** a third of couples build illiquid wealth from below half a
+    year's income to above it within the 12 years.
+  - **The model, in couples' region:** couples mostly hold it throughout
+    (46–52%) or never (9–31%).
+
+  That is a question of levels by age, not of volatility. It belongs with
+  the open items on the income process (§43.6 (c)) and on initial
+  conditions (§42–43).
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/build_psid_tensor.py --match_laibson --with_pension \
+        --illiquid_debts all --out data/processed/psid_x_pension_illdebts_all.pt
+    PYTHONPATH=. .venv/bin/python scripts/build_psid_tensor.py --match_laibson --with_pension \
+        --illiquid_debts secured --out data/processed/psid_x_pension_illdebts_secured.pt
+    PYTHONPATH=. .venv/bin/python scripts/splice_psid_column.py --base data/processed/psid_x_comphs_couples.pt \
+        --check data/processed/psid_x_pension_illdebts_all.pt \
+        --source data/processed/psid_x_pension_illdebts_secured.pt \
+        --feature illiquid_assets --out data/processed/psid_x_comphs_couples_illsecured.pt
+    PYTHONPATH=. .venv/bin/python scripts/illiquid_shock_calibration.py \
+        --psid_x data/processed/psid_x_comphs_couples_illsecured.pt \
+        --out outputs/optionA3/zshock_calibration_illsecured.json
+    PYTHONPATH=. .venv/bin/python scripts/optionA.py psid --run_dirs outputs/optionA2n/s{0..4} \
+        --x data/processed/psid_x_comphs_couples_illsecured.pt --out outputs/psid_optionA2n_couples_illsecured
+    PYTHONPATH=. .venv/bin/python scripts/compare_psid_runs.py --a outputs/psid_optionA2n_couples \
+        --b outputs/psid_optionA2n_couples_illsecured --x data/processed/psid_x_comphs_couples.pt \
+        --x_b data/processed/psid_x_comphs_couples_illsecured.pt
+    PYTHONPATH=. .venv/bin/python scripts/plot_optionA2_psid.py \
+        --series "A2n, couples (illiquid net of all non-card debt)=outputs/psid_optionA2n_couples" \
+                 "A2n, couples (illiquid net of secured debt only)=outputs/psid_optionA2n_couples_illsecured" \
+        --out figures/49_optionA2n_illiquid_debts.png \
+        --title "PSID couples' posterior means under A2n: illiquid wealth net of all non-card debt and of secured debt only"
