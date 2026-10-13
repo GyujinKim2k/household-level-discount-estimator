@@ -11,6 +11,11 @@ Usage::
     PYTHONPATH=. .venv/bin/python scripts/plot_optionA2_psid.py
     PYTHONPATH=. .venv/bin/python scripts/plot_optionA2_psid.py \\
         --series "A2w, couples=outputs/psid_optionA2w_couples" ... --out figures/41_...png
+
+A series may also be ``oos_optionA.py``'s ``oos_household_thetas.npz`` (the
+5-wave members' posterior means from waves 1-5; households that fell back to
+the population are left out). Its R_gamma range is not recorded, so give a
+directory series from the same model as well.
 """
 
 from __future__ import annotations
@@ -44,10 +49,14 @@ def main() -> None:
     series, lo = {}, BOX.rgamma_low
     for e in args.series:
         k, d = e.split("=", 1)
-        m = np.load(Path(d) / "posterior_uncorrected.npz")["mean"]
+        if d.endswith(".npz"):   # oos_optionA.py's household thetas (waves 1-5)
+            z = np.load(d)
+            m, rr = z["theta"][~z["fallback"]], None
+        else:
+            m = np.load(Path(d) / "posterior_uncorrected.npz")["mean"]
+            rr = json.loads((Path(d) / "summary.json").read_text()).get("rgamma_range")
         m = m[np.isfinite(m[:, 0])]
         series[f"{k}  N={len(m)}"] = m
-        rr = json.loads((Path(d) / "summary.json").read_text()).get("rgamma_range")
         lo = min(lo, rr[0]) if rr else lo
     box = dataclasses.replace(BOX, rgamma_low=lo)
     names = np.array(box.names)

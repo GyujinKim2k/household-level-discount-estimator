@@ -160,6 +160,7 @@ def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY) 
     th0, x0, pid0, _ = oa.windows(files_base[:1], theta_base, seed=oa.SBC_SEED,
                                   noise=spec.obs_noise)
     th0 = th0.numpy().astype(float)
+    _, raw0, _ = oa.windows_raw(files_base[:1], theta_base, seed=oa.SBC_SEED)
     r0 = posterior(members, x0, th0, spec, n_draws)
     out = {"n_draws": n, "n_households": int(len(th0)), "by_scale": {}}
     names = list(oa.BOX.names)
@@ -182,21 +183,42 @@ def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY) 
         if not (np.array_equal(pid1.numpy(), pid0.numpy()) and np.array_equal(th1, th0)):
             raise SystemExit(f"{shards}: households are not paired with the SBC set's")
         r1 = posterior(members, x1, th1, spec, n_draws)
+        # Households whose simulated (noise-free) windows the scale leaves
+        # unchanged: the solve is a grid search, so the penalty moves a path
+        # only where it changes a choice.
+        _, raw1, _ = oa.windows_raw(files_s[:1], theta_s, seed=oa.SBC_SEED)
+        same = (raw1 == raw0).flatten(1).all(1).numpy()
         ok = np.isfinite(r0["mean"][:, 0]) & np.isfinite(r1["mean"][:, 0])
         d = (r1["mean"] - r0["mean"])[ok] / spec.prior_sd
         cov = ((r1["lo"] <= th1) & (th1 <= r1["hi"]))[ok]
-        row = {}
+        moved = ~same[ok]
+        row = {"share_windows_unchanged": float(same.mean())}
         for j, k in enumerate(names):
             row[k] = {"shift_over_prior_sd_median": float(np.median(d[:, j])),
                       "shift_over_prior_sd_p10": float(np.percentile(d[:, j], 10)),
                       "shift_over_prior_sd_p90": float(np.percentile(d[:, j], 90)),
                       "shift_median": float(np.median(d[:, j]) * spec.prior_sd[j]),
+                      "shift_over_prior_sd_mean": float(d[:, j].mean()),
+                      "changed_shift_over_prior_sd_p10_p50_p90":
+                          np.percentile(d[moved, j], [10, 50, 90]).tolist(),
+                      "changed_abs_shift_over_prior_sd_median":
+                          float(np.median(np.abs(d[moved, j]))),
                       "cov90": float(cov[:, j].mean()),
-                      "cov90_scale1": float(cov0[ok, j].mean())}
+                      "cov90_scale1": float(cov0[ok, j].mean()),
+                      "cov90_changed": float(cov[moved, j].mean()),
+                      "cov90_scale1_changed": float(cov0[ok][moved, j].mean())}
         out["by_scale"][str(s)] = row
         print(f"{'scale ' + str(s):16s}" + "".join(
             f"{row[k]['shift_over_prior_sd_median']:+9.3f} ({row[k]['shift_over_prior_sd_p10']:+.2f}, "
             f"{row[k]['shift_over_prior_sd_p90']:+.2f}){row[k]['cov90']:8.3f}" for k in names))
+        print(f"{'':16s}windows unchanged {same.mean():.3f}; households whose windows changed: "
+              "shift p10 / p50 / p90, |shift| median, cov90 at the scale (at 1)")
+        for k in names:
+            c = row[k]
+            q = c["changed_shift_over_prior_sd_p10_p50_p90"]
+            print(f"{'':18s}{k:8s} {q[0]:+.3f} / {q[1]:+.3f} / {q[2]:+.3f}   "
+                  f"{c['changed_abs_shift_over_prior_sd_median']:.3f}   "
+                  f"{c['cov90_changed']:.3f} ({c['cov90_scale1_changed']:.3f})")
     print("(shifts in prior sds of each parameter: posterior mean at the scale minus at 1)")
     return out
 

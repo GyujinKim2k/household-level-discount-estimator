@@ -6481,3 +6481,263 @@ range moves couples' ranking no more than the training seeds do.
                  "every range x 4/3=outputs/psid_optionA2n_sens_all133_couples" \
         --out figures/47_optionA2n_noise_sensitivity.png \
         --title "PSID couples' posterior means under A2n's noise ranges moved (2 members each)"
+
+### 43.11 A2n's SBC, liquidation-penalty and α checks: calibrated; the penalty is absorbed by R_gamma and β, not ρ
+
+**Run.** `scripts/run_optionA2n_sbc.sh`, every step rc = 0
+(`logs/optionA2n_step2.log`):
+- the SBC set, 18:35–22:08 UTC on 2026-10-12 (3.55 h);
+- the penalty sets, ×0.5 to 23:50 and ×1.5 to 01:31;
+- the evaluation and the α run, by 01:34.
+
+The evaluation was run again at 06:58 with the unchanged-window breakdown
+added to the penalty check (`logs/optionA2n_sbc_evaluate_rerun.log`). Its SBC
+numbers are identical to the first run's.
+
+**The SBC set.**
+- 1,024 uniform-prior draws on A2w's box (R_gamma 1.021–1.075), 16
+  households each.
+- Generated with every A2 training setting: full grid, fixed solver, card
+  type and R_gamma per block of 16 draws, PSID couples' seed pool.
+- Seed 40,000,000; its household streams overlap no training run and no
+  earlier SBC set.
+- **Every window carries A2n's noise,** drawn as in training (§43.9).
+- Scored on the five A2n members, importance-weighted to the uniform prior,
+  2,000 draws per household (`scripts/sbc_optionA2.py`).
+- Coverage uses all 16,384 households, with a bootstrap over blocks of 16
+  draws. KS uses one household per draw.
+
+| | 90% coverage (90% CI) | KS p, one household per draw |
+|---|---|---|
+| β | 0.901 (0.895–0.907) | 0.795 |
+| δ | 0.893 (0.885–0.901) | 0.941 |
+| ρ | 0.902 (0.894–0.910) | 0.625 |
+| R_gamma | 0.895 (0.858–0.925) | 0.103 |
+
+By posterior-mean region, coverage is:
+- **β:** 0.897–0.920;
+- **δ:** 0.891–0.905;
+- **ρ:** 0.897–0.906 in every bin, including 0.5–1 (n = 418);
+- **R_gamma:** 0.880–0.953. It is widest at the edges: 0.953 in [1.021,
+  1.025) (n = 338) and 0.880 (0.781–0.947) in [1.06, 1.075).
+
+- **A2n is calibrated on fresh draws** with the noise it was trained under.
+  Every interval reaches 0.90, every KS p is above 0.10, and the rank ECDFs
+  stay inside the KS band (figure 45).
+- **§38's β tail excess is gone.** Where β's mean is in [0.8, 0.95), the
+  truth is above the 95th percentile 0.052 (0.035–0.072) of the time. §38's
+  logit arm gave 0.062 (0.044–0.081).
+- Coverage given a true β ≥ 0.95 is 0.556 (n = 1,168). As in §38, coverage
+  conditional on the truth at a box edge is not a calibration test.
+
+**Liquidation penalty misspecified (×0.5, ×1.5).**
+- **The sets:** the SBC set's first 512 draws again, same seed, with
+  Laibson et al.'s liquidation penalty scaled by 0.5 and 1.5 in both the solve
+  and the simulation (`generate_dataset.py --liqpen_scale`).
+- **What is held fixed:** households, income shocks, card type and R_gamma
+  are the same, and the windows draw the same noise. Each household is
+  therefore paired with itself at the penalty the model assumes.
+- **What changes:** the models are not retrained. This measures how far a
+  wrong penalty moves the estimates, not what the right one is.
+
+| | penalty ×0.5 | penalty ×1.5 |
+|---|---|---|
+| households whose windows are unchanged | 27.1% | 31.8% |
+| changed households: β shift, median (p10, p90) | −0.035 (−0.133, +0.018) | +0.021 (−0.017, +0.101) |
+| δ | +0.0024 (−0.0071, +0.0278) | −0.0003 (−0.0116, +0.0090) |
+| ρ | −0.02 (−0.49, +0.29) | −0.01 (−0.34, +0.23) |
+| R_gamma | +0.0039 (−0.0018, +0.0148) | −0.0024 (−0.0097, +0.0032) |
+| 90% coverage, all 8,192: β / δ / ρ / R_gamma | 0.876 / 0.832 / 0.870 / 0.829 | 0.892 / 0.890 / 0.904 / 0.794 |
+| at the true penalty | 0.902 / 0.892 / 0.903 / 0.903 | same |
+
+Shifts are posterior mean at the scale minus at 1, in parameter units.
+`sbc16.json` has them in prior sds as well.
+
+- **Unchanged windows:** the solve is a grid search, so the penalty changes a
+  path only where it changes a choice. For about 30% of households it never
+  does, and their posteriors are identical.
+- **ρ barely moves.** Its median shift is 0 at both scales, and its coverage
+  stays at 0.87–0.90.
+- **R_gamma and β absorb the penalty.** A cheaper liquidation reads as a
+  higher illiquid return and a lower β; a dearer one the reverse. R_gamma's
+  coverage falls to 0.83 at ×0.5 and to 0.79 at ×1.5, and to 0.74 among the
+  households whose windows changed at ×1.5. δ's falls to 0.83 at ×0.5.
+- **For PSID couples:** if the true penalty is half or one and a half times
+  Laibson et al.'s, the ρ reading of §43.8 and §43.10 stands. Couples'
+  R_gamma, and to a lesser degree β, should be read with the penalty as a
+  maintained assumption. §41.3 found the penalty barely moves behaviour on
+  average; here it moves about 70% of paths a little, and R_gamma reads
+  those moves.
+
+**α: PSID card debt × 2.02.** This is a stress test, not a correction. §42.3
+found no reason to apply SCF's under-reporting factor to PSID. The run uses
+`optionA.py psid --debt_scale 2.02` on the five A2n members. The couple-level
+split uses `scripts/compare_psid_runs.py`.
+
+| couples (409), uncorrected arm | as reported | card debt × 2.02 |
+|---|---|---|
+| β median | 0.600 | 0.561 |
+| δ median | 0.9847 | 0.9869 |
+| ρ median | 2.718 | 2.634 |
+| R_gamma median | 1.0538 | 1.0529 |
+| Laibson et al.'s β / δ / ρ / R_gamma inside the 90% interval | 93% / 71% / 94% / 73% | 90% / 71% / 92% / 76% |
+
+- **325 couples (79.5%) report card debt in some wave.** Their shifts,
+  median (p10, p90), are:
+  - β −0.021 (−0.100, +0.018);
+  - ρ −0.05 (−0.67, +0.13);
+  - δ +0.0004 (−0.0014, +0.0107);
+  - R_gamma −0.0002 (−0.0058, +0.0024).
+- **The 84 couples without debt are unchanged to the last digit.** This
+  checks that the scaling touches only debt.
+- **Doubling debt moves couples a little toward Laibson et al.** β falls by
+  0.04 and ρ by 0.08 at the median. Posterior mass stays in the box (median
+  0.999).
+- **Debt's effect on ρ is not monotone.** Zeroing it in §43.8's ablation
+  lowered couples' ρ by 0.41, and doubling it lowers it by 0.08.
+- **Figure 46:** couples' means with debt as reported and doubled.
+
+**Reproduce.**
+
+    ./scripts/run_optionA2n_sbc.sh        # SBC and penalty sets, evaluation, alpha run, figures 45-46
+    PYTHONPATH=. .venv/bin/python scripts/sbc_optionA2.py --run_dirs outputs/optionA2n/s{0..4}   # evaluation alone
+    PYTHONPATH=. .venv/bin/python scripts/compare_psid_runs.py --a outputs/psid_optionA2n_couples \
+        --b outputs/psid_optionA2n_couples_alpha202 --x data/processed/psid_x_comphs_couples.pt
+
+### 43.12 Out-of-sample forecasts under A2n: own parameters help consumption; every model rule beats persistence on wealth
+
+**Run.** `scripts/run_oos_optionA2n.sh`, every step rc = 0
+(`logs/oos_optionA2n.log`):
+- **Members:** five 5-wave members on A2n's setup (main run plus R_gamma
+  strip, logit β and R_gamma, the same noise ranges). They see waves 1–5
+  only, and stopped after 46–60 epochs (01:34–03:57 UTC on 2026-10-13).
+- **Forecasts** (`scripts/oos_optionA.py`, 03:57–06:02, output in
+  `outputs/oos_optionA2n`):
+  - PSID couples (409): parameters from waves 1–5, importance-weighted to the
+    uniform prior. No couple fell back to the population.
+  - Each couple is run forward from its observed wave-5 state and scored on
+    waves 6–7 by CRPS.
+  - R_gamma per couple, rounded to 0.0025 for batching.
+  - The model's own households start from the couples' seed pool, as in
+    training. The script checks the pool against the training data's hash.
+- **Rules compared:**
+  - **household:** each couple's own parameters;
+  - **population:** the median of couples' means, (0.649, 0.979, 2.69,
+    1.0558);
+  - **laibson:** Laibson et al.'s θ, with R_gamma 1.05;
+  - **persistence:** wave 5 carried forward.
+- **Card access:** couples seen borrowing in waves 1–5 (74.6%) are
+  cardholders. For the rest, the cardholder weight is a / (1 + a), as in
+  §39.2.
+  - Here a = 0.124 (median by age): the share of the population θ's
+    cardholders who never borrow over five waves. It is no longer 0, as it
+    was in §39.2. Non-borrowers' median weight is 0.109.
+  - The headline, the "no card unless seen borrowing" proxy and a 0.5 weight
+    give CRPS within 0.05 of each other, and the same household-minus-
+    population differences within 0.007. The headline is reported.
+- **Scoring with noise:** forecasts are scored as simulated, and again with
+  the training noise drawn onto the forecast samples, since PSID's targets
+  carry their own noise.
+
+```
+CRPS, as simulated (lower is better)   household  population  laibson  persistence
+consumption  wave 6                       0.255      0.315      0.298     0.257
+             wave 7                       0.259      0.310      0.295     0.268
+liquid       wave 6                       1.605      1.676      1.673     1.769
+             wave 7                       1.618      1.588      1.582     1.920
+illiquid     wave 6                       0.878      0.911      0.928     0.952
+             wave 7                       1.028      1.008      1.024     1.223
+
+household minus population   diff     95% CI             couples better
+consumption  wave 6         -0.060  [-0.076, -0.045]        61.9%
+             wave 7         -0.052  [-0.066, -0.038]        57.5%
+liquid       wave 6         -0.070  [-0.180, +0.048]        59.2%
+             wave 7         +0.030  [-0.076, +0.136]        55.5%
+illiquid     wave 6         -0.034  [-0.097, +0.029]        47.2%
+             wave 7         +0.020  [-0.051, +0.086]        41.1%
+all, averaged               -0.028  [-0.061, +0.007]        56.5%
+```
+
+**With the training noise on the forecasts:**
+- household consumption CRPS is 0.245 and 0.252, illiquid 0.811 and 0.984;
+- liquid is unchanged, since its noise is small;
+- the household-minus-population differences move by at most 0.004.
+
+**Reading.**
+- **Own parameters help consumption,** and that is the only place the gain
+  is clear.
+  - Both waves' 95% intervals exclude 0, and 58–62% of couples are better
+    off.
+  - The household rule ties persistence at wave 6 (0.255 against 0.257) and
+    beats it at wave 7 (0.259 against 0.268).
+  - Under §39.2 (option A, all comphs heads, before the solver fix of §40)
+    the household rule's consumption gain was −0.013 and −0.005.
+- **On wealth, every model rule beats persistence at both waves.**
+  - Liquid: 1.58–1.68 against 1.77–1.92.
+  - Illiquid: 0.88–1.03 against 0.95–1.22.
+  - Under §39.2, persistence beat every rule on liquid, and every rule but
+    Laibson's on illiquid.
+  - Own parameters add nothing clear over the population's on wealth: every
+    interval spans 0.
+- **The comparison with §39.2 is not like for like.** Since then the sample
+  has become couples, and the model has gained the solver fix, the seed pool,
+  card types and the noise. It shows that the model now forecasts couples'
+  wealth better than carrying it forward. It does not show which change did
+  it.
+- **Parameters from waves 1–5 against all seven** (figure 48): couples'
+  medians are β 0.649 (0.600), δ 0.979 (0.985), ρ 2.69 (2.72) and R_gamma
+  1.0558 (1.0538). Per-couple correlations are 0.81, 0.76, 0.80 and 0.71.
+  Two fewer waves move ρ's location little.
+
+**Wealth dynamics, wave 5 to 6** (population θ, headline card weights; model
+paths without the observation noise; Z illiquid, X liquid; "big" = a change
+beyond the larger of half the starting value and $20,000):
+
+```
+                      ΔZ median   ΔZ p10    ΔZ p90   Z big up  Z big down  Z down   ΔX p10   ΔX p90   corr(ΔX, ΔZ)
+PSID couples             +7,000   -91,000  +197,000    31.5%      11.0%     36.2%   -13,000  +21,000      +0.29
+model                   +30,000    -2,000   +90,000    22.0%       0.7%     13.0%   -17,000  +14,000      -0.50
+```
+
+Liquid wealth by age, PSID couples (gross) against the model's own
+households:
+
+| ages | PSID median | PSID in debt | model cardholders: median / in debt | model, no card: median |
+|---|---|---|---|---|
+| 35–39 | $0 | 44% | $0 / 48% | $3,000 |
+| 40–44 | $0 | 46% | $0 / 49% | $4,000 |
+| 45–49 | $0 | 49% | −$1,000 / 51% | $4,000 |
+
+- **§24's liquid level misfit is gone for couples.** The model's cardholders
+  are in debt about as often as PSID couples (48–51% against 44–49%), with
+  medians near zero on both sides. Under §24 the model was 65–83% in debt
+  against PSID's 21–22%, with a −$6,000 to −$13,000 median.
+- **The illiquid misfit is the one left.**
+  - **The model's illiquid wealth climbs steadily:** median +$30,000 in two
+    years, falling for 13% of couples and by a large amount for 0.7%.
+  - **PSID couples' illiquid wealth is far more volatile:** median +$7,000,
+    falling for 36% and by a large amount for 11%. Its upper tail is about
+    twice the model's (p90 +$197,000 against +$90,000). Its lower tail is far
+    deeper (p10 −$91,000 against −$2,000).
+  - **The two accounts move in opposite directions in the model** (−0.50:
+    money moves from one to the other) and together in PSID (+0.29: house
+    prices, markets and income move both).
+  - **What noise can and cannot explain:** observation noise drawn
+    independently for each account would add falls and pull the correlation
+    toward 0. It cannot make the correlation positive. This is §43.7's
+    persistent excess illiquid volatility, now seen out of sample.
+
+**Limits.**
+- Couples only, one two-wave horizon.
+- Starting states are the observed wave-5 values, which carry their own
+  noise.
+- Card access is imputed for the 25% of couples never seen borrowing.
+
+**Reproduce.**
+
+    ./scripts/run_oos_optionA2n.sh        # 5-wave members, then forecasts -> outputs/oos_optionA2n/oos_results.json
+    PYTHONPATH=. .venv/bin/python scripts/plot_optionA2_psid.py \
+        --series "A2n, waves 1-7 (5 members)=outputs/psid_optionA2n_couples" \
+                 "A2n, waves 1-5 only (5 five-wave members)=outputs/oos_optionA2n/oos_household_thetas.npz" \
+        --out figures/48_optionA2n_oos_thetas.png \
+        --title "PSID couples' posterior means: A2n from all seven waves and from waves 1-5 (the out-of-sample forecasts' parameters)"
