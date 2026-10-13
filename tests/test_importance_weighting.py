@@ -17,6 +17,7 @@ from scipy import stats
 
 from hh_npe.evaluation.weighted import (
     resample,
+    sample_draws,
     sample_weighted,
     sbc_from_u,
     summarize,
@@ -149,6 +150,32 @@ def test_weighted_sbc_is_calibrated_and_unweighted_is_not():
     q = sample_weighted(members, x, log_weight=None, **kw)
     _cov_q, ks_q = sbc_from_u(q["u"])
     assert ks_q[0] < 1e-6, "the test has no power: the proposal's own posterior passed"
+
+
+def test_saved_draws_are_the_draws_the_summaries_use():
+    """``sample_draws`` (RESULTS 45) samples exactly as ``sample_weighted``:
+    with identically seeded members, summarizing a row's saved draws gives
+    that row's summaries bit for bit."""
+    rng = np.random.default_rng(5)
+    truth = rng.random(40)
+    x = torch.from_numpy(truth + 0.15 * rng.standard_normal(40)).float()[:, None]
+
+    def lw(th):
+        return -np.log(_proposal_density(th[:, 0]))
+
+    kw = dict(n_draws=301, low=[0.0], high=[0.97], log_weight=lw, batch=16)
+    r = sample_weighted([_ExactUnderProposal(3), _ExactUnderProposal(4)], x, **kw)
+    d = sample_draws([_ExactUnderProposal(3), _ExactUnderProposal(4)], x, **kw)
+    np.testing.assert_array_equal(d["n_kept"], r["n_kept"])
+    np.testing.assert_array_equal(d["in_box_frac"], r["in_box_frac"])
+    assert d["theta"].shape == (40, 302, 1) and d["theta"].dtype == np.float32
+    for i in range(40):
+        n = d["n_kept"][i]
+        assert np.isnan(d["theta"][i, n:]).all() and np.isneginf(d["log_w"][i, n:]).all()
+        s = summarize(d["theta"][i, :n].astype(float), d["log_w"][i, :n])
+        for k in ("mean", "sd", "lo", "hi", "ess"):
+            # float32 storage of theta: equal to float32 resolution.
+            np.testing.assert_allclose(s[k], r[k][i], rtol=1e-6, atol=1e-6)
 
 
 def test_rows_without_admissible_draws_are_nan_not_a_hang():

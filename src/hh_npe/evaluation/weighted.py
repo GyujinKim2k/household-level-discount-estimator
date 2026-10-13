@@ -95,38 +95,88 @@ def sample_weighted(
     draws per member in one call: at 40,000 draws per row, 256 rows put 2 M
     draws through each flow and ran > 25 min on PSID where 32 rows took 86 s.
     """
+    truth = None if truth is None else np.asarray(truth, float)
+    keys = ("mean", "sd", "lo", "hi") + (("u",) if truth is not None else ())
+    res: dict[str, list] = {k: [] for k in keys + ("in_box_frac", "n_kept", "ess")}
+    for b0, frac, rows in _kept_rows(members, x, n_draws, low, high, batch, max_per_call):
+        res["in_box_frac"].append(frac)
+        for j, keep in enumerate(rows):
+            res["n_kept"].append(len(keep))
+            if len(keep) < min_kept:
+                for k in keys:
+                    res[k].append(np.full(keep.shape[-1], np.nan))
+                res["ess"].append(np.nan)
+                continue
+            th = invert(keep) if invert is not None else keep
+            lw = log_weight(th) if log_weight is not None else None
+            r = summarize(th, lw, None if truth is None else truth[b0 + j])
+            for k in keys + ("ess",):
+                res[k].append(r[k])
+    out = {k: np.array(v) for k, v in res.items() if k != "in_box_frac"}
+    out["in_box_frac"] = np.concatenate(res["in_box_frac"])
+    return out
+
+
+def _kept_rows(members, x, n_draws, low, high, batch, max_per_call):
+    """The sampling loop of :func:`sample_weighted` and :func:`sample_draws`:
+    per batch of rows, ``(first row, in-box fraction per row, [each row's
+    in-box flow-space draws, float64])``."""
     dev = posterior_device(members[0])
     lo_b = torch.as_tensor(np.asarray(low), dtype=torch.float32, device=dev)
     hi_b = torch.as_tensor(np.asarray(high), dtype=torch.float32, device=dev)
     per = max(1, int(np.ceil(n_draws / len(members))))
     batch = max(1, min(batch, max_per_call // per))
-    truth = None if truth is None else np.asarray(truth, float)
-    keys = ("mean", "sd", "lo", "hi") + (("u",) if truth is not None else ())
-    res: dict[str, list] = {k: [] for k in keys + ("in_box_frac", "n_kept", "ess")}
     with torch.no_grad():
         for b0 in range(0, len(x), batch):
             xb = x[b0:b0 + batch].to(dev)
             s = torch.cat([m.posterior_estimator.sample((per,), condition=xb)
                            for m in members], dim=0)              # (S, B, d)
             inb = ((s >= lo_b) & (s <= hi_b)).all(-1)
-            res["in_box_frac"].append(inb.float().mean(0).cpu().numpy())
+            frac = inb.float().mean(0).cpu().numpy()
             s, inb = s.cpu().numpy(), inb.cpu().numpy()
-            for j in range(s.shape[1]):
-                keep = s[inb[:, j], j, :].astype(float)
-                res["n_kept"].append(len(keep))
-                if len(keep) < min_kept:
-                    for k in keys:
-                        res[k].append(np.full(s.shape[-1], np.nan))
-                    res["ess"].append(np.nan)
-                    continue
-                th = invert(keep) if invert is not None else keep
-                lw = log_weight(th) if log_weight is not None else None
-                r = summarize(th, lw, None if truth is None else truth[b0 + j])
-                for k in keys + ("ess",):
-                    res[k].append(r[k])
-    out = {k: np.array(v) for k, v in res.items() if k != "in_box_frac"}
-    out["in_box_frac"] = np.concatenate(res["in_box_frac"])
-    return out
+            yield b0, frac, [s[inb[:, j], j, :].astype(float) for j in range(s.shape[1])]
+
+
+def sample_draws(
+    members: Sequence,
+    x: torch.Tensor,
+    n_draws: int,
+    low,
+    high,
+    invert: Callable | None = None,
+    log_weight: Callable | None = None,
+    batch: int = 256,
+    max_per_call: int = 262_144,
+) -> dict[str, np.ndarray]:
+    """Every row's weighted draws themselves, for what needs more than
+    :func:`sample_weighted`'s summaries (the population layer, RESULTS 45).
+
+    Same sampling as :func:`sample_weighted` (reject in the flow's box, invert,
+    then weight), so ``summarize(theta[i, :n_kept[i]], log_w[i, :n_kept[i]])``
+    is its row ``i``. Rows are padded to the per-row budget: ``theta``
+    ``(N, S, d)`` float32, NaN past ``n_kept``; ``log_w`` ``(N, S)`` float64,
+    ``-inf`` past ``n_kept`` (0 for kept draws when ``log_weight`` is None);
+    ``n_kept`` and ``in_box_frac`` per row.
+    """
+    per = max(1, int(np.ceil(n_draws / len(members))))
+    s_max = per * len(members)
+    d = len(np.asarray(low))
+    theta = np.full((len(x), s_max, d), np.nan, dtype=np.float32)
+    log_w = np.full((len(x), s_max), -np.inf)
+    n_kept = np.zeros(len(x), dtype=np.int64)
+    fracs = []
+    for b0, frac, rows in _kept_rows(members, x, n_draws, low, high, batch, max_per_call):
+        fracs.append(frac)
+        for j, keep in enumerate(rows):
+            n = len(keep)
+            n_kept[b0 + j] = n
+            if not n:
+                continue
+            th = invert(keep) if invert is not None else keep
+            theta[b0 + j, :n] = th
+            log_w[b0 + j, :n] = log_weight(th) if log_weight is not None else 0.0
+    return {"theta": theta, "log_w": log_w, "n_kept": n_kept,
+            "in_box_frac": np.concatenate(fracs)}
 
 
 def sbc_from_u(u: np.ndarray, level: float = 0.9) -> tuple[np.ndarray, np.ndarray]:
