@@ -317,6 +317,7 @@ def cmd_fit(args) -> None:
                              "median": float(np.median(r1["ess"])),
                              "below_50": int((r1["ess"] < 50).sum())}
     np.savez(out / "households.npz", household_index=keep, names=np.array(names),
+             summary=res["draws"].get("summary", np.full((len(keep), 4), np.nan)),
              **{f"unpooled_{k}": v for k, v in r0.items()},
              **{f"pooled_{k}": v for k, v in r1.items()})
     torch.save({"theta": hd.theta, "log_w": hd.log_w, "b": hd.b.cpu(), "u": hd.u.cpu(),
@@ -369,6 +370,46 @@ def report(s: dict) -> None:
     print("adaptive rounds (M1 log sd_u): " + "; ".join(
         f"round {h['round']}: " + " ".join(f"{np.exp(v):.3f}" for v in h["derived"][4:8])
         for h in s["history"]))
+
+
+def cmd_ppc(args) -> None:
+    """Posterior predictive check of the fitted population (summary
+    likelihood): theta ~ g, s ~ p(s | theta), against PSID couples' own
+    summaries, per coordinate (PIT under the predictive marginal, KS), and
+    the share of PSID summaries beyond what simulated households ever reach
+    (``hierarchical_summary`` pairs)."""
+    from scipy import stats
+
+    out = args.out / "summary" / args.arm
+    s = json.loads((out / "summary.json").read_text())
+    h = np.load(out / "households.npz")
+    mdn = load_mdn(args.mdn, s["n_draws"])
+    spec = FAMILIES["M1"]
+    p = {k: torch.tensor(v, dtype=torch.float64) for k, v in s["families"]["M1"]["params"].items()}
+    u = torch.from_numpy(pop.sample_u(spec, p, args.n_sim, seed=1))
+    sim = mdn.sample(u, generator=torch.Generator().manual_seed(2)).numpy()
+    obs = h["summary"]
+    pairs = np.load(args.mdn.parent / "pairs.npz")
+    lo_s, hi_s = np.percentile(pairs["s"], [0.1, 99.9], axis=0)
+    names = list(h["names"])
+    res = {}
+    for j, n in enumerate(names):
+        pit = (sim[:, j][None] <= obs[:, j][:, None]).mean(1)
+        res[n] = {"ks_p": float(stats.ks_2samp(obs[:, j], sim[:, j]).pvalue),
+                  "pit_deciles": np.histogram(pit, bins=10, range=(0, 1))[0].tolist(),
+                  "psid_q05_q50_q95": np.percentile(obs[:, j], [5, 50, 95]).tolist(),
+                  "predicted_q05_q50_q95": np.percentile(sim[:, j], [5, 50, 95]).tolist(),
+                  "share_beyond_simulated": float(((obs[:, j] < lo_s[j])
+                                                   | (obs[:, j] > hi_s[j])).mean())}
+    (out / "ppc.json").write_text(json.dumps(res, indent=2))
+    print(f"posterior predictive check ({args.arm}): PSID summaries s (posterior means in u) "
+          "against theta ~ g, s ~ p(s | theta)")
+    for n, r in res.items():
+        print(f"  {n:8s} KS p {r['ks_p']:.3f}; PSID 5/50/95 "
+              + " ".join(f"{v:+.2f}" for v in r["psid_q05_q50_q95"]) + "; predicted "
+              + " ".join(f"{v:+.2f}" for v in r["predicted_q05_q50_q95"])
+              + f"; PIT deciles {r['pit_deciles']}; beyond simulated "
+              f"{r['share_beyond_simulated']:.3f}")
 
 
 def cmd_plot(args) -> None:
@@ -424,13 +465,18 @@ def main() -> None:
     f.add_argument("--seed", type=int, default=0)
     f.add_argument("--max_households", type=int, default=None, help="Smoke runs only.")
     f.add_argument("--out", type=Path, default=OUT)
+    pc = sub.add_parser("ppc")
+    pc.add_argument("--arm", choices=("uncorrected", "corrected"), default="uncorrected")
+    pc.add_argument("--mdn", type=Path, default=Path("outputs/hier_summary/mdn.pt"))
+    pc.add_argument("--n_sim", type=int, default=200_000)
+    pc.add_argument("--out", type=Path, default=OUT)
     pl = sub.add_parser("plot")
     pl.add_argument("--arm", choices=("uncorrected", "corrected"), default="uncorrected")
     pl.add_argument("--likelihood", choices=("summary", "npe"), default="summary")
     pl.add_argument("--out", type=Path, default=OUT)
     pl.add_argument("--fig", type=Path, default=FIG)
     args = ap.parse_args()
-    {"fit": cmd_fit, "plot": cmd_plot}[args.cmd](args)
+    {"fit": cmd_fit, "ppc": cmd_ppc, "plot": cmd_plot}[args.cmd](args)
 
 
 if __name__ == "__main__":

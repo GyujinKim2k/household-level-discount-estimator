@@ -20,8 +20,9 @@ its density model never saw: the SBC set's untrained half
   and 85% cardholders, since 325 of 409 PSID couples are seen borrowing). The
   fitted spreads are what the method returns when the truth is none: PSID's
   spread in a parameter is heterogeneity only above their 95th percentile.
-- **V2, recovery at PSID's population.** ``select`` resamples 10 populations
-  of 409 from the SBC set's untrained draws, weighted to PSID's fitted g. Fitted against
+- **V2, recovery at PSID's population.** ``v2-sim`` simulates 256 thetas
+  from PSID's fitted g (R_gamma and card type per block of 16, as in
+  generation), 16 households each, and forms 10 populations of 409. Fitted against
   realised spreads; gate G2 trusts a parameter's spread if its median
   relative bias is within 25% and the Hessian's 90% interval covers the
   realised value in at least 8 of 10.
@@ -32,7 +33,7 @@ its density model never saw: the SBC set's untrained half
 Usage::
 
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py null-sim
-    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py select
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py v2-sim
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py validate
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py report
 """
@@ -47,7 +48,7 @@ import numpy as np
 import torch
 
 from hh_npe.data.waves import FEATURES_TWOASSET_AGE
-from hh_npe.data.windows import cut_windows
+from hh_npe.data.windows import add_age, cut_windows
 from hh_npe.evaluation import population as pop
 from scripts import hierarchical_population as hp
 from scripts import hierarchical_summary as hs
@@ -59,6 +60,7 @@ FIG = Path("figures/53_population_validation.png")
 POOL = Path("data/processed/seed_pool_couples_income.npz")
 PSID_RUN = Path("outputs/psid_optionA2n_couples")
 N_HH, N_REP, N_UNIFORM, PER_CARD = 409, 10, 5, 4096
+V2_BLOCKS, BLOCK = 16, 16
 CARD_MIX = (0.5, 0.85)
 SEED = 45_000_000           # household streams: no training run, SBC set or earlier check
 AGE = FEATURES_TWOASSET_AGE.index("age")
@@ -66,11 +68,25 @@ NAMES = ("beta", "delta", "crra", "R_gamma")
 
 
 def theta_stars() -> dict[str, np.ndarray]:
+    """The nulls' common thetas: A2n's PSID couples' median posterior mean;
+    Laibson et al.'s point; and, where the summary fit exists, the median of
+    PSID's fitted population, which sits at beta's lower edge, where a small
+    range of theta is a long one in u."""
     s = json.loads((PSID_RUN / "summary.json").read_text())["uncorrected"]["median_of_means"]
-    return {"psid_median": np.array([s[k] for k in NAMES]), "laibson": hp.LAIBSON}
+    out = {"psid_median": np.array([s[k] for k in NAMES]), "laibson": hp.LAIBSON}
+    fit = hp.OUT / "summary" / "uncorrected" / "summary.json"
+    if fit.exists():
+        q = json.loads(fit.read_text())["families"]["M1"]["natural"]["q05_q25_q50_q75_q95"]
+        out["psid_population"] = np.array([q[j][2] for j in range(len(NAMES))])
+    return out
 
 
-def cmd_null_sim(args) -> None:
+def simulate(theta: np.ndarray, card: np.ndarray, per: int, seed: int) -> np.ndarray:
+    """``per`` households at each row of ``theta`` (beta, delta, rho, R_gamma)
+    with card type ``card``, by the training generation's solver, settings and
+    seed pool; one window each, starting where a PSID couple's first wave does,
+    with A2n's observation noise. Rows of the result follow the draws, ``per``
+    consecutive households each."""
     from hh_npe.simulator.dispatch import simulate_batch_twoasset_gpu
     from scripts.generate_dataset import _load_pool
 
@@ -79,31 +95,33 @@ def cmd_null_sim(args) -> None:
     if digest != cfg["init_pool_sha256"]:
         raise SystemExit(f"{POOL}: not the seed pool the training run used")
     spec = oa.spec_of(json.loads((hp.RUNS[0] / "results.json").read_text())["_config"])
+    _x, _a, panel = simulate_batch_twoasset_gpu(
+        theta[:, :3], seed, cfg["start_age"], cfg["n_waves"], cfg["wave_years"], cfg["grid"],
+        cfg["theta_batch"], cfg["chunk"], return_panels=True, n_households=per,
+        card=np.asarray(card), r_gamma=theta[:, 3], init_pool=pool)
+    n = len(theta) * per
     ages = torch.load(PSID_X, weights_only=False)["x"].numpy()[:, 0, AGE].astype(int)
-    lo_start, hi_start = oa.WINDOW["start_low"], oa.WINDOW["start_high"]
+    starts = np.clip(np.random.default_rng(seed).choice(ages, n) - 1,
+                     oa.WINDOW["start_low"], oa.WINDOW["start_high"])
+    _t, x, ids = cut_windows(add_age(panel), np.zeros((n, 1)), np.arange(n), starts[:, None],
+                             oa.WINDOW["n_waves"], oa.WINDOW["wave_years"],
+                             FEATURES_TWOASSET_AGE)
+    if len(ids) != n:
+        raise SystemExit(f"{n - len(ids)} windows not alive")
+    x = x[np.argsort(ids)].astype(np.float32)
+    return oa.add_obs_noise(torch.from_numpy(x), spec.obs_noise, seed=seed + 77).numpy()
+
+
+def cmd_null_sim(args) -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     for j, (name, th) in enumerate(theta_stars().items()):
-        _x, _a, panel = simulate_batch_twoasset_gpu(
-            np.array([th[:3], th[:3]]), SEED + 1000 * j, cfg["start_age"], cfg["n_waves"],
-            cfg["wave_years"], cfg["grid"], cfg["theta_batch"], cfg["chunk"],
-            return_panels=True, n_households=PER_CARD, card=np.array([0, 1]),
-            r_gamma=np.array([th[3], th[3]]), init_pool=pool)
-        n = 2 * PER_CARD
-        card = np.repeat([0, 1], PER_CARD)
-        rng = np.random.default_rng(SEED + j)
-        # Start so the window's age column matches a PSID couple's first wave.
-        starts = np.clip(rng.choice(ages, n) - 1, lo_start, hi_start)
-        _t, x, ids = cut_windows(panel, np.zeros((n, 1)), np.arange(n), starts[:, None],
-                                 oa.WINDOW["n_waves"], oa.WINDOW["wave_years"],
-                                 FEATURES_TWOASSET_AGE)
-        if len(ids) != n:
-            raise SystemExit(f"{name}: {n - len(ids)} windows not alive")
-        order = np.argsort(ids)
-        x = oa.add_obs_noise(torch.from_numpy(x[order].astype(np.float32)), spec.obs_noise,
-                             seed=SEED + 77 + j).numpy()
-        np.savez(args.out / f"null_{name}.npz", x=x, card=card, theta=th, start=starts)
-        print(f"{name} {np.round(th, 4).tolist()}: {n} households; wrote "
-              f"{args.out / f'null_{name}.npz'}")
+        if (args.out / f"null_{name}.npz").exists():
+            continue
+        card = np.array([0, 1])
+        x = simulate(np.array([th, th]), card, PER_CARD, SEED + 1000 * j)
+        np.savez(args.out / f"null_{name}.npz", x=x, card=np.repeat(card, PER_CARD), theta=th)
+        print(f"{name} {np.round(th, 4).tolist()}: {len(x)} households; wrote "
+              f"{args.out / f'null_{name}.npz'}", flush=True)
 
 
 def untouched(net: hp.Network) -> dict:
@@ -116,32 +134,35 @@ def untouched(net: hp.Network) -> dict:
 def psid_population(args):
     s = json.loads((hp.OUT / args.likelihood / "uncorrected" / "summary.json").read_text())
     p = {k: torch.tensor(v, dtype=torch.float64) for k, v in s["families"]["M1"]["params"].items()}
-    return hp.FAMILIES["M1"], p
+    return hp.FAMILIES["M1"], p, (np.array(s["box"][0]), np.array(s["box"][1]))
 
 
-def cmd_select(args) -> None:
-    net = hp.Network(hp.RUNS)
-    pool = untouched(net)
-    spec_g, p_g = psid_population(args)
-    th = pool["theta"]
-    with torch.no_grad():
-        u = torch.from_numpy(pop.box_logit(np.clip(th, net.lo + 1e-9, net.hi - 1e-9),
-                                           net.lo, net.hi))
-        log_g = pop.log_density(spec_g, p_g, u).numpy() + pop.box_logit_log_jacobian(
-            th, net.lo, net.hi)
-    # The pool is uniform on the box, so g is the resampling weight.
-    w = np.exp(log_g - log_g.max())
-    w /= w.sum()
-    rng = np.random.default_rng(SEED + 5)
-    reps = [rng.choice(len(th), N_HH, replace=False, p=w) for _ in range(N_REP)]
+def cmd_v2_sim(args) -> None:
+    """V2's households: ``V2_BLOCKS`` blocks of ``BLOCK`` thetas drawn from
+    PSID's fitted g, 16 households each. As in generation, R_gamma and card
+    type are per block (the solver shares them across a batch): the block
+    takes its first draw's R_gamma, and is cardholder with probability 0.85.
+    Resampling the SBC set's untrained half instead left an ESS of 36 draws,
+    since PSID's g sits where a uniform set has few."""
+    spec_g, p_g, (lo, hi) = psid_population(args)
+    th = pop.from_box_logit(pop.sample_u(spec_g, p_g, V2_BLOCKS * BLOCK, seed=SEED + 21), lo, hi)
+    th = th.reshape(V2_BLOCKS, BLOCK, -1)
+    th[:, :, 3] = th[:, :1, 3]
+    th = th.reshape(-1, 4)
+    rng = np.random.default_rng(SEED + 22)
+    card = np.repeat((rng.random(V2_BLOCKS) < 0.85).astype(int), BLOCK)
+    x = simulate(th, card, 16, SEED + 2000)
+    hh_theta, hh_draw = np.repeat(th, 16, axis=0), np.repeat(np.arange(len(th)), 16)
+    reps = [rng.choice(len(x), N_HH, replace=False) for _ in range(N_REP)]
     idx = np.concatenate(reps)
     out = args.out / args.likelihood
     out.mkdir(parents=True, exist_ok=True)
-    np.savez(out / "v2_populations.npz", x=pool["x"][idx], theta=th[idx],
-             replicate=np.repeat(np.arange(N_REP), N_HH), draw=pool["draw"][idx])
-    print(f"pool: {len(th)} untouched SBC households from {len(np.unique(pool['draw']))} draws; "
-          f"ESS of the weights to PSID's g {1 / (w ** 2).sum():.0f}; distinct draws per "
-          f"population {np.mean([len(np.unique(pool['draw'][r])) for r in reps]):.0f}")
+    np.savez(out / "v2_populations.npz", x=x[idx], theta=hh_theta[idx],
+             replicate=np.repeat(np.arange(N_REP), N_HH), draw=hh_draw[idx],
+             card=np.repeat(card, 16)[idx])
+    print(f"V2: {len(th)} thetas from PSID's g x 16 households; {N_REP} populations of {N_HH}, "
+          f"distinct thetas per population "
+          f"{np.mean([len(np.unique(hh_draw[r])) for r in reps]):.0f}")
 
 
 def realised(theta: np.ndarray, lo, hi) -> np.ndarray:
@@ -174,9 +195,10 @@ def fit_one(net, mdn, x, seed, args, truth=None) -> dict:
 
 
 def cmd_validate(args) -> None:
-    net = hp.Network(hp.RUNS)
+    net = hp.Network([hp.RUNS[i] for i in args.members])
     mdn = hp.load_mdn(args.mdn, args.n_draws) if args.likelihood == "summary" else None
-    out = args.out / args.likelihood
+    out = args.out / (args.likelihood + ("" if len(args.members) == len(hp.RUNS)
+                                         else "_members" + "".join(map(str, args.members))))
     out.mkdir(parents=True, exist_ok=True)
     path = out / "validation.json"
     res = json.loads(path.read_text()) if path.exists() else {}
@@ -197,11 +219,13 @@ def cmd_validate(args) -> None:
             res["uniform"].append(fit_one(net, mdn, pool["x"][idx], SEED + 300 + r, args,
                                           truth=pool["theta"][idx]))
             save()
-    if "null" in args.parts and "null" not in res:
-        res["null"] = {}
+    if "null" in args.parts:
+        res.setdefault("null", {})
         for name in theta_stars():
             d = np.load(args.out / f"null_{name}.npz")
             for mix in CARD_MIX:
+                if f"{name}, card {mix}" in res["null"]:
+                    continue
                 rng = np.random.default_rng(SEED + int(100 * mix))
                 cards = [rng.permutation(np.flatnonzero(d["card"] == c)) for c in (0, 1)]
                 n1 = int(round(mix * N_HH))
@@ -268,10 +292,17 @@ def summarise(res: dict, args) -> dict:
                                               0).tolist()}
                        for k, fits in res["null"].items()}
         out["null_sd_u_q95"] = np.percentile(pooled, 95, 0).tolist()
+        for k, fits in res["null"].items():
+            out["null"][k]["natural_sd_median"] = np.median([f["natural_sd"] for f in fits],
+                                                            0).tolist()
+            out["null"][k]["natural_sd_q95"] = np.percentile([f["natural_sd"] for f in fits],
+                                                             95, 0).tolist()
         psid = hp.OUT / args.likelihood / "uncorrected" / "summary.json"
         if psid.exists():
-            der = json.loads(psid.read_text())["families"]["M1"]["derived"]
+            m1 = json.loads(psid.read_text())["families"]["M1"]
+            der = m1["derived"]
             out["psid_sd_u"] = [float(np.exp(der[f"log_sd_u {n}"])) for n in NAMES]
+            out["psid_natural_sd"] = m1["natural"]["sd"]
             out["heterogeneity"] = {n: bool(out["psid_sd_u"][j] > out["null_sd_u_q95"][j])
                                     for j, n in enumerate(NAMES)}
     return out
@@ -300,11 +331,19 @@ def report(res: dict) -> None:
         if "psid_sd_u" in s:
             print("  PSID M1 sd_u:         " + "  ".join(
                 f"{n} {v:.3f}" for n, v in zip(NAMES, s["psid_sd_u"], strict=True)))
-            print("  heterogeneity: " + str(s["heterogeneity"]))
+            print("  heterogeneity (u): " + str(s["heterogeneity"]))
+            print("natural-unit population sd, null 95th percentile by theta*, against PSID:")
+            for k, v in s["null"].items():
+                print(f"  {k:28s} " + "  ".join(f"{n} {a:.4f}" for n, a in
+                                                 zip(NAMES, v["natural_sd_q95"], strict=True)))
+            print("  PSID M1:                     " + "  ".join(
+                f"{n} {a:.4f}" for n, a in zip(NAMES, s["psid_natural_sd"], strict=True)))
 
 
 def cmd_report(args) -> None:
-    res = json.loads((args.out / args.likelihood / "validation.json").read_text())
+    sub = args.likelihood + ("" if len(args.members) == len(hp.RUNS)
+                             else "_members" + "".join(map(str, args.members)))
+    res = json.loads((args.out / sub / "validation.json").read_text())
     res["summary"] = summarise(res, args)
     report(res)
     plot(res, args.fig)
@@ -365,10 +404,13 @@ def plot(res: dict, path: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("null-sim", "select", "validate", "report"))
+    ap.add_argument("cmd", choices=("null-sim", "v2-sim", "validate", "report"))
     ap.add_argument("--likelihood", choices=("summary", "npe"), default="summary")
     ap.add_argument("--mdn", type=Path, default=Path("outputs/hier_summary/mdn.pt"))
     ap.add_argument("--parts", nargs="+", default=["uniform", "null", "v2"])
+    ap.add_argument("--members", type=int, nargs="+", default=list(range(5)),
+                    help="Ensemble members to use (RESULTS 45.2: one member's density "
+                         "against the five-member average).")
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--fig", type=Path, default=FIG)
     ap.add_argument("--n_draws", type=int, default=hp.N_DRAWS)
@@ -376,7 +418,7 @@ def main() -> None:
     ap.add_argument("--rounds", type=int, default=hp.ROUNDS)
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    {"null-sim": cmd_null_sim, "select": cmd_select, "validate": cmd_validate,
+    {"null-sim": cmd_null_sim, "v2-sim": cmd_v2_sim, "validate": cmd_validate,
      "report": cmd_report}[args.cmd](args)
 
 

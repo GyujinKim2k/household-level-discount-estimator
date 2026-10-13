@@ -230,7 +230,10 @@ def _log_mass(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 def _truncated(spec: Spec, p: dict):
     lo, hi = (torch.as_tensor(np.asarray(v, float), device=p["mu"].device)
               for v in spec.theta_box)
-    sd = torch.exp(p["log_diag"][0])
+    # A coordinate the data leave flat drives sd to infinity (the truncated
+    # normal's uniform limit) and the fit to overflow; e^6 is already flat on
+    # any box here.
+    sd = torch.exp(torch.clamp(p["log_diag"][0], max=6.0))
     a, b = (lo - p["mu"][0]) / sd, (hi - p["mu"][0]) / sd
     return lo, hi, sd, a, b
 
@@ -284,12 +287,16 @@ def derived_names(names) -> list[str]:
 def sample_u(spec: Spec, p: dict, n: int, seed: int = 0) -> np.ndarray:
     g = torch.Generator().manual_seed(seed)
     if spec.theta_box is not None:
+        from scipy import stats
+
         with torch.no_grad():
-            lo, hi, sd, a, b = _truncated(spec, p)
-            fa, fb = torch.special.ndtr(a), torch.special.ndtr(b)
-            q = fa + (fb - fa) * torch.rand(n, spec.d, generator=g, dtype=torch.float64)
-            th = torch.clamp(p["mu"][0] + sd * torch.special.ndtri(q), lo, hi)
-            return box_logit(th.numpy(), lo.numpy(), hi.numpy())
+            lo, hi, sd, a, b = (t.cpu().numpy() for t in _truncated(spec, p))
+        # scipy's truncnorm stays exact far in a tail (a fit can put the mean
+        # thousands of sds outside the box), where inverting ndtr rounds to 1.
+        th = stats.truncnorm.rvs(a, b, loc=p["mu"][0].cpu().numpy(), scale=sd,
+                                 size=(n, spec.d), random_state=np.random.default_rng(seed))
+        span = hi - lo
+        return box_logit(np.clip(th, lo + 1e-12 * span, hi - 1e-12 * span), lo, hi)
     with torch.no_grad():
         comp = torch.multinomial(torch.softmax(p["logit_pi"], 0), n, True, generator=g)
         z = torch.randn(n, spec.d, 1, generator=g, dtype=torch.float64)

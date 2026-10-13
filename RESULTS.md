@@ -7285,3 +7285,182 @@ gap, and these values are self-reported and include moves, so the series
 **Reproduce.**
 
     PYTHONPATH=. .venv/bin/python scripts/psid_illiquid_decomposition.py
+
+## 45. A population layer over the household posteriors: couples differ in β, δ and R_gamma, and pooled intervals are not yet calibrated
+
+**Why (user, 2026-10-13).** One couple's posterior looked about as wide as the spread across all couples. If so, the household estimates would only be reproducing Laibson et al.'s single point. The numbers (A2n couples, uncorrected arm):
+
+| | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| one couple's 90% interval ÷ the 5–95% range of couples' posterior means | 1.30 | 0.48 | 1.67 | 0.78 |
+| reliability, var(means) / (var(means) + E[posterior var]) | 0.38 | 0.57 | 0.28 | 0.61 |
+| contraction on simulated households, held-out | 0.36 | 0.54 | 0.60 | 0.53 |
+
+β is weakly identified per couple even when the model is true.
+
+**Plan (approved):**
+- fit the population distribution g of θ over the 409 couples from their posteriors;
+- test whether its spread exceeds what couples sharing one θ would produce;
+- use g as each couple's prior (empirical Bayes), but only after simulated checks with gates stated in advance.
+
+The two misspecification plans (§44.6) are parked.
+
+### 45.1 Method
+
+- **Draws.** `weighted.sample_draws` keeps each couple's 4,000 weighted draws. `sample_weighted`'s summaries are bit-identical to before.
+- **Population g.** M1, the headline, is a normal in u (each parameter's logit on its box), with full covariance. Variants:
+  - M1d: diagonal covariance;
+  - M2: two normals;
+  - TN: independent normals in θ truncated to the box. This family cannot pile mass at an edge by stretching it, which a wide normal in u can.
+- **Marginal likelihood by importance sampling.** Each couple's points are its posterior draws plus 4,096 reference points of its own, drawn around the current fit at several widths and refitted twice. The two sets are combined by the balance heuristic.
+  - **Why reference points:** recycling the draws alone leaves a floor. In the conjugate test (`test_reference_points_remove_the_recycling_floor`: 1,200 households sharing one θ, 3 dimensions), recycling leaves more than 0.3 of the likelihood's width on a spread that is truly zero. With reference points it falls to the statistical floor.
+  - **Why each couple's own:** shared reference points carry one Monte Carlo error common to all couples. It does not average out over couples, and on the conjugate fixture it halved two of three spreads.
+- **Fits** use L-BFGS on the GPU. Uncertainty comes from the observed information and from a 200-resample bootstrap over couples.
+- **Code:** `src/hh_npe/evaluation/population.py`, tested in `tests/test_population.py` (11 tests). The conjugate normal case recovers the population and the analytic pooled posteriors, and the reference points remove the floor.
+
+### 45.2 The network's own likelihood fails the uniform test
+
+The likelihood implied by the network, q/p̃, was put through the uniform test of §45.3: 5 populations of 512 SBC households, whose true population is uniform on the box.
+
+| | fitted / realised logit sd: five-member ensemble | one member (s0) | pooled 90% coverage: ensemble | one member |
+|---|---|---|---|---|
+| β | 0.85 / 1.82 (−54%) | 2.18 / 1.82 (+20%) | 0.24 | 0.28 |
+| δ | 1.89 / 1.88 (0%) | 2.51 / 1.88 (+33%) | 0.73 | 0.68 |
+| ρ | 2.14 / 1.72 (+25%) | 2.30 / 1.72 (+34%) | 0.60 | 0.58 |
+| R_gamma | 1.58 / 1.81 (−13%) | 1.13 / 1.81 (−38%) | 0.68 | 0.58 |
+
+Unpooled coverage is 0.87–0.91 throughout. Pooling raises the MSE by ×1.3–3.0.
+
+**Reading.**
+- **The posteriors are fine one at a time:** unpooled coverage is 0.87–0.91 here, and the SBC of §43.11 passes.
+- **But the implied likelihoods are not accurate enough to deconvolve.** Their errors in width and shape change sign from one model to the next: averaging the members narrows β, while a single member widens it. They add up coherently across couples.
+- **β suffers most:** it is weakly identified, so a small error in a likelihood's width moves the estimated spread a lot.
+
+PSID fits made with this likelihood (β piled at 0.31) are not results.
+
+### 45.3 The summary likelihood: learned from simulation
+
+**Summary.** A couple is summarised by s, its posterior mean in u from the same 4,000 draws. p(s | θ) is learned by maximum likelihood (`summary_likelihood.SummaryMDN`: 4 full-covariance normals, an MLP of u(θ)).
+
+**Training data:** 29,504 simulated pairs, from all held-out households plus a seeded random half of the SBC set, validated by draw.
+- Any summary gives a valid likelihood, so this costs efficiency, never validity.
+- The likelihood's widths are measured from how s actually scatters.
+
+**The split had to be random.** The SBC set is a Sobol sequence, whose consecutive points alternate halves of the δ axis. A first split by draw parity left δ ≥ 0.925 untrained in the SBC half.
+
+**Calibration on the 8,192 untrained SBC households:** 90% coverage of s is 0.897–0.913, and PIT KS p ≥ 0.08, for all four parameters.
+
+**The uniform test, 5 populations of 512 untrained households:**
+
+| | fitted logit sd | realised | bias | Hessian 90% covers | pooled 90% coverage | unpooled |
+|---|---|---|---|---|---|---|
+| β | 1.79 | 1.82 | −2% | 5 of 5 | 0.864 | 0.891 |
+| δ | 1.87 | 1.88 | −1% | 5 of 5 | 0.888 | 0.884 |
+| ρ | 1.71 | 1.72 | −1% | 5 of 5 | 0.863 | 0.897 |
+| R_gamma | 1.73 | 1.81 | −4% | 5 of 5 | 0.902 | 0.910 |
+
+Code: `scripts/hierarchical_summary.py`, tested in `tests/test_summary_likelihood.py`.
+
+### 45.4 Validation where PSID's population sits
+
+**V1, the null: every couple shares one θ.** Each null has 8,192 households simulated with the training generation's solver, settings and seed pool, starting at PSID couples' first-wave ages, with A2n noise. From these, 10 populations of 409 per card mix (50% and 85% cardholders). Three common θ:
+- A2n's median posterior mean, (0.600, 0.985, 2.72, 1.054);
+- Laibson et al.'s point, (0.531, 0.989, 1.94, 1.05);
+- PSID's fitted population median, (0.351, 0.996, 2.55, 1.046), at β's floor.
+
+Results:
+- **The interior nulls are located accurately.** A shared β of 0.60 is fitted at 0.58–0.59 and 0.531 at 0.50–0.51. δ and R_gamma are essentially exact.
+- **The method does not pull an interior population to the floor.**
+- **At the floor, β is fitted at 0.39–0.40** against 0.351: a pull toward the interior.
+
+**Spurious spread, against PSID:**
+
+| | null 95th percentile, logit sd | PSID | null 95th percentile, natural sd, at PSID's location | PSID natural sd |
+|---|---|---|---|---|
+| β | 0.71 | **1.78** | 0.064–0.077 | **0.134** |
+| δ | 0.39 | **0.88** | 0.0014–0.0018 | **0.0050** |
+| ρ | 0.75 | 0.70 | 0.60–0.74 | 0.71 |
+| R_gamma | 0.67 | **2.34** | 0.0075–0.0084 | **0.018** |
+
+**V2, recovery at PSID's population.** 256 θ were drawn from PSID's fitted g, with R_gamma and card type per block of 16 as in generation, and 16 households each. That gives 10 populations of 409, with about 210 distinct θ each.
+- Resampling the untrained SBC half was tried first, but left an ESS of 36: PSID's population sits where a uniform set has few draws.
+
+| | fitted / realised logit sd | bias | Hessian 90% covers | G2 | pooled 90% coverage | unpooled | MSE pooled ÷ unpooled |
+|---|---|---|---|---|---|---|---|
+| β | 1.41 / 1.87 | −24% | 4 of 10 | fail | 0.68 | 0.50 | 0.25 |
+| δ | 1.12 / 0.92 | +20% | 2 of 10 | fail | 0.85 | 0.55 | 0.04 |
+| ρ | 0.75 / 0.76 | −1% | 10 of 10 | pass | 0.84 | 0.95 | 0.78 |
+| R_gamma | 2.87 / 2.85 | +0% | 9 of 10 | pass | 0.83 | 0.74 | 0.98 |
+
+- **The fitted β centre** is −1.71 in logit against a realised −2.68. Near the floor, the method places the population further from the edge than it is.
+- **Gate G3 (pooled coverage 0.85–0.95) fails** for all four. δ is at 0.846.
+- **Unpooled intervals cover worse still for β, δ and R_gamma** (0.50, 0.55, 0.74). If couples really sit near β's floor, the uniform-prior intervals miss the truth half the time.
+
+Figure 53 shows the uniform and V2 recovery, the null against PSID, and the V2 coverage.
+
+### 45.5 PSID couples
+
+**M1, summary likelihood, uncorrected arm.** Natural units by sampling g; bootstrap 90% intervals for the sd.
+
+| | median | 5–95% | sd (bootstrap 90%) |
+|---|---|---|---|
+| β | 0.351 | 0.303–0.715 | 0.134 (0.082–0.189) |
+| δ | 0.9963 | 0.9853–0.9991 | 0.0050 (0.0030–0.0100) |
+| ρ | 2.55 | 1.44–3.77 | 0.71 (0.54–0.91) |
+| R_gamma | 1.046 | 1.022–1.074 | 0.018 (0.017–0.019) |
+
+**Correlations:** R_gamma–δ −0.36, ρ–δ +0.22, R_gamma–ρ +0.26. The rest are within ±0.16.
+
+**Families (sum log m / BIC):**
+- M1: 1,133.5 / −2,182.7;
+- M1d: 1,114.7 / −2,181.3;
+- M2: 1,178.3 / −2,176.3;
+- TN: 1,086.6 / −2,125.1.
+
+Every family puts β's median at 0.35–0.38 and δ's at 0.995–0.997. In TN, R_gamma is close to uniform on its box.
+
+**The corrected arm (consumption corrected):** β median 0.40 (0.305–0.848), δ 0.9924 (0.955–0.999), ρ 2.23, R_gamma 1.052.
+
+**Posterior predictive check.** Draw θ from g, then a summary from p(s | θ), and compare with PSID's own summaries:
+- **Agreement:** KS p 0.20 for δ, 0.10 for ρ, 0.51 for R_gamma.
+- **β misfits mildly** (KS p 0.022). PSID has too many couples in the lowest decile (63 against about 41), and 2.7% of PSID β summaries lie beyond anything simulated households produce. Those couples look more present-biased than the model can be at β = 0.3.
+
+**Pooled household posteriors.** They tighten each couple:
+
+| | median posterior sd, unpooled | pooled |
+|---|---|---|
+| β | 0.152 | 0.072 |
+| δ | 0.0082 | 0.0025 |
+| ρ | 0.96 | 0.63 |
+
+But they fail G3 in V2. **They are not reported as estimates, and the headline household estimates are unchanged.** The minimum pooled ESS is 16, and 10 couples are below 50.
+
+Figure 52 shows PSID's population against one couple, unpooled and pooled.
+
+### 45.6 Reading
+
+- **Couples do differ in β, δ and R_gamma, beyond what estimation noise produces.** This holds against nulls placed at both the interior and PSID's own location, on the logit and the natural scale. ρ cannot be told from one common value.
+- **So the household estimates are not just Laibson's point.** The population is not centred there either: β is concentrated low (median 0.35, against Laibson's 0.53), with a tail to about 0.7, and δ sits near 0.996.
+- **β's floor binds.** The population piles at β = 0.3. Near the floor the method pulls toward the interior, so the truth is likely closer still. And 2.7% of couples are beyond the model's reach. The prior box, β ≥ 0.3 (training as well), is too narrow for these couples.
+- **The edge is the method's weak point.** That is where V2 fails for β and δ, and where pooled coverage falls short. Pooling still helps a lot there: MSE falls to 0.25 for β and 0.04 for δ, and coverage rises from 0.50 to 0.68 for β.
+
+**Calibrated, tighter household estimates need better accuracy at β's floor.** Options:
+1. **Targeted simulation near the floor** to sharpen the summary likelihood there. About 1–2 GPU-hours, then rerun V2 and V3.
+2. **Lower the β floor below 0.3.** This means regenerating and retraining, like the parked model plans.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_summary.py pairs
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_summary.py train
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_population.py fit --arm uncorrected
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_population.py fit --arm corrected
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_population.py ppc --arm uncorrected
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_population.py plot --arm uncorrected
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py null-sim
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py v2-sim
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py validate
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py report
+    # the network's own likelihood (45.2):
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py validate --likelihood npe --parts uniform
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py validate --likelihood npe --parts uniform --members 0
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_population.py fit --likelihood npe
