@@ -6986,3 +6986,140 @@ members, uncorrected arm; split with `compare_psid_runs.py --x_b`):
                  "A2n, couples (illiquid net of secured debt only)=outputs/psid_optionA2n_couples_illsecured" \
         --out figures/49_optionA2n_illiquid_debts.png \
         --title "PSID couples' posterior means under A2n: illiquid wealth net of all non-card debt and of secured debt only"
+
+### 44.5 Illiquid wealth by age: too much too early, and a zero mass that does not fade
+
+**Question.** §44.4 left one illiquid misfit: who holds illiquid wealth.
+Is it timing, with the model's couples building illiquid wealth too early or
+too late?
+
+**Script:** `scripts/illiquid_by_age.py`. It writes
+`outputs/optionA3/illiquid_by_age.json`, `logs/illiquid_by_age.log` and
+figure 50. CPU only; nothing is re-solved.
+
+**Design: each couple's posterior predictive.**
+- **Ages.** Each of the 409 PSID couples gets model windows over its own
+  ages: the window starts so that its age column matches the couple's first
+  wave.
+- **Parameters.** They are taken near the couple's A2n posterior (uncorrected
+  arm, the headline). The windows are cut from the annual panels stored with
+  A2's main run and strip (35,840 draws).
+  - `posterior`: 64 draws from the couple's posterior, approximated as
+    independent normals truncated to the box. Each is matched to its nearest
+    stored draw, and one of that draw's 16 simulated couples is used.
+  - `mean`: the 4 stored draws nearest the posterior mean, with all 16 of
+    each draw's couples.
+  - Matched draws lie a median 0.10–0.13 posterior sd from their targets in
+    every parameter.
+- **Card access.** A couple seen with negative liquid wealth (325 of 409) is
+  matched to cardholder draws only. The rest are matched to draws of either
+  type.
+- **Noise.** The model's windows carry A2n's observation noise.
+- **Weighting.** Every couple has the same number of model windows.
+- **Statistic.** The ratio r of illiquid wealth to the window's mean income,
+  per household-wave, by age.
+
+**PSID couples against the model (posterior variant):**
+
+```
+                    median r          share r >= 0.5     share r < 0.1      share <= 0         median illiquid ($)   median income ($)
+ages          PSID  PSID-s  model   PSID  PSID-s model   PSID PSID-s model   PSID PSID-s model   PSID      model       PSID     model
+25-29         0.21  0.27    0.38    0.25  0.28   0.46    0.39  0.23  0.39    0.28  0.09  0.32     9,696    18,372     39,346   37,000
+30-34         0.38  0.48    0.61    0.44  0.48   0.52    0.32  0.20  0.36    0.22  0.07  0.31    20,685    30,881     50,094   43,000
+35-39         0.75  0.88    1.09    0.59  0.65   0.59    0.24  0.13  0.32    0.17  0.05  0.28    45,002    58,029     60,912   48,000
+40-44         1.13  1.28    1.80    0.67  0.72   0.65    0.17  0.10  0.27    0.12  0.05  0.24    79,572   101,659     69,668   51,000
+45-49         1.37  1.50    2.95    0.73  0.77   0.73    0.15  0.09  0.21    0.11  0.05  0.20    88,527   171,956     74,443   53,000
+50-54         2.09  2.22    3.99    0.83  0.86   0.78    0.10  0.07  0.18    0.06  0.02  0.16   144,122   236,635     73,144   51,000
+55-59         2.52  2.68    5.39    0.86  0.89   0.81    0.06  0.04  0.14    0.06  0.03  0.13   177,860   314,640     67,897   48,000
+```
+
+PSID is net of all non-card debt (the estimation input). PSID-s is net of
+secured debt only (§44.4).
+
+The model's p90 of r is 3.7 at 25–29 and 22 at 55–59. PSID's is 1.5 and 7.0.
+
+**Window kinds.** "Up" means r below 0.5 in the first wave and at or above it
+in the last; "down" is the reverse.
+
+| share of couples | holders | never | up | down | other |
+|---|---|---|---|---|---|
+| PSID couples | 0.30 | 0.03 | 0.36 | 0.06 | 0.24 |
+| PSID couples, secured | 0.34 | 0.01 | 0.35 | 0.05 | 0.24 |
+| model, posterior | 0.51 | 0.16 | 0.18 | 0.05 | 0.10 |
+| model, posterior mean | 0.51 | 0.13 | 0.20 | 0.06 | 0.11 |
+
+**Couple by couple.** For each kind of PSID couple, the model's predicted
+kinds:
+
+| PSID kind (n) | model: holders | never | up |
+|---|---|---|---|
+| holders (124) | 0.62 | 0.10 | 0.16 |
+| up (146) | 0.53 | 0.14 | 0.19 |
+| other (100) | 0.42 | 0.22 | 0.19 |
+| down (25) | 0.38 | 0.28 | 0.17 |
+| never (14) | 0.25 | 0.38 | 0.16 |
+
+The estimates carry some of who holds: 0.62 holders for PSID's holders
+against 0.25 for its never-holders. But the model gives every kind of couple
+16–19% up-movers. PSID has 36%.
+
+**The model's zeros.** From the same couples' annual panels, ages 20–60:
+- **The share at exactly zero** falls only from 30% at 25 to 16% at 60.
+- **Most zeros are drained balances, not balances never started.**
+  - 36% of couples drain a positive balance to zero at least once.
+  - 77% of those at zero at 45 held some earlier.
+- **The drained balances are small:** median $4,000 (p10 $2,000, p90
+  $12,000), or 0.2 × income.
+- **Drains happen in card debt:** 75% of drains, against 28% of other years
+  with a balance.
+- **They are not responses to bad income draws.** Mean log income growth in
+  a drain year is +0.27, against 0.00 in other years.
+- **Zero spells after a drain last a median 11 years** (p25 6, p75 21,
+  censored at 60).
+
+**Sensitivity.** On the corrected arm (`--arm corrected`, whose couples'
+median δ is 0.977 against 0.985), the model's median r matches PSID through
+40–44: 0.30 / 0.48 / 0.80 / 1.30 against 0.21 / 0.38 / 0.75 / 1.13. It still
+overshoots after 45 (2.2–4.1 against 1.4–2.5). Its window kinds are 0.47 /
+0.19 / 0.18 / 0.05 / 0.12. The zero mass, the drains and the up-mover
+shortfall are the same. Output: `outputs/optionA3/illiquid_by_age_corrected.json`.
+
+**Reading.**
+- **Partly timing.** At the headline estimates the model's couples hold more,
+  earlier:
+  - 46% hold at least half a year's income at 25–29, against 25%;
+  - the median ratio is 1.4–2.2 times PSID's at every age.
+
+  Young couples who already hold cannot become up-movers. How big the
+  overshoot is depends on δ: the corrected arm fits levels to the mid-40s.
+- **Partly a zero mass that does not fade.**
+  - **PSID:** the share near zero falls steadily with age. Net of secured
+    debt it is 4% by 55–59.
+  - **The model:** 14% are still near zero at 55–59, against PSID's 6%.
+    They are mostly couples with card debt who drained a small balance and
+    stayed out for about a decade.
+- **Both point to how illiquid wealth accrues in PSID, which the model does
+  not have:** gradual, near-automatic accumulation.
+  - It is mortgage principal and employer pension contributions in PSID's
+    illiquid wealth.
+  - In the model, every deposit is a discretionary choice, and a small
+    balance is drained when card debt makes that worthwhile.
+
+  This is a hypothesis; it is not tested here.
+- **The income profile is flatter than PSID couples'.** The model's median
+  peaks at $53,000; PSID couples' at $74,000. That is §43.6 (c). The ratio r
+  is relative to each window's own mean income, so it absorbs part of this,
+  but not the timing of when saving is cheap.
+- **Not volatility, and not netting (§44.2–44.4).** The valuation shock stays
+  shelved.
+
+**Figure 50:**
+- median r with the p25–p75 band by age;
+- the shares at ≥ 0.5 and < 0.1 by age;
+- window kinds, PSID on both definitions against the model's two variants.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/illiquid_by_age.py
+    PYTHONPATH=. .venv/bin/python scripts/illiquid_by_age.py --arm corrected \
+        --out outputs/optionA3/illiquid_by_age_corrected.json --fig /tmp/fig50_corrected.png
