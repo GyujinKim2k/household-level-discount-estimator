@@ -86,19 +86,25 @@ def simulate_one_hark(
 def simulate_one_twoasset(
     theta: np.ndarray, sim_seed: int, start_age: int, n_waves: int,
     wave_years: int, grid: str = "mid", return_panel: bool = False,
+    z_sd: float = 0.0,
 ) -> tuple[np.ndarray, ...]:
     """Phase 3 path: credit cards, illiquid asset, naive quasi-hyperbolic beta.
 
     ``return_panel`` additionally returns the annual panel the waves were
     aggregated from. See :func:`simulate_batch_twoasset_gpu` for why keeping it
-    is worth the bytes.
+    is worth the bytes. ``z_sd`` is the illiquid valuation shock's annual sd
+    (``ModelSpec.z_return_sd``); 0 is the model as before.
     """
+    import dataclasses
+
     from hh_npe.simulator.twoasset import GRIDS, simulate, solve
 
     beta, delta, crra = (float(v) for v in theta)
     if grid not in GRIDS:
         raise ValueError(f"unknown grid {grid!r}; expected one of {sorted(GRIDS)}")
     spec = GRIDS[grid]
+    if z_sd > 0:
+        spec = dataclasses.replace(spec, z_return_sd=float(z_sd))
     sol = solve(beta, delta, crra, spec)
     panel = simulate(sol, n_households=1, seed=sim_seed)
     x, alive = aggregate_waves(
@@ -116,7 +122,7 @@ def simulate_batch_twoasset_gpu(
     return_panels: bool = False, n_households: int = 1,
     educ: np.ndarray | None = None, card: np.ndarray | None = None,
     r_gamma: np.ndarray | None = None, init_pool: np.ndarray | None = None,
-    liqpen_scale: float = 1.0,
+    liqpen_scale: float = 1.0, z_sd: np.ndarray | None = None,
 ) -> tuple[np.ndarray, ...]:
     """Phase 3 on the GPU: many draws per backward induction, one panel each.
 
@@ -174,6 +180,12 @@ def simulate_batch_twoasset_gpu(
     exactly as before). It is fixed in estimation (RESULTS 41.3); other values
     are for the misspecification check of RESULTS 43.11.
 
+    ``z_sd`` gives each draw the annual sd of the illiquid valuation shock
+    (``ModelSpec.z_return_sd``, RESULTS 44). It enters the solve, so draws are
+    grouped by it like R_gamma; generation assigns both per block, so the
+    blocks, and hence the GPU batches, are unchanged. ``None`` or 0 is the
+    model without the shock, exactly as before.
+
     The forward pass and wave aggregation stay on the CPU and are shared with
     :func:`simulate_one_twoasset` verbatim; only the solver differs.
     """
@@ -198,6 +210,8 @@ def simulate_batch_twoasset_gpu(
     if r_gamma is not None and len(r_gamma) != len(thetas):
         raise ValueError(
             f"r_gamma has {len(r_gamma)} entries for {len(thetas)} thetas")
+    if z_sd is not None and (len(z_sd) != len(thetas) or np.any(np.asarray(z_sd) < 0)):
+        raise ValueError(f"z_sd must be {len(thetas)} non-negative entries")
     if init_pool is not None:
         init_pool = np.asarray(init_pool, dtype=float)
         if (init_pool.ndim != 2 or init_pool.shape[1] not in (2, 3)
@@ -220,14 +234,15 @@ def simulate_batch_twoasset_gpu(
     c_arr = np.ones(n, int) if card is None else np.asarray(card, int)
     r_arr = (np.full(n, np.nan) if r_gamma is None
              else np.asarray(r_gamma, dtype=float))
+    z_arr = np.zeros(n) if z_sd is None else np.asarray(z_sd, dtype=float)
     groups: dict = {}
     for j in range(n):
         key = (int(e_arr[j]), int(c_arr[j]),
-               None if np.isnan(r_arr[j]) else float(r_arr[j]))
+               None if np.isnan(r_arr[j]) else float(r_arr[j]), float(z_arr[j]))
         groups.setdefault(key, []).append(j)
     groups = {k: np.array(v) for k, v in groups.items()}
 
-    for (g, c, rg), idx in groups.items():
+    for (g, c, rg, zs), idx in groups.items():
         # educ=None keeps GRIDS[grid]'s own calibration, exactly as before.
         calib = GRIDS[grid].calib if educ is None else cal.bundle(int(g))
         if c == 0:
@@ -238,6 +253,8 @@ def simulate_batch_twoasset_gpu(
             spec = dataclasses.replace(spec, liqpen_scale=float(liqpen_scale))
         if rg is not None:
             spec = dataclasses.replace(spec, R_gamma=rg)
+        if zs > 0:
+            spec = dataclasses.replace(spec, z_return_sd=zs)
         for s0 in range(0, len(idx), theta_batch):
             sel = idx[s0:s0 + theta_batch]
             sols = solve_batch(thetas[sel], spec,

@@ -90,6 +90,58 @@ class ModelSpec:
     #: Multiplies the age schedule of the illiquid liquidation penalty
     #: (``grids.liquidation_penalty``); 1 is Laibson et al.'s.
     liqpen_scale: float = 1.0
+    #: Annual sd of a valuation shock on the illiquid balance (RESULTS 44). The
+    #: balance chosen for next period, Z', arrives as Z' * g with
+    #: log g ~ N(-sd^2/2, sd^2): mean one, so R_gamma stays the mean return,
+    #: and the shock adds capital gains and losses that households plan for.
+    #: On the grid it is the transition matrix of :func:`z_shock_matrix`. 0 is
+    #: Laibson et al.'s model, where Z moves only by deposits and withdrawals,
+    #: and leaves the solve and the simulation exactly as before.
+    z_return_sd: float = 0.0
+
+
+#: Gauss-Hermite nodes for the illiquid valuation shock (``z_shock_matrix``).
+Z_SHOCK_NODES = 9
+
+
+def z_shock_matrix(Z: np.ndarray, sd: float, n_nodes: int = Z_SHOCK_NODES) -> np.ndarray:
+    """``M[a, b]``: probability that the illiquid balance chosen at grid point
+    ``a`` arrives next period at grid point ``b`` (``ModelSpec.z_return_sd``).
+
+    ``n_nodes`` Gauss-Hermite nodes of ``log g``, rescaled so the discrete mean
+    of ``g`` is exactly 1; each ``Z[a] * g`` is then split between its two
+    neighbouring grid points with linear weights. Below the top of the grid
+    ``E[Z_next | a] = Z[a]`` exactly, so the shock adds risk and no drift. Zero
+    stays zero (the shock is multiplicative). Gains beyond the last point are
+    capped at it, so the mean drifts down near the top of the grid: on the
+    full grid (top $3.47M) by 1-4% a year over the last five points at sd 0.1,
+    and 8-12% at sd 0.3; below $1M by under 0.3% even at sd 0.5. The solve
+    integrates over ``M`` and the simulation draws from it, so households face
+    exactly the risk they plan for.
+    """
+    Z = np.asarray(Z, dtype=np.float64)
+    nZ = len(Z)
+    x, w = np.polynomial.hermite_e.hermegauss(n_nodes)
+    w = w / w.sum()
+    g = np.exp(sd * x)
+    g = g / (w @ g)
+    v = Z[:, None] * g[None, :]                                   # (nZ, nodes)
+    top = v >= Z[-1]
+    j = np.clip(np.searchsorted(Z, v, side="right") - 1, 0, nZ - 2)
+    up = np.where(top, 1.0, (v - Z[j]) / (Z[j + 1] - Z[j]))
+    j = np.where(top, nZ - 2, j)
+    rows = np.broadcast_to(np.arange(nZ)[:, None], v.shape)
+    M = np.zeros((nZ, nZ))
+    np.add.at(M, (rows, j), w[None, :] * (1.0 - up))
+    np.add.at(M, (rows, j + 1), w[None, :] * up)
+    return M
+
+
+def _z_shock_draw(zcdf: np.ndarray, zind: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Each household's illiquid grid index after the valuation shock: one
+    draw from row ``zind`` of ``z_shock_matrix``'s cumulative sums ``zcdf``."""
+    u = rng.random(len(zind))
+    return np.minimum((u[:, None] > zcdf[zind]).sum(axis=1), zcdf.shape[1] - 1)
 
 
 #: Coarsest grid (81x46). Cheap but carries 3.15 se of discretization error
@@ -287,6 +339,7 @@ def solve(
     death = cal.DEATH_PROB
     mean_hhs, mean_hhy = hhs.mean(), ylevel.mean()
     ref = utility_ref(spec, mean_hhs, mean_hhy)
+    Mz = z_shock_matrix(Z, spec.z_return_sd) if spec.z_return_sd > 0 else None
 
     # Cost today of holding X[j] tomorrow: saved at R, borrowed at R_CC.
     cost_next = np.maximum(X / spec.R, 0.0) + np.minimum(X / spec.R_CC, 0.0)
@@ -326,7 +379,7 @@ def solve(
         if t > 0:
             V[~feasible[t], :, :] = NEG
             EV = _expectation_step(
-                V, X, ymean[t], states, P, spec, xmin[t], nX, nZ, nS
+                V, X, ymean[t], states, P, spec, xmin[t], nX, nZ, nS, Mz
             )
             EV = (1.0 - death[t - 1]) * EV + death[t - 1] * beq[:, :, None]
 
@@ -340,6 +393,7 @@ def solve(
 def _expectation_step(
     V: np.ndarray, X: np.ndarray, ymean_t: float, states: np.ndarray,
     P: np.ndarray, spec: ModelSpec, xmin_t: float, nX: int, nZ: int, nS: int,
+    Mz: np.ndarray | None = None,
 ) -> np.ndarray:
     """Integrate ``V`` over transitory income and the persistent-state transition.
 
@@ -347,7 +401,14 @@ def _expectation_step(
     probability-weighted average of ``V`` evaluated at grid points shifted up by
     each possible income realization (nearest-neighbour on the grid, as in their
     ``griddedInterpolant(..., 'nearest')``).
+
+    ``Mz`` (:func:`z_shock_matrix`) first integrates over where the chosen
+    illiquid balance lands after its valuation shock. It acts on the Z axis and
+    income on the X axis, so the order does not matter. ``None`` (no shock)
+    leaves ``V`` untouched.
     """
+    if Mz is not None:
+        V = np.einsum("ab,xbs->xas", Mz, V)
     # V_shift[s2] = E_nu[ V(X + nu, Z, s2) ]
     V_shift = np.empty((nS, nX, nZ), dtype=np.float64)
     for s2 in range(nS):
@@ -415,6 +476,11 @@ def simulate(
     distribution. The uniform draw that would have picked it is still consumed,
     so every later shock is the one the household would otherwise have had
     (RESULTS 43).
+
+    With ``spec.z_return_sd > 0`` the illiquid balance chosen each year is
+    moved by its valuation shock before the next (:func:`z_shock_matrix`).
+    Those draws come from their own stream, ``default_rng([seed, 30])``, so the
+    income and state shocks are exactly those of the model without it.
 
     Returns panel arrays of shape ``(n_households, T)``:
 
@@ -507,6 +573,9 @@ def simulate(
     cash = np.empty((N, T))
     illiquid = np.empty((N, T))
     cons = np.empty((N, T))
+    zcdf = (np.cumsum(z_shock_matrix(Z, spec.z_return_sd), axis=1)
+            if spec.z_return_sd > 0 else None)
+    rng_z = np.random.default_rng([seed, 30]) if zcdf is not None else None
 
     for t in range(T):
         xind = _nearest_index(X, X[xind] + income[:, t])
@@ -518,6 +587,8 @@ def simulate(
             nxt_x = sol.next_x[t, xind, zind, s]
             nxt_z = sol.next_z[t, xind, zind, s]
             xind, zind = nxt_x.astype(np.int64), nxt_z.astype(np.int64)
+            if zcdf is not None:
+                zind = _z_shock_draw(zcdf, zind, rng_z)
 
     cons = cons + (spec.R_gamma - 1.0) * illiquid
 
@@ -561,7 +632,9 @@ def simulate_from(
     Shocks depend only on ``seed`` and the income process, never on ``sol``'s
     preferences, so two solutions simulated with the same seed face identical
     income paths -- which is what makes a paired comparison across parameter
-    values possible.
+    values possible. The illiquid valuation shock (``spec.z_return_sd > 0``)
+    draws its uniforms from its own stream, ``default_rng([seed, 30])``, so
+    they are shared across parameter values too.
 
     Returns arrays of shape ``(H, n_sims, horizon + 1)``, column 0 being period
     ``t0`` itself.
@@ -589,6 +662,9 @@ def simulate_from(
     out = {k: np.empty((N, horizon + 1)) for k in
            ("income", "consumption", "liquid_assets", "illiquid_assets")}
     cdf = np.cumsum(P, axis=1)
+    zcdf = (np.cumsum(z_shock_matrix(Z, spec.z_return_sd), axis=1)
+            if spec.z_return_sd > 0 else None)
+    rng_z = np.random.default_rng([seed, 30]) if zcdf is not None else None
     for h in range(horizon + 1):
         t = tt + h
         if h == 0:
@@ -620,4 +696,6 @@ def simulate_from(
         nx = sol.next_x[t, xind, zind, s].astype(np.int64)
         nz = sol.next_z[t, xind, zind, s].astype(np.int64)
         xind, zind = nx, nz
+        if zcdf is not None and h < horizon:
+            zind = _z_shock_draw(zcdf, zind, rng_z)
     return {k: v.reshape(H, n_sims, horizon + 1) for k, v in out.items()}

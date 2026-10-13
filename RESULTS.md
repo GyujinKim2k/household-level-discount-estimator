@@ -6726,6 +6726,15 @@ households:
     independently for each account would add falls and pull the correlation
     toward 0. It cannot make the correlation positive. This is §43.7's
     persistent excess illiquid volatility, now seen out of sample.
+  - **Correction (§44.2): most of this misfit is measurement noise.** The
+    model rows above are noise-free, while PSID's carry PSID's own noise.
+    With A2n's training noise on the model's windows, couples' region
+    shows:
+    - 30% of one-wave illiquid changes falling, against PSID couples' 36%;
+    - a p10 of −$70,000, against PSID's −$74,000.
+
+    What remains is the correlation sign and who holds illiquid wealth at
+    all, not its volatility.
 
 **Limits.**
 - Couples only, one two-wave horizon.
@@ -6741,3 +6750,149 @@ households:
                  "A2n, waves 1-5 only (5 five-wave members)=outputs/oos_optionA2n/oos_household_thetas.npz" \
         --out figures/48_optionA2n_oos_thetas.png \
         --title "PSID couples' posterior means: A2n from all seven waves and from waves 1-5 (the out-of-sample forecasts' parameters)"
+
+---
+
+## 44. Option A3: an illiquid valuation shock, built and calibrated, then put on hold
+
+**Why.** §43.12's wealth dynamics suggested that the model's illiquid
+wealth is too smooth. In Laibson et al.'s model the illiquid balance never
+changes in value: its return R_gamma is paid out as a consumption dividend,
+(R_gamma − 1)·Z, and Z moves only by deposits and withdrawals.
+
+**Decided 2026-10-13 (user):**
+- a per-household yearly valuation shock on Z, independent across couples
+  and years, which households know about and plan for;
+- its size calibrated from PSID as a range and marginalised, as with §43.9's
+  noise.
+
+The plan was the simulator change, a PSID calibration, then a 4,096-draw
+pilot (~14 GPU-h) with gates stated in advance, then the full run after a go.
+
+### 44.1 The shock in the simulator
+
+- **`ModelSpec.z_return_sd`** is the annual sd of the shock. The chosen
+  balance Z′ arrives as Z′·g, with log g ~ N(−σ²/2, σ²). E[g] = 1, so
+  R_gamma stays the mean return.
+- **`twoasset.z_shock_matrix`** puts it on the grid:
+  - 9 Gauss–Hermite nodes, rescaled so the discrete mean of g is exactly 1;
+  - each Z·g split between its two neighbouring grid points with linear
+    weights;
+  - below the top of the grid, E[Z_next | Z′] = Z′ exactly. Zero stays zero.
+  - Gains beyond the top point ($3.47M) are capped. Over the last five grid
+    points that pulls the mean down by 1–4% a year at σ = 0.1 and 8–12% at
+    σ = 0.3. Below $1M the drift is under 0.3% even at σ = 0.5.
+- **The solve** integrates over the matrix in the expectation step, on both
+  the CPU (`_expectation_step`) and the GPU (`solve_batch`). It acts on the Z
+  axis only, so it commutes with the income step, and its cost is negligible.
+- **The simulation** draws each household's next Z from the same matrix, in
+  both `simulate` and `simulate_from`. These draws come from their own stream,
+  `default_rng([seed, 30])`, so income and state shocks are unchanged.
+- **`dispatch.simulate_batch_twoasset_gpu(z_sd=...)`** takes σ per draw and
+  groups by it as by R_gamma. `simulate_one_twoasset(z_sd=...)` does the
+  same for a single draw.
+- **Tests:** `tests/test_zshock.py` (9) checks that:
+  - the matrix is a mean-preserving spread;
+  - the simulation's transitions are the solve's matrix;
+  - σ = 0 never builds the shock;
+  - with the shock, the solve and illiquid paths change while income is
+    unchanged;
+  - `simulate_from` draws it too;
+  - GPU and CPU panels are identical with the shock on;
+  - dispatch at σ = 0 is bit-identical, and σ > 0 moves illiquid wealth only.
+
+  The existing simulator tests also pass (130), so every dataset so far is
+  unchanged.
+- **Not yet done:** the generation flag (`--zshock_range`). It waits on
+  §44.3.
+
+### 44.2 Calibration from PSID: among couples who hold illiquid wealth, the model already matches
+
+**Script:** `scripts/illiquid_shock_calibration.py`. It writes
+`outputs/optionA3/zshock_calibration.json` and `logs/zshock_calibration.log`.
+
+**Statistic:** d = V₆ − V₁, how much faster illiquid changes spread over six
+waves than over one.
+- The scale is the network's input scale: asinh of wealth over the
+  household's mean income.
+- V_k is IQR-based. iid noise cancels in d to first order.
+- The model's windows carry A2n's illiquid noise, drawn as in training.
+
+**The first pass ignores behaviour.** It compounds the shock onto A2's stored
+windows at the wave level, keeping each window's deposits:
+
+    Z̃_{w+1} = max(Z̃_w·G_w + (Z_{w+1} − Z_w), 0),   log G ~ N(−σ², 2σ²)
+
+**Cells and rule:** §43.9's rule, on couples' region, with 96 cells and
+286,720 windows.
+
+**First, a correction to §43.12.** Its dynamics table compared noise-free
+model paths with PSID data, which carry PSID's own noise. With A2n's noise on
+the model's windows, couples' region has:
+- 30% of one-wave illiquid changes falling (PSID couples 36%);
+- a p10 of −$70,000 (PSID −$74,000).
+
+**Over all couples,** PSID's d is 0.79 (90% 0.68–0.94). The model's median
+cell has 0.41.
+- The rule gives a range of [0, 0.39] a year.
+- 46 of 96 cells cannot reach PSID's d at any σ ≤ 0.6, among them the median
+  cell of every ρ bin below 2.5.
+
+The reason is who holds illiquid wealth. A multiplicative shock cannot move a
+zero balance:
+
+| share of windows | always ≥ 0.5 × income | always < 0.1 × income | in between |
+|---|---|---|---|
+| PSID couples | 0.30 | 0.03 | 0.66 |
+| model, ρ 0.5–0.75 | 0.52 | 0.31 | 0.17 |
+| model, ρ 1.5–2.5 | 0.46 | 0.17 | 0.36 |
+| model, ρ 3.5–5 | 0.50 | 0.09 | 0.41 |
+
+The model is polarised: many couples always hold illiquid wealth and many
+never do. PSID couples mostly move between the two. Pooled over everyone, the
+rule asks the shock to make up for the never-holders through the holders.
+
+**Among holders** (illiquid wealth ≥ 0.5 × mean income in every wave, on the
+observed values, for both PSID and the model), the variance of k-wave changes
+is:
+
+```
+                                    k = 1     2      3      4      5      6       d
+PSID couples' holders (30%)          0.179  0.239  0.300  0.369  0.532  0.568   0.389 (90% 0.163-0.523)
+model, couples' region, no shock     0.182  0.230  0.288  0.351  0.415  0.494   0.312
+model, sigma = 0.14                  0.214  0.292  0.372  0.453  0.531  0.621   0.407
+```
+
+- **Without any shock** the model reproduces PSID holders' profile closely.
+  V₁ agrees to 0.003. The model's median cell has d 0.284, inside PSID's 90%
+  interval.
+- **The rule gives a range of [0, 0.14] a year.**
+  - The minimum's 90% interval is 0–0.15. It is reached at ρ 1.5–2.5, β
+    0.4–0.7, no card.
+  - By ρ bin, the median need is 0.11–0.20.
+  - Only 1 of 86 cells cannot reach it.
+- **At σ = 0.14** the model overshoots PSID holders' V₁ (0.214 against
+  0.179). Falls barely move: 31% to 32%.
+
+**Reading.**
+- **§43.12's illiquid volatility misfit is mostly measurement noise.** A2n
+  already carries that noise.
+- **Among couples who hold illiquid wealth, the model's persistence matches
+  PSID without a shock,** within PSID's interval. The shock the data ask for
+  is 0 to 0.14 a year, and σ = 0 is consistent with them.
+- **The misfit that remains is composition: who holds illiquid wealth at
+  all.** A valuation shock cannot fix it. Two untested candidates:
+  - PSID's illiquid wealth is net of non-housing debt (student, medical,
+    family loans) and floored at 0 (`build_psid_tensor.py`), so many couples
+    hover near zero as their debts change;
+  - lumpy transactions, such as house purchases, which the model does not
+    have.
+- **The liquid–illiquid correlation's sign** (PSID +0.29, model −0.50) is
+  also outside what a shock on Z alone can change.
+
+### 44.3 Status
+
+- **The pilot is not launched.** The calibration that was to set its range
+  shows the shock is barely needed.
+- **The simulator change is kept.** It is tested and off by default.
+- **Next step: the user decides.**

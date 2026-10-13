@@ -26,7 +26,7 @@ import torch
 
 from hh_npe.simulator import grids
 from hh_npe.simulator import laibson_calibration as cal
-from hh_npe.simulator.twoasset import NEG, ModelSpec, Solution
+from hh_npe.simulator.twoasset import NEG, ModelSpec, Solution, z_shock_matrix
 
 DEFAULT_DEVICE = "cuda"
 
@@ -196,6 +196,12 @@ def solve_batch(
             ))
         shift_plan.append(per_state)
 
+    # The illiquid valuation shock (ModelSpec.z_return_sd): theta- and
+    # age-independent, so one matrix serves the whole solve. None leaves the
+    # expectation step exactly as before.
+    Mz = (torch.as_tensor(z_shock_matrix(Z_np, spec.z_return_sd), dtype=f64, device=dev)
+          if spec.z_return_sd > 0 else None)
+
     # Choice index for the tie-break in _first_argmax; broadcasts over (B, ., ., K).
     ar_choice = torch.arange(nX * nZ, dtype=torch.int32, device=dev)
 
@@ -340,6 +346,10 @@ def solve_batch(
 
             if t > 0:
                 V[:, ~feasible[t], :, :] = NEG
+                if Mz is not None:
+                    # Where the chosen illiquid balance lands after its shock;
+                    # Z axis only, so it commutes with the income step below.
+                    V = torch.einsum("ac,bxcs->bxas", Mz, V)
                 # These contractions are NOT batch-invariant, and cannot cheaply
                 # be made so: cuBLAS picks its summation order from the problem
                 # size, so changing theta_batch perturbs EV in the last bits and
