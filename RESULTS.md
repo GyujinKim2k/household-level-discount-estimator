@@ -7123,3 +7123,152 @@ shortfall are the same. Output: `outputs/optionA3/illiquid_by_age_corrected.json
     PYTHONPATH=. .venv/bin/python scripts/illiquid_by_age.py
     PYTHONPATH=. .venv/bin/python scripts/illiquid_by_age.py --arm corrected \
         --out outputs/optionA3/illiquid_by_age_corrected.json --fig /tmp/fig50_corrected.png
+
+### 44.6 What PSID couples' illiquid wealth is made of: home equity builds it, vehicles keep it off zero
+
+**Question.** §44.5's reading was that PSID couples' illiquid wealth accrues
+near-automatically, through mortgage principal and employer pension
+contributions, and that this is what the model lacks. This splits the
+estimation input into its parts to test that.
+
+**Script:** `scripts/psid_illiquid_decomposition.py`. It writes
+`outputs/optionA3/psid_illiquid_decomposition.json`,
+`logs/psid_illiquid_decomposition.log` and figure 51.
+
+**Components** (2010 dollars, summed exactly as `build_psid_tensor.py` sums
+them for the couples tensor):
+- home equity (PSID's wealth with equity minus without);
+- DC pensions (Section P);
+- IRAs; stocks outside IRAs; vehicles (net of their loans);
+- other real estate, and other assets, both net of their debts;
+- unsecured debt (student, medical, legal, family and other loans), as a
+  negative.
+
+Their sum, floored at zero, reproduces the tensor's illiquid column
+exactly; the script refuses otherwise. 11.5% of household-waves are below
+zero before the floor.
+
+**Laibson et al.'s definition has the same scope.** Their illiquid wealth is
+total wealth less liquid wealth, so it includes housing, vehicles net of
+vehicle loans and retirement accounts (`2_buildmoments.do`: `nfin_nw`;
+`4_initialwealth.do`).
+
+**By age:** each component's mean over mean window income, so the
+components add up to the mean ratio before the floor.
+
+```
+ages   owner   home    DC    IRA  stocks  vehicles  other RE  other  unsecured   total   median r
+25-29  0.45    0.26   0.04   0.02   0.00     0.22      0.05    0.08    -0.20      0.48     0.21
+30-34  0.57   -0.01   0.11   0.06   0.03     0.24     -0.02    0.18    -0.19      0.39     0.38
+35-39  0.67    0.74   0.20   0.12   0.06     0.25      0.06    0.15    -0.20      1.37     0.75
+40-44  0.75    0.89   0.38   0.22   0.05     0.27      0.05    0.30    -0.15      2.02     1.13
+45-49  0.76    1.05   0.49   0.31   0.11     0.28      0.06    0.33    -0.13      2.50     1.37
+50-54  0.81    1.40   0.87   0.59   0.39     0.33      0.09    0.15    -0.13      3.69     2.09
+55-59  0.86    2.18   0.61   0.41   0.13     0.29      0.08    0.09    -0.10      3.69     2.52
+```
+
+- **Home ownership** rises from 45% to 86%.
+- **DC pensions:** 16–39% of household-waves hold one.
+- **Vehicles:** 88–92% hold them, worth 0.22–0.33 × income on average, at
+  every age.
+
+**What changes over the 12 years:** the mean change, first wave to last,
+over window mean income.
+
+| kind (n) | home | DC | IRA | stocks | vehicles | other | unsecured | total |
+|---|---|---|---|---|---|---|---|---|
+| holders (124) | 1.46 | 0.31 | 0.43 | 0.76 | 0.08 | −0.35 | −0.03 | 2.66 |
+| **up (146)** | **2.88** | 0.23 | 0.18 | 0.04 | 0.19 | 0.10 | 0.02 | 3.63 |
+| other (100) | 0.56 | 0.14 | 0.10 | 0.04 | −0.03 | −0.07 | −0.09 | 0.65 |
+| down (25) | −0.40 | −0.13 | 0.01 | 0.01 | −0.38 | −0.81 | −0.19 | −1.89 |
+
+"Other" here is other real estate plus other assets.
+
+- **Up-movers' rise is 79% home equity.** For 76% of them home equity is the
+  largest single rise. DC pensions are 6% of the rise, and the largest for
+  8%.
+- **Tenure.**
+  - **Buyers:** 36% of up-movers went from renting to owning within the
+    window. Of all couples who did, 73% are up-movers.
+  - **Continuing owners:** 54% of up-movers owned throughout. Their home
+    equity rose a mean 3.8 × income.
+
+**With parts left out:**
+
+| illiquid wealth | holders | never | up | down | other | share < 0.1 × income, 25–29 → 55–59 |
+|---|---|---|---|---|---|---|
+| as estimated | 0.30 | 0.03 | 0.36 | 0.06 | 0.24 | 0.39 0.32 0.24 0.17 0.15 0.10 0.06 |
+| without home equity | 0.06 | 0.06 | 0.23 | 0.13 | 0.52 | 0.46 0.37 0.35 0.27 0.25 0.24 0.19 |
+| home equity only | 0.17 | 0.15 | 0.44 | 0.04 | 0.21 | 0.65 0.54 0.41 0.32 0.28 0.21 0.15 |
+| **without vehicles** | 0.23 | 0.09 | 0.38 | 0.04 | 0.26 | **0.58 0.52 0.37 0.29 0.25 0.15 0.12** |
+| model at couples' estimates (§44.5) | 0.51 | 0.16 | 0.18 | 0.05 | 0.10 | 0.39 0.36 0.32 0.27 0.21 0.18 0.14 |
+
+**Price against paydown, continuing owners.** The extract has no house value
+or mortgage balance, only home equity and the annual mortgage payment, so
+two bounds are used, per two-year gap.
+
+**Owners with a mortgage:** the equity gain against twice the annual
+payment. Payments include interest, so this bounds principal from above. On
+a 30-year loan at 3.5–5%, principal is about 0.3–0.65 of the payment
+between years 5 and 20.
+
+| gap | n | equity gain, p50 | 2 × payment, p50 | gain above 2 × payment |
+|---|---|---|---|---|
+| 2011–13 | 216 | $1,300 | $19,000 | 20% |
+| 2013–15 | 209 | $8,200 | $18,700 | 35% |
+| 2015–17 | 224 | $12,600 | $18,600 | 41% |
+| 2017–19 | 229 | $12,700 | $18,600 | 41% |
+| 2019–21 | 195 | $22,600 | $18,000 | 55% |
+| 2021–23 | 176 | $24,900 | $19,100 | 56% |
+
+- **Through 2019,** the typical gain is within what amortisation alone gives:
+  about $5,600–12,100 over two years at the median payment.
+- **From 2019,** it is about twice that. That is the post-2019 rise in house
+  prices.
+
+**Owners with no payment in either wave:** their equity is the house value.
+Its median real growth is about 0 a year, pooled. But n is only 22–55 per
+gap, and these values are self-reported and include moves, so the series
+(figure 51, right) is noisy.
+
+**Reading.**
+- **Pensions are not it.** For comphs couples, DC balances add 6% of
+  up-movers' rise. The pension half of §44.5's hypothesis is rejected.
+- **Housing is it,** through three channels:
+  - **Buying a home.** A lumpy move into illiquid wealth, by about a fifth
+    of all couples (18%), most of whom then become up-movers. In the model,
+    illiquid deposits are not tied to a purchase or a down payment, and
+    young couples already hold illiquid wealth: 46% at ≥ 0.5 × income at
+    25–29, against PSID's 25%, when only 45% of PSID couples own.
+  - **Amortisation.** Contractual principal repayment roughly accounts for
+    continuing owners' typical equity gains through 2019. The model has no
+    such forced saving.
+  - **House prices after 2019.** A gain common to every owner in this one
+    calendar period, which no lifecycle model with a constant R_gamma
+    produces.
+- **§44.5's "zero mass that does not fade" is mostly vehicles.**
+  - **PSID:** nearly every couple owns a vehicle (0.22–0.33 × income), which
+    keeps it off zero. Without vehicles, PSID couples' share below 0.1 ×
+    income is 0.58 at 25–29 and 0.12 at 55–59, at or above the model's 0.39
+    and 0.14.
+  - **The model:** it has no durable that everyone holds, so its low-wealth
+    couples sit at Z = 0.
+  - The drains in the model (§44.5) are still small balances drained in card
+    debt, but the size of the zero mass is not a misfit once vehicles are
+    set aside.
+- **What is left:**
+  - **Timing:** the model's couples hold illiquid wealth too early.
+  - **No housing-specific accrual:** no purchase step, no amortisation, no
+    common price gains. These make PSID couples' build-up gradual and
+    tenure-driven.
+
+  Netting (§44.4) and volatility (§44.2) are not it.
+
+**Figure 51:**
+- mean components by age, with the median ratio;
+- the 12-year changes by kind of couple;
+- continuing owners' equity gain against the payment bound, per gap.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/psid_illiquid_decomposition.py
