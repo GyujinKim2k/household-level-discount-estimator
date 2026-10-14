@@ -7808,6 +7808,22 @@ One household is not evidence by itself. Over the 1,024 households of §48, each
 
 **Published validation evidence.** PSID's own validation study, which matched workers' survey reports with their employer's payroll records, found annual earnings "fairly accurate", with errors "moderately larger for changes in earnings" (Bound, Brown, Duncan and Rodgers 1994, *Journal of Labor Economics*). That fits the rule giving income no noise (§43.9). We found no published PSID estimate of the size of reporting error in wealth or consumption items. The PSID website refused automated access, so its data-quality pages were not read directly.
 
+**Method, in full** (`scripts/psid_accuracy_codes.py`).
+1. **Codebooks.** Every variable's year, label and question text are read from `PSID-data/*_codebook.xml`, the official PSID codebooks shipped with each extract.
+2. **Wealth items.** An amount labelled "IMP ⟨item⟩ ⟨year⟩" gets the code labelled "ACC ⟨item⟩ ⟨year⟩" in the same wave. Labels are used because PSID's "Accuracy of ER…" pointers carry typos: 2011 checking points at "ER523504", and 2015's with-equity code points at the without-equity total.
+3. **Expenditure categories.** The code is the amount's name plus "A" through 2017 (from 2019, the next number), and its pointer names the amount. Either is accepted if the amount's label is the category's. One pointer has a typo: 2011 bus/train points at "ER52365C7".
+   - Mortgage, property tax, home insurance, and vehicle loan and down payments are not in our consumption (`build_psid_tensor.py`), so their codes are left out.
+4. **Home equity has no code of its own.** It is counted as imputed at least where PSID's with-equity wealth total is imputed and the without-equity total is not.
+5. **Sample.** The 409 couples of `psid_x_comphs_couples.pt` (its `psid_row`), 7 waves. A feature counts as imputed in a wave if any of its components' codes is 1. The amount share is the imputed components' absolute amounts over all components' absolute amounts. Only shares are printed.
+6. **Signature.** a = 2V₁ − V₂, with V_k the IQR-based variance ((p75 − p25)/1.349)² of k-wave changes on the network's input scale, as in §43.9. A change is kept only if every wave it spans is unimputed for that feature; for illiquid wealth, PSID's with-equity total must also be unimputed.
+
+**Sources.**
+- Official PSID codebooks for our extracts, `PSID-data/J364786`, `J364812`, `J364814`, `J364816` and `J364817` `_codebook.xml`. These hold the accuracy-code definitions ("Accuracy code for imputation of [year] wealth/consumption summary variables"), the expenditure imputation note, and the 2015 F80D programming-error note.
+- PSID, *Data Quality*: <https://psidonline.isr.umich.edu/Guide/Quality/data_quality.aspx> (refused automated access; cited from search results).
+- PSID wealth documentation, 1984–2001 waves (unfolding brackets, hot-deck imputation): <https://psidonline.isr.umich.edu/Data/Documentation/wlth1984-2001.pdf>.
+- PSID Technical Series Paper 20-01, *Multiple Imputation with Massive Data* (hot-deck imputation of 2013 wealth; item nonresponse below 5% for most wealth components): <https://psidonline.isr.umich.edu/publications/papers/tsp/2020-01_Multiple_Imputation_w_Massive_Data.pdf>.
+- Bound, Brown, Duncan and Rodgers (1994), "Evidence on the Validity of Cross-Sectional and Longitudinal Labor Market Data", *Journal of Labor Economics* 12(3), 345–368: <https://ideas.repec.org/a/ucp/jlabec/v12y1994i3p345-68.html>.
+
 ### 49.3 Reading
 
 - **The noise question matters for the household intervals.** Noise-free models given noisy data cover the truth about 60% of the time per parameter.
