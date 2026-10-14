@@ -7794,16 +7794,19 @@ One household is not evidence by itself. Over the 1,024 households of §48, each
 
 **Does imputation explain PSID's noise?** §43.9's signature a = 2V₁ − V₂ was recomputed using only changes between waves in which nothing in that feature was imputed. For illiquid wealth, this also requires PSID's with-equity total to be unimputed, since home equity has no code of its own.
 
-| feature | a, every change | a, unimputed changes only | V₁, every / unimputed | changes kept |
-|---|---|---|---|---|
-| consumption | 0.046 | 0.031 | 0.070 / 0.071 | 1,004 of 2,454 |
-| liquid | 0.0043 | 0.0037 | 0.0069 / 0.0061 | 2,201 |
-| illiquid | 0.063 | 0.026 | 0.175 / 0.138 | 1,948 |
+90% intervals are from 200 bootstrap resamples of couples, the same resamples for both values of a and their difference. The "every change" intervals reproduce §43.9's.
+
+| feature | a, every change (90%) | a, unimputed changes only (90%) | difference (90%) | V₁, every / unimputed | changes kept |
+|---|---|---|---|---|---|
+| consumption | 0.046 (0.034–0.056) | 0.031 (0.006–0.061) | +0.015 (−0.013 to +0.038) | 0.070 / 0.071 | 1,004 of 2,454 |
+| liquid | 0.0043 (0.0028–0.0061) | 0.0037 (0.0020–0.0049) | +0.0006 (0.0000 to +0.0017) | 0.0069 / 0.0061 | 2,201 |
+| illiquid | 0.063 (0.023–0.102) | 0.026 (−0.013 to 0.074) | +0.037 (+0.001 to +0.058) | 0.175 / 0.138 | 1,948 |
 
 - **The "every change" column reproduces §43.9.**
-- **Illiquid: imputed values carry about 60% of PSID's noise signature.** Without them a is 0.026, at the bottom of §43.9's 90% interval (0.023–0.102). There the minimum illiquid noise is about 0.115, not 0.175.
-- **Consumption: about a third.** But the kept changes exclude nearly all of 2015, so the two sets differ in more than imputation.
-- **Liquid: little.**
+- **Illiquid: removing imputed waves lowers the signature by 0.037, about 60% of it.** But the 90% interval runs from 0.001 to 0.058, so the share is anywhere from nearly none to almost all. The point estimate without them, 0.026, would put the minimum illiquid noise near 0.115 rather than 0.175. Its own interval (−0.013 to 0.074) does not pin that down.
+  - *Correction:* this paragraph first stated "about 60%" without its interval.
+- **Consumption: not distinguishable from zero.** The kept changes also exclude nearly all of 2015.
+- **Liquid: a real effect, but small** (0.0006 of 0.0043).
 - **Selection caveat:** couples and waves without imputation may be calmer for other reasons, for example simpler portfolios.
 
 **Published validation evidence.** PSID's own validation study, which matched workers' survey reports with their employer's payroll records, found annual earnings "fairly accurate", with errors "moderately larger for changes in earnings" (Bound, Brown, Duncan and Rodgers 1994, *Journal of Labor Economics*). That fits the rule giving income no noise (§43.9). We found no published PSID estimate of the size of reporting error in wealth or consumption items. The PSID website refused automated access, so its data-quality pages were not read directly.
@@ -7827,9 +7830,9 @@ One household is not evidence by itself. Over the 1,024 households of §48, each
 ### 49.3 Reading
 
 - **The noise question matters for the household intervals.** Noise-free models given noisy data cover the truth about 60% of the time per parameter.
-- **PSID's codes locate part of that noise: imputed values, above all in illiquid wealth.** They give flags, not error sizes, and cover neither income nor pensions.
+- **PSID's codes may locate part of that noise, mostly in illiquid wealth.** How much is not pinned down: anywhere from nearly none to almost all of illiquid's signature. The codes give flags, not error sizes, and cover neither income nor pensions.
 - **Options, not started; the user decides:**
-  - **(a)** Treat PSID's imputed values as missing, with a mask channel in the network's input. Then recalibrate the noise on unimputed changes only, which lowers illiquid's minimum toward 0.115. This needs retraining.
+  - **(a)** Treat PSID's imputed values as missing, with a mask channel in the network's input. Then recalibrate the noise on unimputed changes only. That could lower illiquid's minimum, by an amount the bootstrap leaves wide open. This needs retraining.
   - **(b)** Drop or down-weight imputed couple-waves in PSID's input. This cannot be done inside a fixed 7-wave window without (a).
   - **(c)** Keep A2n's noise as calibrated, which covers imputation and reporting error together.
 

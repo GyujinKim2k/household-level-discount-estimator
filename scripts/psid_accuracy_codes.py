@@ -29,7 +29,9 @@ scale). Here a and V1 are recomputed on the couples' own tensor using only
 changes between two waves in which nothing in that feature was imputed. For
 illiquid wealth, "nothing imputed" also requires PSID's with-equity wealth
 total to be unimputed, since home equity has no code. If imputed values were
-the noise, a would fall toward the model's no-noise level.
+the noise, a would fall toward the model's no-noise level. 90% intervals come
+from 200 bootstrap resamples of couples, the same resamples for both a's and
+their difference.
 
 **Sample.** The 409 couples of ``data/processed/psid_x_comphs_couples.pt`` (its
 ``psid_row``), 7 waves 2011-2023. Only shares are printed, never a household's
@@ -118,22 +120,24 @@ def signature(z: np.ndarray, clean: np.ndarray | None) -> dict:
     return out
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--psid_dir", type=Path, default=Path("PSID-data"))
-    ap.add_argument("--x", type=Path, default=Path("data/processed/psid_x_comphs_couples.pt"))
-    ap.add_argument("--out", type=Path, default=Path("outputs/psid_accuracy/couples.json"))
-    args = ap.parse_args()
-
-    cb = codebook(args.psid_dir)
+def collect(psid_dir: Path, rows: np.ndarray) -> dict:
+    """Every input component's amount and accuracy code for PSID rows ``rows``,
+    7 waves. Returns per feature (liquid, illiquid, consumption) arrays
+    (rows x waves): ``imputed`` (any coded component imputed), ``amount`` and
+    ``amount_imp`` (absolute amounts of coded components, all and imputed), and
+    the illiquid parts without a code of their own: ``equity`` (|with-equity
+    total - without-equity total|), ``equity_imputed`` (the lower bound: the
+    with-equity total imputed, the without-equity total not) and ``pension``
+    (Section P balances); plus the totals' codes ``w1``, ``w2`` and the
+    per-component tables."""
+    cb = codebook(psid_dir)
     wc = wealth_codes(cb)
-    fam = pd.read_pickle(args.psid_dir / "tax.pkl")
-    ind = pd.read_pickle(args.psid_dir / "extract.pkl")
-    if len(fam) != len(ind):
-        raise SystemExit("tax.pkl and extract.pkl rows differ")
-    rows = torch.load(args.x, weights_only=False)["psid_row"].numpy()
-    print(f"{len(rows)} couples, waves {b.WAVES}; {len(wc)} wealth codes in the codebooks")
+    fam = pd.read_pickle(psid_dir / "tax.pkl")
+    ind = pd.read_pickle(psid_dir / "extract.pkl")
+    pen = pd.read_pickle(psid_dir / "pension.pkl")
+    if not len(fam) == len(ind) == len(pen):
+        raise SystemExit("tax.pkl, extract.pkl and pension.pkl rows differ")
+    n, nw = len(rows), len(b.WAVES)
 
     def column(var: str) -> np.ndarray | None:
         for d in (fam, ind):
@@ -141,31 +145,34 @@ def main() -> None:
                 return d[var].to_numpy(dtype=float)[rows]
         return None
 
-    res = {"n_couples": int(len(rows)), "components": {}, "features": {}, "totals": {},
-           "code_values": {}}
-    imputed = {f: np.zeros((len(rows), len(b.WAVES)), bool)
-               for f in ("liquid", "illiquid", "consumption")}
-    amount = {f: np.zeros((len(rows), len(b.WAVES))) for f in imputed}
-    amount_imp = {f: np.zeros((len(rows), len(b.WAVES))) for f in imputed}
-    codes_seen: dict[str, int] = {}
+    def clean(v: np.ndarray) -> np.ndarray:
+        return np.where(np.isfinite(v) & (np.abs(v) < b.MISSING_FROM), v, 0.0)
+
+    out = {"n_wealth_codes": len(wc), "components": {}, "totals": {}, "code_values": {},
+           "imputed": {f: np.zeros((n, nw), bool) for f in ("liquid", "illiquid", "consumption")}}
+    out["amount"] = {f: np.zeros((n, nw)) for f in out["imputed"]}
+    out["amount_imp"] = {f: np.zeros((n, nw)) for f in out["imputed"]}
+    codes_seen = out["code_values"]
 
     def add(feature: str, key: str, w: int, val: np.ndarray, acc: np.ndarray | None) -> None:
-        val = np.where(np.isfinite(val) & (np.abs(val) < b.MISSING_FROM), val, 0.0)
-        amount[feature][:, w] += np.abs(val)
-        ent = res["components"].setdefault(f"{feature}: {key}", {})
+        val = clean(val)
+        out["amount"][feature][:, w] += np.abs(val)
+        ent = out["components"].setdefault(f"{feature}: {key}", {})
         if acc is None:
             ent[str(b.WAVES[w])] = None
             return
         for c, k in zip(*np.unique(acc[np.isfinite(acc)], return_counts=True), strict=True):
             codes_seen[str(int(c))] = codes_seen.get(str(int(c)), 0) + int(k)
         imp = acc == 1
-        imputed[feature][:, w] |= imp
-        amount_imp[feature][:, w] += np.where(imp, np.abs(val), 0.0)
+        out["imputed"][feature][:, w] |= imp
+        out["amount_imp"][feature][:, w] += np.where(imp, np.abs(val), 0.0)
         held = val != 0
         ent[str(b.WAVES[w])] = {"imputed": float(imp.mean()),
                                 "imputed_among_nonzero": float(imp[held].mean()) if held.any()
                                 else None, "nonzero": float(held.mean())}
 
+    w1, w2 = np.full((n, nw), np.nan), np.full((n, nw), np.nan)
+    equity, pension = np.zeros((n, nw)), np.zeros((n, nw))
     for w, y in enumerate(b.WAVES):
         for feature, keys in (("liquid", LIQUID), ("illiquid", ILLIQUID)):
             for k in keys:
@@ -176,23 +183,81 @@ def main() -> None:
                 add(feature, k, w, column(var), None if code is None else column(code))
         for cat, val, code in expenditure_codes(cb, y):
             add("consumption", cat.lower(), w, column(val), column(code))
-        for k, name in TOTALS.items():
-            code = wc.get(b.FAM[k][y])
-            acc = column(code) if code else None
-            res["totals"].setdefault(name, {})[str(y)] = (
-                None if acc is None else float((acc == 1).mean()))
-    res["code_values"] = codes_seen
-
-    w1 = np.array([[np.nan] * len(rows)] * len(b.WAVES)).T
-    w2 = w1.copy()
-    for w, y in enumerate(b.WAVES):
-        for k, arr in (("w1", w1), ("w2", w2)):
+        for k, name, arr in (("w1", TOTALS["w1"], w1), ("w2", TOTALS["w2"], w2)):
             code = wc.get(b.FAM[k][y])
             if code:
                 arr[:, w] = column(code)
-    equity_lb = (w2 == 1) & (w1 != 1)
-    res["totals"]["home equity imputed, lower bound"] = float(equity_lb.mean())
+            out["totals"].setdefault(name, {})[str(y)] = (
+                None if code is None else float((arr[:, w] == 1).mean()))
+        equity[:, w] = np.abs(clean(column(b.FAM["w2"][y])) - clean(column(b.FAM["w1"][y])))
+        for c in b.PENSION[y]:
+            v = pen[c].to_numpy(dtype=float)[rows]
+            pension[:, w] += np.where(np.isfinite(v) & (v < b.PENSION_DK), v, 0.0)
+    out |= {"w1": w1, "w2": w2, "equity": equity, "pension": pension,
+            "equity_imputed": (w2 == 1) & (w1 != 1)}
+    out["totals"]["home equity imputed, lower bound"] = float(out["equity_imputed"].mean())
+    return out
 
+
+def imputed_share(c: dict, f: str) -> tuple[np.ndarray, np.ndarray]:
+    """(any part imputed, imputed share of the feature's absolute amount) per
+    couple-wave. For illiquid wealth the amount also counts home equity and
+    pensions, and home equity counts as imputed where its lower bound says so."""
+    amt, imp, any_ = c["amount"][f].copy(), c["amount_imp"][f].copy(), c["imputed"][f].copy()
+    if f == "illiquid":
+        amt += c["equity"] + c["pension"]
+        imp += np.where(c["equity_imputed"], c["equity"], 0.0)
+        any_ |= c["equity_imputed"]
+    share = np.divide(imp, amt, out=np.zeros_like(amt), where=amt > 0)
+    return any_, share
+
+
+def masks(c: dict, tau: float) -> dict[str, np.ndarray]:
+    """Couple-waves whose feature is treated as missing: some part imputed and
+    the imputed share of its amount at least ``tau`` (0: any part)."""
+    out = {}
+    for f in ("consumption", "liquid", "illiquid"):
+        any_, share = imputed_share(c, f)
+        out[f] = any_ & (share >= tau)
+    return out
+
+
+def boot_signature(z: np.ndarray, clean: np.ndarray, n_boot: int = 200,
+                   seed: int = 0) -> dict:
+    """90% bootstrap intervals over couples for a on every change, a on
+    ``clean`` changes, and their difference (same resamples for both)."""
+    rng = np.random.default_rng(seed)
+    a_all, a_cl = [], []
+    for _ in range(n_boot):
+        i = rng.integers(0, len(z), len(z))
+        a_all.append(signature(z[i], None)["a"])
+        a_cl.append(signature(z[i], clean[i])["a"])
+    a_all, a_cl = np.array(a_all), np.array(a_cl)
+    q = lambda v: np.percentile(v, [5, 95]).tolist()  # noqa: E731
+    return {"a_all_90": q(a_all), "a_clean_90": q(a_cl), "diff_90": q(a_all - a_cl)}
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--psid_dir", type=Path, default=Path("PSID-data"))
+    ap.add_argument("--x", type=Path, default=Path("data/processed/psid_x_comphs_couples.pt"))
+    ap.add_argument("--out", type=Path, default=Path("outputs/psid_accuracy/couples.json"))
+    ap.add_argument("--tau", type=float, nargs="*", default=None,
+                    help="Masking thresholds to tabulate (RESULTS 50): share of couple-waves "
+                         "masked and the signature on unmasked changes.")
+    args = ap.parse_args()
+
+    rows = torch.load(args.x, weights_only=False)["psid_row"].numpy()
+    c = collect(args.psid_dir, rows)
+    imputed, amount, amount_imp = c["imputed"], c["amount"], c["amount_imp"]
+    w2 = c["w2"]
+    codes_seen = c["code_values"]
+    print(f"{len(rows)} couples, waves {b.WAVES}; {c['n_wealth_codes']} wealth codes in the "
+          "codebooks")
+    res = {"n_couples": int(len(rows)), "components": c["components"], "features": {},
+           "totals": c["totals"], "code_values": codes_seen}
+    equity_lb = c["equity_imputed"]
     print(f"\naccuracy code values seen: {codes_seen}")
     print("\nshare of couple-waves with any imputed component, and imputed share of the "
           "feature's absolute amount:")
@@ -237,9 +302,38 @@ def main() -> None:
         z = xt[:, :, feats.index(name)]
         clean = ~imputed[f] & ((w2 != 1) if f == "illiquid" else True)
         s_all, s_clean = signature(z, None), signature(z, clean)
-        res["signature"][f] = {"all": s_all, "unimputed": s_clean}
+        bs = boot_signature(z, clean)
+        res["signature"][f] = {"all": s_all, "unimputed": s_clean, "bootstrap": bs}
         print(f"  {f:12s}{s_all['a']:9.4f}{s_all['V1']:9.4f}{s_all['n1']:7d}   |"
-              f"{s_clean['a']:9.4f}{s_clean['V1']:9.4f}{s_clean['n1']:7d}")
+              f"{s_clean['a']:9.4f}{s_clean['V1']:9.4f}{s_clean['n1']:7d}   90%: a all "
+              f"{bs['a_all_90'][0]:.4f}-{bs['a_all_90'][1]:.4f}, unimputed "
+              f"{bs['a_clean_90'][0]:.4f}-{bs['a_clean_90'][1]:.4f}, difference "
+              f"{bs['diff_90'][0]:+.4f} to {bs['diff_90'][1]:+.4f}")
+    if args.tau is not None:
+        res["tau"] = {}
+        print("\nmasking rule: a feature-wave is missing if some part is imputed and the "
+              "imputed share of its amount >= tau")
+        for f in ("consumption", "liquid", "illiquid"):
+            any_, share = imputed_share(c, f)
+            q = np.percentile(share[any_], [25, 50, 75]) if any_.any() else [np.nan] * 3
+            print(f"  {f:12s} imputed share of the amount where any part is imputed: "
+                  f"p25 {q[0]:.3f}  median {q[1]:.3f}  p75 {q[2]:.3f}")
+        print("  per feature: share masked; a on unmasked changes (90% bootstrap over "
+              "couples); a(all) - a(unmasked) (90%)")
+        for tau in args.tau:
+            m = masks(c, tau)
+            row = {}
+            print(f"  tau {tau:.2f}")
+            for f, name in (("consumption", "consumption"), ("liquid", "liquid_assets"),
+                            ("illiquid", "illiquid_assets")):
+                z = xt[:, :, feats.index(name)]
+                s, bs = signature(z, ~m[f]), boot_signature(z, ~m[f])
+                row[f] = {"masked": float(m[f].mean()), **s, **bs}
+                print(f"    {f:12s} masked {m[f].mean():.3f}  a {s['a']:.4f} "
+                      f"({bs['a_clean_90'][0]:.4f}-{bs['a_clean_90'][1]:.4f})  difference "
+                      f"{signature(z, None)['a'] - s['a']:+.4f} ({bs['diff_90'][0]:+.4f} to "
+                      f"{bs['diff_90'][1]:+.4f})  changes kept {s['n1']}")
+            res["tau"][str(tau)] = row
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(res, indent=1))
     print(f"\nwrote {args.out}")
