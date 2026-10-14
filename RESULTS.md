@@ -7750,7 +7750,7 @@ This is not proven. A regression within A2n's ranges cannot see the step from no
 
 One household is not evidence by itself. Over the 1,024 households of §48, each model covers the truth at the same rate on its own data: 0.88–0.93 per parameter for all three. But A2 and A2w were given exact windows there, and PSID's windows are not exact.
 
-**The test** (`compare_optionA2_widths.py --noisy_inputs`): the same 1,024 households, with A2 and A2w also given A2n's noisy windows. 90% coverage is weighted by p / q_held as in §43.4 (ESS 658). Unweighted values are within 0.03, except R_gamma on noisy windows (0.07 lower).
+**The test** (`compare_optionA2_widths.py --noisy_inputs`): the same 1,024 households, with A2 and A2w also given A2n's noisy windows. 90% coverage is weighted by p / q_held as in §43.4 (ESS 658). Unweighted values are within 0.04, except R_gamma on noisy windows (0.07 lower).
 
 | model, windows | β | δ | ρ | R_gamma | all four | ρ median 90% width | median \|mean − truth\| / sd |
 |---|---|---|---|---|---|---|---|
