@@ -347,23 +347,41 @@ def fit(hd: HouseholdDraws, spec: Spec, init: dict | None = None, max_iter: int 
         tol: float = 1e-7) -> tuple[dict, float]:
     """Maximum likelihood population; returns its parameters and
     ``sum_i log m_i``. The optimiser sees the mean over households, so its
-    tolerances do not depend on their number."""
+    tolerances do not depend on their number. Should the optimiser end on
+    non-finite parameters or likelihood, the best finite point it evaluated
+    is returned instead."""
     p = {k: v.detach().clone().to(hd.device) for k, v in (init or initial(spec, hd)).items()}
     free = [p[k].requires_grad_() for k in spec.free()]
     opt = torch.optim.LBFGS(free, max_iter=max_iter, tolerance_grad=tol,
                             tolerance_change=tol * 1e-3, history_size=50,
                             line_search_fn="strong_wolfe")
+    best = {"loss": math.inf, "p": None}
 
     def closure():
         opt.zero_grad()
         loss = -log_marginal(spec, p, hd).mean()
         loss.backward()
+        if torch.isfinite(loss) and float(loss) < best["loss"]:
+            best["loss"], best["p"] = float(loss), {k: v.detach().clone() for k, v in p.items()}
         return loss
 
-    opt.step(closure)
+    # A truncated normal's mean can run far outside the box (an exponential
+    # pile at an edge, RESULTS 46), and a line search step there can overflow;
+    # torch's strong-Wolfe search can then fail outright on the NaN.
+    try:
+        opt.step(closure)
+        failed = False
+    except (IndexError, RuntimeError):
+        failed = True
     p = {k: v.detach() for k, v in p.items()}
     with torch.no_grad():
         ll = float(log_marginal(spec, p, hd).sum())
+    if failed or not (math.isfinite(ll) and all(torch.isfinite(v).all() for v in p.values())):
+        if best["p"] is None:
+            raise FloatingPointError("population fit: no finite point evaluated")
+        p = best["p"]
+        with torch.no_grad():
+            ll = float(log_marginal(spec, p, hd).sum())
     return {k: v.cpu() for k, v in p.items()}, ll
 
 
@@ -501,22 +519,28 @@ def fit_adaptive(theta, log_l, log_q, evaluate, lo, hi, spec: Spec, n_ref: int =
     reference points per household around the current fit and refits on both.
     Returns the parameters, ``sum_i log m_i``, the final points (fixed from
     then on, for bootstraps and other families) and the fit after each
-    round."""
+    round, with the share of that round's reference points clipped at
+    ``Reference.U_MAX``. Clipped points carry the unclipped density, so a
+    population that drifts to the clip (PSID's beta, RESULTS 46) gets a
+    meaningless likelihood: a round with a sizeable share is not a fit."""
     lo, hi = np.asarray(lo, float), np.asarray(hi, float)
     N, d = np.asarray(theta).shape[0], len(lo)
     hd = HouseholdDraws.from_draws(theta, np.asarray(log_l) - np.asarray(log_q), lo, hi)
     hd = hd.to(device) if device is not None else hd
     p, ll = fit(hd, spec)
-    history = [{"round": 0, "derived": derived(spec, p).numpy().tolist(), "ll": ll}]
+    history = [{"round": 0, "derived": derived(spec, p).numpy().tolist(), "ll": ll,
+                "ref_clipped": 0.0}]
     for r in range(1, rounds + 1):
         ref = Reference(spec, p, scales, broad_sd)
-        th_ref = from_box_logit(ref.sample_u(N * n_ref, seed + 1000 * r), lo, hi
-                                ).reshape(N, n_ref, d)
+        u_ref = ref.sample_u(N * n_ref, seed + 1000 * r)
+        clipped = float((np.abs(u_ref) >= Reference.U_MAX).any(-1).mean())
+        th_ref = from_box_logit(u_ref, lo, hi).reshape(N, n_ref, d)
         l_ref, q_ref = evaluate(th_ref)
         hd = HouseholdDraws.from_mis(theta, log_l, log_q, ref.log_density_theta(theta, lo, hi),
                                      th_ref, l_ref, q_ref, ref.log_density_theta(th_ref, lo, hi),
                                      lo, hi)
         hd = hd.to(device) if device is not None else hd
         p, ll = fit(hd, spec, init=p)
-        history.append({"round": r, "derived": derived(spec, p).numpy().tolist(), "ll": ll})
+        history.append({"round": r, "derived": derived(spec, p).numpy().tolist(), "ll": ll,
+                        "ref_clipped": clipped})
     return p, ll, hd, history

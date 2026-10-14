@@ -212,3 +212,22 @@ def test_truncation_mass_is_stable_in_both_tails(device):
     expect[hi_tail] = np.log(stats.norm.sf(a.cpu().numpy()[hi_tail])
                              - stats.norm.sf(b.cpu().numpy()[hi_tail]))
     np.testing.assert_allclose(_log_mass(a, b).cpu().numpy(), expect, rtol=1e-10)
+
+
+def test_fit_falls_back_to_the_best_finite_point(conjugate, monkeypatch):
+    """A likelihood that overflows past some point (as a truncated normal's
+    mean running off the box can, RESULTS 46) must not end the fit on NaN."""
+    c, spec, _p, hd = conjugate
+    real = pop.log_marginal
+
+    def overflowing(spec_, p, hd_):
+        out = real(spec_, p, hd_)
+        return torch.where(p["mu"][0, 0] > 0.2, torch.full_like(out, float("nan")), out)
+
+    init = pop.initial(spec, hd)
+    init["mu"][0, 0] = -1.0                  # the optimum is near 0.5, past the overflow
+    monkeypatch.setattr(pop, "log_marginal", overflowing)
+    p, ll = pop.fit(hd, spec, init=init)
+    assert np.isfinite(ll)
+    assert all(torch.isfinite(v).all() for v in p.values())
+    assert float(p["mu"][0, 0]) <= 0.2

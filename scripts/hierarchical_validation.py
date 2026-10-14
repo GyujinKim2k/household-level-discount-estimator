@@ -29,6 +29,18 @@ its density model never saw: the SBC set's untrained half
 - **V3, pooled households** (on V2): coverage of the true theta by the pooled
   90% intervals (gate G3: 0.85-0.95) against the unpooled; MSE of the pooled
   means relative to the unpooled; the variance ratio.
+- **Diagnose** (RESULTS 46): why V2 fails, for a likelihood variant. Its
+  training thetas in the corner where PSID's population sits (``CORNER``);
+  on households it never saw (V2's, and the nulls' at one theta each), the
+  PIT of ``s`` under ``p(s | true theta)`` in the corner and outside, and the
+  predicted against the simulated mean of ``s``; and on V2 populations, the
+  fit after ``rounds`` rounds and refitted on reference points drawn around
+  the true population, with ``sum log m`` at the truth and at the fit on
+  those points. A fit that stops short scores below the truth there; a
+  likelihood that disfavours the truth scores above it. Also PSID's M1 fit
+  on both arms, round by round, with each round's share of reference points
+  clipped at the box-logit limit. ``--rounds`` other than the default
+  writes ``diagnose_rounds<n>.json``.
 
 Usage::
 
@@ -36,6 +48,11 @@ Usage::
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py v2-sim
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py validate
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py report
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py diagnose
+
+``--variant targeted`` (RESULTS 46) reruns U, V1 and V2 (V2's same simulated
+populations) with the summary likelihood retrained with the targeted couples,
+under ``summary_targeted``.
 """
 
 from __future__ import annotations
@@ -65,6 +82,14 @@ CARD_MIX = (0.5, 0.85)
 SEED = 45_000_000           # household streams: no training run, SBC set or earlier check
 AGE = FEATURES_TWOASSET_AGE.index("age")
 NAMES = ("beta", "delta", "crra", "R_gamma")
+#: Where PSID's fitted population sits (40% of it, RESULTS 46): beta's logit
+#: below -2.5 (beta < 0.355) and delta's above 3 (delta > 0.9929).
+CORNER = (-2.5, 3.0)
+N_DIAGNOSE = 3
+
+
+def in_corner(u: np.ndarray) -> np.ndarray:
+    return (u[..., 0] < CORNER[0]) & (u[..., 1] > CORNER[1])
 
 
 def theta_stars() -> dict[str, np.ndarray]:
@@ -196,13 +221,14 @@ def fit_one(net, mdn, x, seed, args, truth=None) -> dict:
 
 def cmd_validate(args) -> None:
     net = hp.Network([hp.RUNS[i] for i in args.members])
-    mdn = hp.load_mdn(args.mdn, args.n_draws) if args.likelihood == "summary" else None
-    out = args.out / (args.likelihood + ("" if len(args.members) == len(hp.RUNS)
-                                         else "_members" + "".join(map(str, args.members))))
+    mdn = (hp.load_mdn(args.mdn or hp.MDN[args.variant], args.n_draws)
+           if args.likelihood == "summary" else None)
+    out = args.out / _sub(args)
     out.mkdir(parents=True, exist_ok=True)
     path = out / "validation.json"
     res = json.loads(path.read_text()) if path.exists() else {}
-    res["settings"] = {"likelihood": args.likelihood, "n_draws": args.n_draws,
+    res["settings"] = {"likelihood": args.likelihood, "variant": args.variant,
+                       "n_draws": args.n_draws,
                        "n_ref": args.n_ref, "rounds": args.rounds}
 
     def save():
@@ -238,7 +264,7 @@ def cmd_validate(args) -> None:
                 res["null"][f"{name}, card {mix}"] = fits
                 save()
     if "v2" in args.parts and "v2" not in res:
-        v2 = np.load(out / "v2_populations.npz")
+        v2 = np.load(args.out / args.likelihood / "v2_populations.npz")
         res["v2"] = []
         for r in range(N_REP):
             m = v2["replicate"] == r
@@ -249,6 +275,134 @@ def cmd_validate(args) -> None:
     res["summary"] = summarise(res, args)
     save()
     report(res)
+
+
+def _cached_s(net, x, seed, path: Path) -> np.ndarray:
+    """Households' summaries, cached: they depend on the network and draws,
+    not on the likelihood variant."""
+    if path.exists():
+        return np.load(path)["s"]
+    xt, _ = oa.transform(torch.from_numpy(np.asarray(x)).float())
+    s = hs.summaries(net, xt, hp.N_DRAWS, seed)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(path, s=s)
+    return s
+
+
+def _calibration(mdn, s, theta, lo, hi) -> dict:
+    u = pop.box_logit(np.clip(theta, lo + 1e-9, hi - 1e-9), lo, hi)
+    pit = hs.marginal_cdf(mdn, torch.from_numpy(s).double(), torch.from_numpy(u).double())
+    out = {}
+    for tag, m in (("corner", in_corner(u)), ("outside", ~in_corner(u))):
+        if not m.any():
+            continue
+        with torch.no_grad():
+            sim = mdn.sample(torch.from_numpy(u[m]).double(),
+                             generator=torch.Generator().manual_seed(1)).numpy()
+        pp = pit[m]
+        out[tag] = {"n": int(m.sum()), "median_pit": np.median(pp, 0).tolist(),
+                    "cover90": ((pp >= 0.05) & (pp <= 0.95)).mean(0).tolist(),
+                    "s_mean": s[m].mean(0).tolist(), "s_mean_predicted": sim.mean(0).tolist(),
+                    "s_sd": s[m].std(0).tolist(), "s_sd_predicted": sim.std(0).tolist()}
+    return out
+
+
+def cmd_diagnose(args) -> None:
+    net = hp.Network()
+    mdn = hp.load_mdn(args.mdn or hp.MDN[args.variant], args.n_draws)
+    lo, hi = net.lo, net.hi
+    out = args.out / _sub(args)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / ("diagnose.json" if args.rounds == hp.ROUNDS
+                  else f"diagnose_rounds{args.rounds}.json")
+    s_tr, th_tr, draw_tr, train, *_ = hs.training_pairs(hs.OUT, args.variant)
+    u_tr = pop.box_logit(np.clip(th_tr[train], lo + 1e-9, hi - 1e-9), lo, hi)
+    spec_g, p_g, _box = psid_population(argparse.Namespace(likelihood="summary",
+                                                           variant="base"))
+    res = {"corner": CORNER,
+           "training": {"thetas": int(len(np.unique(draw_tr[train]))),
+                        "thetas_in_corner": int(len(np.unique(draw_tr[train][in_corner(u_tr)]))),
+                        "households_in_corner": int(in_corner(u_tr).sum())},
+           "psid_g_share_in_corner": float(in_corner(pop.sample_u(spec_g, p_g, 200_000)).mean())}
+    cache = args.out / "summaries"
+    v2 = np.load(args.out / "summary" / "v2_populations.npz")
+    _, first = np.unique(v2["x"].reshape(len(v2["x"]), -1), axis=0, return_index=True)
+    first = np.sort(first)
+    s2 = _cached_s(net, v2["x"][first], SEED + 600, cache / "v2.npz")
+    res["v2_households"] = _calibration(mdn, s2, v2["theta"][first], lo, hi)
+    res["null"] = {}
+    for j, name in enumerate(theta_stars()):
+        d = np.load(args.out / f"null_{name}.npz")
+        s = _cached_s(net, d["x"], SEED + 610 + j, cache / f"null_{name}.npz")
+        res["null"][name] = _calibration(mdn, s, np.repeat(d["theta"][None], len(s), 0), lo, hi)
+    res["v2_fits"] = []
+    for r in range(N_DIAGNOSE):
+        m = v2["replicate"] == r
+        print(f"diagnose: V2 population {r}", flush=True)
+        xt, _ = oa.transform(torch.from_numpy(v2["x"][m]).float())
+        fit = hp.fit_population(net, xt, args.n_draws, args.n_ref, args.rounds,
+                                SEED + 500 + r, mdn=mdn)
+        dr, spec = fit["draws"], hp.FAMILIES["M1"]
+        log_z = np.log(dr["in_box_frac"])
+        ref = pop.Reference(spec, p_g, pop.Reference.scales, 2.0)
+        th_ref = pop.from_box_logit(ref.sample_u(len(xt) * args.n_ref, SEED + 700 + r), lo, hi
+                                    ).reshape(len(xt), args.n_ref, len(lo))
+        s = dr["summary"]
+        hd = pop.HouseholdDraws.from_mis(
+            dr["theta"], hp.summary_log_l(mdn, s, dr["theta"], lo, hi, net.device),
+            dr["log_qf"] - log_z[:, None], ref.log_density_theta(dr["theta"], lo, hi),
+            th_ref, hp.summary_log_l(mdn, s, th_ref, lo, hi, net.device),
+            net.log_density(xt, th_ref) - log_z[:, None], ref.log_density_theta(th_ref, lo, hi),
+            lo, hi).to(net.device)
+        p_fit = fit["fits"]["M1"][0]
+        p_o, _ll = pop.fit(hd, spec, init=p_g)
+        res["v2_fits"].append({
+            "realised": realised(v2["theta"][m], lo, hi).tolist(),
+            "rounds": [h["derived"] for h in fit["history"]],
+            "refit_from_truth": pop.derived(spec, p_o).numpy().tolist(),
+            "sum_log_m_truth": float(pop.log_marginal(spec, p_g, hd).sum()),
+            "sum_log_m_fit": float(pop.log_marginal(spec, p_fit, hd).sum())})
+        path.write_text(json.dumps(res, indent=2))
+    res["psid_rounds"] = {}
+    for arm in ("uncorrected", "corrected"):
+        print(f"diagnose: PSID, {arm}", flush=True)
+        xt, _keep = hp.psid_x(PSID_X, arm)
+        fit = hp.fit_population(net, xt, args.n_draws, args.n_ref, args.rounds, 0, mdn=mdn)
+        res["psid_rounds"][arm] = fit["history"]
+        path.write_text(json.dumps(res, indent=2))
+    report_diagnose(res)
+
+
+def report_diagnose(res: dict) -> None:
+    t = res["training"]
+    print(f"training: {t['thetas']} thetas, {t['thetas_in_corner']} in the corner "
+          f"(u beta < {res['corner'][0]}, u delta > {res['corner'][1]}; "
+          f"{t['households_in_corner']} households); PSID's g there: "
+          f"{res['psid_g_share_in_corner']:.2f}")
+    fmt = lambda v, f="+.2f": " ".join(f"{a:{f}}" for a in v)  # noqa: E731
+    for tag, c in [("V2 households", res["v2_households"])] + [
+            (f"null {k}", v) for k, v in res["null"].items()]:
+        for where, r in c.items():
+            print(f"  {tag:22s} {where:7s} n={r['n']:5d} median PIT {fmt(r['median_pit'])}  "
+                  f"cover90 {fmt(r['cover90'], '.2f')}  s mean {fmt(r['s_mean'])} "
+                  f"(predicted {fmt(r['s_mean_predicted'])})")
+    for i, f in enumerate(res["v2_fits"]):
+        print(f"  V2 population {i}: beta, delta mean_u / sd_u: realised "
+              f"{f['realised'][0]:+.2f} {f['realised'][1]:+.2f} / "
+              f"{np.exp(f['realised'][4]):.2f} {np.exp(f['realised'][5]):.2f}; fit "
+              f"{f['rounds'][-1][0]:+.2f} {f['rounds'][-1][1]:+.2f} / "
+              f"{np.exp(f['rounds'][-1][4]):.2f} {np.exp(f['rounds'][-1][5]):.2f}; "
+              f"refit from the truth {f['refit_from_truth'][0]:+.2f} "
+              f"{f['refit_from_truth'][1]:+.2f}; sum log m truth {f['sum_log_m_truth']:.1f}, "
+              f"fit {f['sum_log_m_fit']:.1f}")
+        for h in f["rounds"]:
+            print(f"    round: beta mean_u {h[0]:+.2f} sd_u {np.exp(h[4]):.2f}")
+    for arm, hist in res.get("psid_rounds", {}).items():
+        print(f"  PSID {arm}, by round (beta mean_u, sd_u; sum log m; reference points "
+              "clipped):")
+        for h in hist:
+            print(f"    round {h['round']}: {h['derived'][0]:+.2f} {np.exp(h['derived'][4]):.2f}; "
+                  f"{h['ll']:.1f}; {h['ref_clipped']:.3f}")
 
 
 def _recovery(fits: list[dict], d: int) -> dict:
@@ -297,7 +451,7 @@ def summarise(res: dict, args) -> dict:
                                                             0).tolist()
             out["null"][k]["natural_sd_q95"] = np.percentile([f["natural_sd"] for f in fits],
                                                              95, 0).tolist()
-        psid = hp.OUT / args.likelihood / "uncorrected" / "summary.json"
+        psid = hp.OUT / hp.run_name(args.likelihood, args.variant) / "uncorrected" / "summary.json"
         if psid.exists():
             m1 = json.loads(psid.read_text())["families"]["M1"]
             der = m1["derived"]
@@ -340,10 +494,14 @@ def report(res: dict) -> None:
                 f"{n} {a:.4f}" for n, a in zip(NAMES, s["psid_natural_sd"], strict=True)))
 
 
+def _sub(args) -> str:
+    """The run's directory under ``OUT``: likelihood, variant, members."""
+    return hp.run_name(args.likelihood, args.variant) + (
+        "" if len(args.members) == len(hp.RUNS) else "_members" + "".join(map(str, args.members)))
+
+
 def cmd_report(args) -> None:
-    sub = args.likelihood + ("" if len(args.members) == len(hp.RUNS)
-                             else "_members" + "".join(map(str, args.members)))
-    res = json.loads((args.out / sub / "validation.json").read_text())
+    res = json.loads((args.out / _sub(args) / "validation.json").read_text())
     res["summary"] = summarise(res, args)
     report(res)
     plot(res, args.fig)
@@ -394,8 +552,10 @@ def plot(res: dict, path: Path) -> None:
         ax[2].set_xticks(range(d), NAMES)
         ax[2].set(title=f"90% interval coverage of the true theta ({part})", ylim=(0.3, 1.0))
         ax[2].legend(fontsize=8)
+    variant = res["settings"].get("variant", "base")
     fig.suptitle(f"Population layer on simulated couples ({res['settings']['likelihood']} "
-                 "likelihood, RESULTS 45)")
+                 "likelihood" + (", RESULTS 45)" if variant == "base"
+                                 else f", {variant}, RESULTS 46)"))
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     print(f"wrote {path}")
@@ -404,9 +564,12 @@ def plot(res: dict, path: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("null-sim", "v2-sim", "validate", "report"))
+    ap.add_argument("cmd", choices=("null-sim", "v2-sim", "validate", "report", "diagnose"))
     ap.add_argument("--likelihood", choices=("summary", "npe"), default="summary")
-    ap.add_argument("--mdn", type=Path, default=Path("outputs/hier_summary/mdn.pt"))
+    ap.add_argument("--variant", choices=tuple(hp.MDN), default="base",
+                    help="The summary likelihood: RESULTS 45's (base) or retrained with the "
+                         "targeted couples (RESULTS 46).")
+    ap.add_argument("--mdn", type=Path, default=None, help="Default: the variant's.")
     ap.add_argument("--parts", nargs="+", default=["uniform", "null", "v2"])
     ap.add_argument("--members", type=int, nargs="+", default=list(range(5)),
                     help="Ensemble members to use (RESULTS 45.2: one member's density "
@@ -419,7 +582,7 @@ def main() -> None:
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     {"null-sim": cmd_null_sim, "v2-sim": cmd_v2_sim, "validate": cmd_validate,
-     "report": cmd_report}[args.cmd](args)
+     "report": cmd_report, "diagnose": cmd_diagnose}[args.cmd](args)
 
 
 if __name__ == "__main__":

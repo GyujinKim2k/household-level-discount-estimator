@@ -11,9 +11,9 @@ uses it as each couple's prior (empirical Bayes):
    importance-weighted to the uniform prior exactly as ``optionA.psid``
    (``weighted.sample_draws``), and the ensemble's density at each draw.
 2. **Fit** (``population.fit_adaptive``). A first fit recycles the draws; then
-   ``rounds`` times, ``n_ref`` reference points shared by every couple are
-   drawn around the current fit, the ensemble's density is evaluated at them
-   for every couple, and the population is refitted on both blocks (multiple
+   ``rounds`` times, ``n_ref`` reference points per couple are drawn around
+   the current fit, the likelihood and the ensemble's density are evaluated
+   at them, and the population is refitted on both blocks (multiple
    importance sampling). Recycling alone leaves a floor of ~0.4 of a
    posterior's width on a spread that is truly zero; the reference points
    remove it.
@@ -39,6 +39,10 @@ Usage::
 
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_population.py fit --arm uncorrected
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_population.py plot
+
+``--variant targeted`` (RESULTS 46) uses the summary likelihood retrained with
+the targeted couples (``hierarchical_summary.py targeted``) and writes under
+``summary_targeted``.
 """
 
 from __future__ import annotations
@@ -63,6 +67,15 @@ FIG = Path("figures/52_psid_population_optionA2n.png")
 N_DRAWS, N_REF, ROUNDS, N_BOOT = 4000, 4096, 2, 200
 LAIBSON = np.array([0.5305, 0.9891, 1.9355, 1.05])
 FAMILIES = {"M1": pop.Spec(d=4), "M1d": pop.Spec(d=4, diagonal=True), "M2": pop.Spec(d=4, k=2)}
+#: The summary likelihood's density model by variant (RESULTS 45, 46).
+MDN = {"base": Path("outputs/hier_summary/mdn.pt"),
+       "targeted": Path("outputs/hier_summary/targeted/mdn.pt")}
+
+
+def run_name(likelihood: str, variant: str = "base") -> str:
+    """Where fits on a likelihood (and summary-likelihood variant) go, under
+    ``OUT``."""
+    return likelihood if variant == "base" else f"{likelihood}_{variant}"
 
 
 def families(lo, hi) -> dict[str, pop.Spec]:
@@ -267,8 +280,9 @@ def cmd_fit(args) -> None:
     xt, keep = psid_x(args.x, args.arm)
     if args.max_households:                     # smoke runs only
         xt, keep = xt[:args.max_households], keep[:args.max_households]
-    out = args.out / args.likelihood / args.arm
+    out = args.out / run_name(args.likelihood, args.variant) / args.arm
     out.mkdir(parents=True, exist_ok=True)
+    args.mdn = args.mdn or MDN[args.variant]
     mdn = load_mdn(args.mdn, args.n_draws) if args.likelihood == "summary" else None
     print(f"{args.x} ({args.arm}, {args.likelihood} likelihood): {len(keep)} couples; "
           f"{net.spec.describe()}")
@@ -278,7 +292,7 @@ def cmd_fit(args) -> None:
     hd, names = res["hd"], list(net.box.names)
     dn = pop.derived_names(names)
     summary = {"x": str(args.x), "arm": args.arm, "likelihood": args.likelihood,
-               "mdn": str(args.mdn) if mdn is not None else None,
+               "variant": args.variant, "mdn": str(args.mdn) if mdn is not None else None,
                "run_dirs": list(map(str, args.run_dirs)),
                "n_households": int(len(keep)), "n_draws": args.n_draws, "n_ref": args.n_ref,
                "rounds": args.rounds, "box": [net.lo.tolist(), net.hi.tolist()],
@@ -367,9 +381,9 @@ def report(s: dict) -> None:
               f"{h['contraction'][0]:.2f} -> {h['contraction'][1]:.2f}; reliability "
               f"{h['reliability'][0]:.2f} -> {h['reliability'][1]:.2f}")
     print(f"pooled ESS: {s['pooled_ess']}")
-    print("adaptive rounds (M1 log sd_u): " + "; ".join(
+    print("adaptive rounds (M1 sd_u; share of reference points clipped): " + "; ".join(
         f"round {h['round']}: " + " ".join(f"{np.exp(v):.3f}" for v in h["derived"][4:8])
-        for h in s["history"]))
+        + f" ({h.get('ref_clipped', 0.0):.3f})" for h in s["history"]))
 
 
 def cmd_ppc(args) -> None:
@@ -380,17 +394,19 @@ def cmd_ppc(args) -> None:
     (``hierarchical_summary`` pairs)."""
     from scipy import stats
 
-    out = args.out / "summary" / args.arm
+    from scripts import hierarchical_summary as hs
+
+    out = args.out / run_name("summary", args.variant) / args.arm
     s = json.loads((out / "summary.json").read_text())
     h = np.load(out / "households.npz")
-    mdn = load_mdn(args.mdn, s["n_draws"])
+    mdn = load_mdn(args.mdn or MDN[args.variant], s["n_draws"])
     spec = FAMILIES["M1"]
     p = {k: torch.tensor(v, dtype=torch.float64) for k, v in s["families"]["M1"]["params"].items()}
     u = torch.from_numpy(pop.sample_u(spec, p, args.n_sim, seed=1))
     sim = mdn.sample(u, generator=torch.Generator().manual_seed(2)).numpy()
     obs = h["summary"]
-    pairs = np.load(args.mdn.parent / "pairs.npz")
-    lo_s, hi_s = np.percentile(pairs["s"], [0.1, 99.9], axis=0)
+    pairs_s = hs.training_pairs(hs.OUT, args.variant)[0]
+    lo_s, hi_s = np.percentile(pairs_s, [0.1, 99.9], axis=0)
     names = list(h["names"])
     res = {}
     for j, n in enumerate(names):
@@ -415,7 +431,7 @@ def cmd_ppc(args) -> None:
 def cmd_plot(args) -> None:
     from hh_npe.evaluation.plots import contour_corner
 
-    out = args.out / args.likelihood / args.arm
+    out = args.out / run_name(args.likelihood, args.variant) / args.arm
     s = json.loads((out / "summary.json").read_text())
     h = np.load(out / "households.npz")
     pts = torch.load(out / "points.pt", weights_only=False)
@@ -441,7 +457,9 @@ def cmd_plot(args) -> None:
         box, truth={"Laibson et al. MSM (R_gamma: calibrated 1.05)": LAIBSON},
         truth_markers=("*",), truth_colors=("#d62728",), reflect_axes=("delta",),
         path=args.fig,
-        title=(f"PSID couples under A2n ({args.arm}): the fitted population against one couple"
+        title=(f"PSID couples under A2n ({args.arm}"
+               + ("" if args.variant == "base" else f", {args.variant} likelihood")
+               + "): the fitted population against one couple"
                f" ({names[0]} sd at the median), unpooled and pooled"))
     print(f"wrote {args.fig}")
 
@@ -457,7 +475,10 @@ def main() -> None:
     f.add_argument("--likelihood", choices=("summary", "npe"), default="summary",
                    help="summary: p(posterior mean | theta) learned from simulation "
                         "(hierarchical_summary.py); npe: the network's own q / p~.")
-    f.add_argument("--mdn", type=Path, default=Path("outputs/hier_summary/mdn.pt"))
+    f.add_argument("--variant", choices=tuple(MDN), default="base",
+                   help="The summary likelihood: RESULTS 45's (base) or retrained with the "
+                        "targeted couples (RESULTS 46).")
+    f.add_argument("--mdn", type=Path, default=None, help="Default: the variant's.")
     f.add_argument("--n_draws", type=int, default=N_DRAWS)
     f.add_argument("--n_ref", type=int, default=N_REF)
     f.add_argument("--rounds", type=int, default=ROUNDS)
@@ -467,12 +488,14 @@ def main() -> None:
     f.add_argument("--out", type=Path, default=OUT)
     pc = sub.add_parser("ppc")
     pc.add_argument("--arm", choices=("uncorrected", "corrected"), default="uncorrected")
-    pc.add_argument("--mdn", type=Path, default=Path("outputs/hier_summary/mdn.pt"))
+    pc.add_argument("--variant", choices=tuple(MDN), default="base")
+    pc.add_argument("--mdn", type=Path, default=None, help="Default: the variant's.")
     pc.add_argument("--n_sim", type=int, default=200_000)
     pc.add_argument("--out", type=Path, default=OUT)
     pl = sub.add_parser("plot")
     pl.add_argument("--arm", choices=("uncorrected", "corrected"), default="uncorrected")
     pl.add_argument("--likelihood", choices=("summary", "npe"), default="summary")
+    pl.add_argument("--variant", choices=tuple(MDN), default="base")
     pl.add_argument("--out", type=Path, default=OUT)
     pl.add_argument("--fig", type=Path, default=FIG)
     args = ap.parse_args()

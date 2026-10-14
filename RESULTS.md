@@ -7464,3 +7464,135 @@ Figure 52 shows PSID's population against one couple, unpooled and pooled.
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py validate --likelihood npe --parts uniform
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py validate --likelihood npe --parts uniform --members 0
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_population.py fit --likelihood npe
+
+## 46. Why V2 failed, and a targeted fix: pooled households now pass at V2, but PSID's β population has no interior fit
+
+**Why (user, 2026-10-14).** "let's try the targeted simulation near the beta floor. what is the main reason that hierarchical method is currently not working?"
+
+### 46.1 The cause: no training data where PSID's population sits
+
+PSID's fitted population (§45.5, M1) puts 40% of its mass in one corner: β's logit below −2.5 (β < 0.355) **and** δ's above 3 (δ > 0.993).
+
+- **The summary likelihood's training pairs barely reach that corner:** 3 of its 2,048 trainable θ (48 couples). The training generation drew half its θ uniformly and half from `EDGE_A2` (β ≥ 0.40, δ ≥ 0.95). A uniform θ lands in the corner about 0.4% of the time.
+- **In the corner the likelihood misplaces s**, on V2's couples, which it never saw:
+
+| `diagnose`, V2's couples | n | median PIT of s under p(s \| true θ), β δ ρ R_gamma | s_β mean: actual / predicted |
+|---|---|---|---|
+| in the corner | 1,059 | 0.62, 0.48, 0.56, 0.48 | −0.34 / −0.63 |
+| outside | 1,572 | 0.49, 0.54, 0.53, 0.47 | −0.18 / −0.13 |
+
+- **Why it matters:** the likelihood expects floor couples' β summaries 0.3 sd lower than they are, so the fit reads them as higher-β couples. The population is pulled off the floor: V2's β centre was fitted at −1.6 to −1.9 against a realised −2.7 (§45.4).
+- **Why it was missed:** checked on β alone, calibration looked fine, including at u_β < −4. The error is in the joint corner.
+
+**Not the fit.** On three V2 populations, the population was refitted on reference points drawn around the *true* population and started there:
+- it moves back to the same place as the adaptive fit: β centre −1.72, −1.95 and −1.92;
+- on those points, the true population scores 83–86 log-likelihood units **below** the fit.
+
+So the optimiser and the importance sampling find the likelihood's maximum. The likelihood is what disfavours the truth.
+
+### 46.2 Targeted simulation
+
+**Design (`hierarchical_summary.py targeted`):**
+- **θ:** 384 draws from PSID's fitted population (§45.5, M1), widened 1.5-fold in sd, in 24 blocks of 16. R_gamma is per block, and card type alternates by block (the generation's half and half). 143 of the 384 θ lie in the corner.
+- **Couples:** 32 per θ, so 12,288 in all. They are simulated as V2's are: the training solver and seed pool, PSID couples' start ages, and A2n's observation noise.
+- **Cost:** 83 GPU-minutes, about 13 s per θ.
+
+**Training (`train --variant targeted`):** all 12,288 are added to the trainable pairs.
+- A likelihood is conditional on θ, so where its training θ come from changes only where it is accurate.
+- The untouched SBC half and all of V1, V2 and V3 stay untrained.
+
+**Calibration on the untouched SBC half is unchanged:** 90% coverage is 0.895–0.915, and the untouched NLL is 2.034 (2.049 before).
+
+**In the corner, after retraining (`diagnose --variant targeted`):**
+
+| | §45 likelihood | targeted |
+|---|---|---|
+| trainable θ in the corner | 3 | 146 |
+| V2's corner couples, s_β predicted (actual −0.34) | −0.63 | −0.37 |
+| median PIT of s_β in the corner | 0.62 | 0.52 |
+| V2 β centre, populations 0, 1, 2 (realised −2.71, −2.66, −2.70) | −1.63, −1.90, −1.85 | −2.67, −2.78, −3.47 |
+| true population's sum log m below the fit's | 83–86 | 61–65 |
+
+So the bias is gone. A smaller error remains, and β's centre near the floor is now noisy rather than biased.
+
+### 46.3 Validation with the targeted likelihood
+
+**Uniform test:** it still passes. Spreads are within 4%, and pooled 90% coverage is 0.864–0.907.
+
+**V2, at §45's PSID population:**
+
+| | fitted / realised logit sd | bias | Hessian 90% covers | G2 | pooled 90% coverage | unpooled | MSE pooled ÷ unpooled |
+|---|---|---|---|---|---|---|---|
+| β | 2.20 / 1.87 | +22% | 6 of 10 | fail | **0.869** | 0.511 | 0.21 |
+| δ | 1.13 / 0.92 | +19% | 4 of 10 | fail | **0.887** | 0.552 | 0.03 |
+| ρ | 0.81 / 0.76 | +7% | 9 of 10 | pass | 0.828 | 0.949 | 0.88 |
+| R_gamma | 3.35 / 2.85 | +15% | 4 of 10 | fail | **0.878** | 0.734 | 1.00 |
+
+- **G3 now passes for β, δ and R_gamma** (it failed for all four in §45: 0.68, 0.85, 0.84 and 0.83). ρ misses by 0.02.
+- **G2 fails differently:** spreads now come out 15–22% too *wide*, where §45 had them 24% too narrow for β. The Hessian intervals do not cover that bias.
+
+**V1, the nulls.**
+- **The null 95th percentiles of the logit sd** are β 1.01, δ 0.51, ρ 0.80 and R_gamma 0.53.
+- **The null at PSID's floor location** (true β logit −2.54) is now fitted at −2.12 and −2.33 for the two card mixes. Under §45's likelihood it was about −1.9.
+- **The interior nulls** are located as before.
+
+**Heterogeneity verdicts are unchanged:**
+- β, δ and R_gamma exceed the null even if PSID's spreads are deflated by V2's 15–22% bias;
+- ρ does not (0.41 against a null 95th percentile of 0.80).
+
+Figure 55 shows the uniform and V2 recovery, the null against PSID, and the V2 coverage.
+
+### 46.4 PSID couples: β's population runs onto the floor
+
+With 2 adaptive rounds, as in §45, M1 on the uncorrected arm gives:
+- β: median 0.330 (5–95% 0.301–0.795), logit sd 2.44;
+- δ: median 0.9960;
+- ρ: median 2.22, logit sd 0.41, correlation with β −0.76;
+- R_gamma: median 1.042.
+
+The corrected arm gives β's logit sd 3.82, median 0.321 (0.300–0.959). **These are not estimates.** The fit had not settled after 2 rounds: the corrected arm's β logit sd went 1.41 → 2.63 → 3.82.
+
+**More rounds** (`diagnose --variant targeted --rounds 6`): β's population centre (logit), with sum log m.
+
+| round | PSID uncorrected | PSID corrected | V2 populations 0, 1, 2 (realised about −2.7) |
+|---|---|---|---|
+| 2 | −3.12 (1,128.7) | −3.50 (1,115.1) | −2.67, −2.78, −3.47 |
+| 3 | −4.59 (1,133.8) | −6.52 (1,125.0) | −2.73, −2.94, −3.92 |
+| 4 | −15.98 (11,535) | −15.85 (4,855) | −2.67, −3.23, −3.71 |
+| 6 | −16.00 (511) | −15.97 (−150) | −2.98, −2.84, −3.75 |
+
+- **Simulated populations wander but do not run away.** V2's β centre moves within −2.6 to −3.9 over rounds 1–6.
+- **PSID's run away.** Each round moves β's mass further onto the floor, with the likelihood still rising.
+- **From round 4 on, the numbers are an artefact.** The population reaches u = −16, where reference points are clipped (`Reference.U_MAX`) but weighted with the unclipped density. Its likelihood is then meaningless (11,535, then 511). `fit_adaptive` now records each round's share of clipped reference points (0.001 at PSID's round 3, 0.018 at round 4, 0.80 by round 6), so such a round is visible.
+
+**The predictive check agrees.** PSID's couples are more present-biased than any population inside the box can produce:
+- **Uncorrected:** β KS p 0.002 (0.022 under §45's likelihood). 78 couples fall in the lowest predicted decile, where about 41 are expected, and 1.7% lie beyond every simulated couple.
+- **Corrected:** β KS p 0.024 and δ KS p 0.004.
+
+**Pooled ESS is low.** 52 couples are below 50 (74 on the corrected arm), with a minimum of 5. Figure 54 shows it: one couple's pooled contours break into islands.
+
+**Code:**
+- `fit` now returns the best finite point if L-BFGS ends on NaN or its line search fails. This happened on the corrected arm's TN family, whose mean runs far below the box.
+- `summaries` redraws a chunk when nflows' spline inverse asserts. This happened once, on one null set at one seed.
+- Tests: `tests/test_population.py` (12), `tests/test_hierarchical_summary.py` (3).
+
+### 46.5 Reading
+
+- **The main reason the population layer failed (§45.4) was the summary likelihood, not the population method.** Its training data had almost nothing where PSID's population sits (low β *and* high δ), and there it put couples' summaries in the wrong place.
+- **Targeted simulation fixes that bias.**
+  - At V2, pooled household intervals now pass G3 for β, δ and R_gamma (0.87–0.89), with MSE falling to 0.21 of the unpooled for β and 0.03 for δ.
+  - ρ misses G3 by 0.02.
+  - Population spreads are overstated by 15–22%. This does not affect any heterogeneity verdict.
+- **But PSID's population cannot be fitted inside the current box.** Its β mass keeps moving onto the floor; simulated populations of the same shape do not do this. Together with the predictive check, PSID's couples want β below 0.3.
+  - So PSID's pooled posteriors are still not reported, and the headline household estimates are unchanged.
+  - §45.5's β median of 0.35, made with the biased likelihood, should be read as an upper bound on where the population's centre lies.
+- **Lowering β's floor (§45.6, option 2) is now the binding step**, not a refinement. It means regenerating and retraining, and it can share one regeneration with the two parked model plans (durables and housing in the illiquid asset; the couples' income process).
+- **Interim alternative.** A population family with an explicit mass at the floor would describe the pile, but it would not let the model reach those couples.
+- **GPU used:** about 3.3 hours (simulation 83 minutes, retraining and reruns about 1.5 hours, diagnostics about 40 minutes).
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py diagnose --variant base
+    PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True .venv/bin/python scripts/hierarchical_summary.py targeted
+    scripts/run_hier_targeted.sh
+    PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py diagnose --variant targeted --rounds 6
