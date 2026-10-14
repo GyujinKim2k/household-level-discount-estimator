@@ -7935,7 +7935,7 @@ With the noise, strip and weighting tests, 58 pass.
 ## 51. A2m results: calibrated, but no more precise than A2n, and PSID couples barely move
 
 **Run.** `scripts/run_optionA2m_model.sh 0.25`, launched 14:21 UTC on 2026-10-14.
-- **Training:** the five members finished between 15:11 and 16:53 (56 epochs for seed 1), every rc = 0. The run took 2.6 h, about 3 GPU-hours in all.
+- **Training:** the five members finished between 15:11 and 16:53 (56 epochs for seed 1), every rc = 0. The run took 2.7 h of GPU time in all, PSID rerun included.
 - **First PSID pass failed** (rc = 1). nflows' rational-quadratic spline inverse asserted a negative discriminant in float32, the failure §46 met in `hierarchical_summary`.
   - **Fix:** `weighted._sample_batch` now redraws a batch that asserts, up to three times. Without an assertion nothing changes, so earlier results reproduce bit for bit. Test: `test_a_batch_whose_spline_inverse_asserts_is_drawn_again`.
   - **Rerun:** PSID then passed, with one redraw on one batch of 32 couples. The held-out check, which had stopped only at its PSID-floors step, was rerun. SBC and the figures passed in the run itself.
@@ -7981,7 +7981,7 @@ Uncorrected arm; A2n in brackets:
 | ρ | 2.62 (2.72) | 1.00 (0.98) | 3.26 (3.23) | 96% (94%) |
 | R_gamma | 1.0534 (1.0538) | 0.0107 (0.0100) | 0.0344 (0.0326) | 79% (73%) |
 
-- **Per-couple correlation of the means with A2n's:** β 0.93, δ 0.94, ρ 0.90, R_gamma 0.88. That is about the agreement between A2n's own member pairs (§43.10).
+- **Per-couple correlation of the means with A2n's:** β 0.93, δ 0.94, ρ 0.90, R_gamma 0.88. A2n's own disjoint member pairs agree to β 0.88–0.91, δ 0.89–0.95, ρ 0.79–0.89 and R_gamma 0.92–0.95 (§43.10). So the agreement is as close as A2n's seed-to-seed agreement, except for R_gamma, where it is a little lower.
 - **The floors are nearly the same.**
 
   | share of couples | A2m | A2n |
