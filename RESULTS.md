@@ -7596,3 +7596,49 @@ The corrected arm gives β's logit sd 3.82, median 0.321 (0.300–0.959). **Thes
     PYTHONPATH=. PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True .venv/bin/python scripts/hierarchical_summary.py targeted
     scripts/run_hier_targeted.sh
     PYTHONPATH=. .venv/bin/python scripts/hierarchical_validation.py diagnose --variant targeted --rounds 6
+
+## 47. The population layer: stopped (user, 2026-10-14)
+
+**Decision (user, 2026-10-14).** "let's stop trying hierarchical method. it's is far from initial idea but there aren't any meaningful result. So, I would rather get back to the option A3."
+
+Work returns to option A3 (§44). This section records what §45–46 established and what they did not.
+
+### 47.1 What it was for
+
+§45 asked two questions of A2n's 409 couples:
+1. **Do couples really differ,** or do the household estimates only reproduce Laibson et al.'s single point?
+2. **Can the population serve as each couple's prior** (empirical Bayes) and give tighter household posteriors that stay calibrated?
+
+### 47.2 What it delivered
+
+| | outcome | where |
+|---|---|---|
+| a population estimate for PSID couples | **None.** §45's fits used a likelihood biased at β's floor. With that bias fixed, PSID's β population runs onto the floor and has no interior fit in the box. | §45.5, §46.1, §46.4 |
+| tighter household posteriors | **None reported.** Pooled intervals passed G3 for β, δ and R_gamma only on simulated populations (V2). The PSID fit they would rest on did not settle. | §46.3–46.4 |
+| do couples differ? | **Qualitatively yes for β, δ and R_gamma; ρ cannot be told from one common value.** PSID's fitted spreads exceed the shared-θ null under both likelihoods. But those fits are biased (§45) or unsettled (§46), so the size of the spread is not estimated. | §45.4, §46.3 |
+| headline household estimates | **Unchanged:** A2n couples, uniform prior (§43). | |
+
+### 47.3 What carries over
+
+- **β's floor at 0.3 looks too high for PSID couples.**
+  - Every population family in §45, and the targeted likelihood's fits in §46, pile β's mass at the floor.
+  - In the predictive checks, 63–78 couples fall in the lowest predicted decile where about 41 are expected, and 1.7–2.7% of couples' β summaries lie beyond every simulated couple.
+
+  A future regeneration could extend β below 0.3. ρ's floor stays at 0.5.
+- **Near β's floor the uniform-prior intervals undercover.** At V2, a simulated population shaped like PSID's fit, unpooled 90% intervals covered the truth 0.50–0.51 of the time for β, 0.55 for δ and 0.73–0.74 for R_gamma (§45.4, §46.3). If PSID's couples sit where the population fits put them, the headline intervals are too narrow for couples at the floor.
+- **β is weakly identified per couple:** reliability 0.38 and held-out contraction 0.36 (§45).
+- **For any future population method:**
+  - the network's own implied likelihood (q/p̃) is not accurate enough to deconvolve (§45.2);
+  - a summary likelihood learned from simulation is, but only where its training θ reach (§46.1).
+
+### 47.4 Code and outputs
+
+- **Kept, tested, not developed further:**
+  - `src/hh_npe/evaluation/population.py`;
+  - `src/hh_npe/evaluation/summary_likelihood.py`;
+  - `weighted.sample_draws`;
+  - `scripts/hierarchical_population.py`, `scripts/hierarchical_summary.py`, `scripts/hierarchical_validation.py` and `scripts/run_hier_targeted.sh`.
+
+  Their tests (18) are in `tests/test_population.py`, `tests/test_hierarchical_summary.py` and `tests/test_summary_likelihood.py`.
+- **Outputs (git-ignored):** `outputs/hier_optionA2n_couples/` (935 MB, mostly the fits' importance-sampling points), `outputs/hier_summary/` and `outputs/hier_validation/`.
+- **Figures:** 52 and 53 (§45), 54 and 55 (§46).
