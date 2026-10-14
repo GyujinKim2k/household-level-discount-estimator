@@ -37,10 +37,19 @@ and with A2n's noise: for every window, and for illiquid holders (illiquid
 >= 0.5 x mean income in every wave, noise-free, as in RESULTS 44.2). Income
 carries no noise, so the mean-income anchor is the same in both.
 
+**Noise-free models on noisy windows** (``--noisy_inputs``). A2 and A2w were
+trained and checked on exact windows. Real windows carry noise. On the same
+1,024 households this scores A2 and A2w on their exact windows and on A2n's
+noisy ones, and A2n on its noisy ones: 90% coverage of the true theta per
+parameter and for all four jointly, unweighted and weighted by p / q_held as in
+``check_optionA2_heldout``, the median 90% width, and the median |mean - truth|
+in posterior sds.
+
 Usage::
 
     PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py
     PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --signal_only
+    PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --noisy_inputs
 """
 
 from __future__ import annotations
@@ -133,6 +142,59 @@ def signal_table(x0: torch.Tensor, xn: torch.Tensor) -> dict:
     return out
 
 
+def noisy_inputs(args, ens, x0, xn, rows, figs, t_all, pid) -> None:
+    """A2 and A2w on exact and on noisy windows, A2n on noisy ones. ``t_all``
+    holds the 1,024 households' theta, then the figure households'."""
+    from scripts.check_optionA2_heldout import heldout_log_weight
+    t = t_all[:len(rows)]
+    *_, cfg_main = oa.load_shards([MAIN])
+    w = np.exp(heldout_log_weight(cfg_main, pid[rows].numpy(), t))
+    w /= w.sum()
+    fig_rows = list(figs.values())
+    runs = [("A2", "exact"), ("A2", "noisy"), ("A2w", "exact"), ("A2w", "noisy"),
+            ("A2n", "noisy")]
+    out = {"n": len(rows), "ess": float(1 / (w ** 2).sum())}
+    print(f"\n=== noise-free models on noisy windows: {len(rows)} households "
+          f"(weighted ESS {out['ess']:.0f}) ===")
+    print(f"{'':14s}{'90% coverage: unweighted / weighted':>48s}{'joint':>13s}"
+          f"{'median width':>36s}{'median |err|/sd':>30s}")
+    for m, kind in runs:
+        members, spec, inv, lw = ens[m]
+        xr = xn if kind == "noisy" else x0
+        x, _f = oa.transform(xr[rows + fig_rows])
+        fb = spec.flow_box()
+        torch.manual_seed(0)
+        r = sample_weighted(members, x, args.n_draws, fb.low, fb.high, invert=inv,
+                            log_weight=lw)
+        n = len(rows)
+        lo, hi, mean, sd = (r[k][:n] for k in ("lo", "hi", "mean", "sd"))
+        inside = (lo <= t) & (t <= hi)
+        ok = np.isfinite(mean).all(1)
+        ww = w[ok] / w[ok].sum()
+        cov_u, cov_w = inside[ok].mean(0), ww @ inside[ok]
+        joint_u, joint_w = inside[ok].all(1).mean(), ww @ inside[ok].all(1)
+        width = np.median((hi - lo)[ok], 0)
+        zerr = np.median(np.abs(mean - t)[ok] / sd[ok], 0)
+        out[f"{m} on {kind}"] = {"cov90_unweighted": cov_u.tolist(),
+                                 "cov90_weighted": cov_w.tolist(),
+                                 "joint_unweighted": float(joint_u),
+                                 "joint_weighted": float(joint_w),
+                                 "median_width": width.tolist(),
+                                 "median_abs_err_over_sd": zerr.tolist(), "n_ok": int(ok.sum())}
+        print(f"{m + ' on ' + kind:14s}" + " ".join(f"{a:.3f}/{b:.3f}" for a, b in
+                                                    zip(cov_u, cov_w, strict=True))
+              + f"   {joint_u:.3f}/{joint_w:.3f}   " + " ".join(f"{v:.4g}" for v in width)
+              + "   " + " ".join(f"{v:.2f}" for v in zerr))
+        for fname, k in zip(figs, range(n, n + len(fig_rows)), strict=True):
+            out[f"{m} on {kind}"][f"figure_{fname}_inside90"] = (
+                (r["lo"][k] <= t_all[k]) & (t_all[k] <= r["hi"][k])).tolist()
+            out[f"{m} on {kind}"][f"figure_{fname}_abs_err_over_sd"] = (
+                np.abs(r["mean"][k] - t_all[k]) / r["sd"][k]).tolist()
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "noisy_inputs.json").write_text(json.dumps(out, indent=1))
+    print(f"wrote {args.out}/noisy_inputs.json")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -144,6 +206,8 @@ def main() -> None:
     ap.add_argument("--fig", type=Path, default=Path("figures/56_same_household"))
     ap.add_argument("--signal_only", action="store_true",
                     help="Only the signal-against-noise table (CPU).")
+    ap.add_argument("--noisy_inputs", action="store_true",
+                    help="Only A2 and A2w scored on A2n's noisy windows.")
     args = ap.parse_args()
 
     if args.signal_only:
@@ -194,6 +258,9 @@ def main() -> None:
               f"{int(x0[row, 0, -1])}-{int(x0[row, -1, -1])}, card {int(card_all[pid[row]])}")
     rows_all = rows + list(figs.values())
     t = th[rows_all].numpy().astype(float)
+    if args.noisy_inputs:
+        noisy_inputs(args, ens, x0, xn, rows, figs, t, pid)
+        return
 
     res = {}
     for name, (members, spec, inv, lw) in ens.items():

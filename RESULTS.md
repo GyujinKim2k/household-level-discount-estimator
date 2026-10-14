@@ -7733,3 +7733,93 @@ This is not proven. A regression within A2n's ranges cannot see the step from no
 
     PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py
     PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --signal_only
+
+## 49. Noise-free models on noisy data, and PSID's own accuracy codes
+
+**Questions (user, 2026-10-14).** "look at the 56_same_household_fig39.png file. A2n only includes the true theta. it's important information. Second, let's check whether PSID provides the accuracy of data(including noise of measurement). I remember that I included some accuracy files from PSID. check out database on official PSID document."
+
+### 49.1 A2 and A2w given noisy windows
+
+**Figure 39's household (figure 56).** A2n's 68% regions contain the true θ in every panel. A2's and A2w's do not, in δ and R_gamma. All three 90% intervals cover it. Distance of the truth from the posterior mean, in posterior sds:
+
+| | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| A2 | 0.43 | 1.60 | 1.29 | 1.48 |
+| A2w | 0.01 | 1.14 | 0.82 | 1.03 |
+| A2n | 0.45 | 0.42 | 0.09 | 0.39 |
+
+One household is not evidence by itself. Over the 1,024 households of §48, each model covers the truth at the same rate on its own data: 0.88–0.93 per parameter for all three. But A2 and A2w were given exact windows there, and PSID's windows are not exact.
+
+**The test** (`compare_optionA2_widths.py --noisy_inputs`): the same 1,024 households, with A2 and A2w also given A2n's noisy windows. 90% coverage is weighted by p / q_held as in §43.4 (ESS 658); unweighted values are within 0.04.
+
+| model, windows | β | δ | ρ | R_gamma | all four | ρ median 90% width | median \|mean − truth\| / sd |
+|---|---|---|---|---|---|---|---|
+| A2, exact | 0.930 | 0.900 | 0.899 | 0.919 | 0.734 | 1.88 | 0.68–0.71 |
+| A2, noisy | 0.635 | 0.612 | 0.559 | 0.673 | 0.295 | 1.86 | 1.13–1.46 |
+| A2w, exact | 0.919 | 0.904 | 0.912 | 0.940 | 0.753 | 1.90 | 0.60–0.72 |
+| A2w, noisy | 0.609 | 0.593 | 0.512 | 0.659 | 0.258 | 1.75 | 1.23–1.53 |
+| A2n, noisy | 0.906 | 0.899 | 0.889 | 0.909 | 0.708 | 2.72 | 0.73–0.75 |
+
+- **Given noisy data, A2 and A2w stay as narrow as before but move off the truth.** Their 90% intervals cover 51–67% per parameter, and all four together 26–30%, against 73–75% on exact data.
+- **A2n covers 0.89–0.91 on the same windows.**
+- **So if PSID's data carry noise of A2n's size,** A2's and A2w's household intervals miss the truth about 40% of the time per parameter. Whether they do is §49.2's question.
+
+### 49.2 PSID's accuracy codes
+
+**What PSID provides.** Our extracts (`PSID-data/J3648*`) carry PSID's accuracy codes next to the wealth and expenditure amounts: 454 of them. The official codebooks define each as an "accuracy code for imputation of [the year's] wealth [or consumption] summary variables": 1 imputed, 0 not.
+- **Wealth items** are imputed when the respondent gives no amount, or only a range from PSID's unfolding-bracket questions.
+- **Expenditure items** are imputed by regression: "Missing values are imputed. Imputation may result in negative values due to linear regression model" (codebook).
+- **The codes mark which values PSID filled in. They do not measure the error in reported values.**
+- **No code covers income, home value or mortgage separately, or the Section P pension balances.**
+- **Nothing in the pipeline used them until now.**
+
+`scripts/psid_accuracy_codes.py` maps each input component to its code (by label; PSID's own "Accuracy of ER…" pointers carry typos in some waves) and summarises the 409 couples × 7 waves:
+
+| feature | couple-waves with any component imputed | share of the feature's amount imputed | couples imputed in at least one wave |
+|---|---|---|---|
+| liquid | 6.9% | 11.8% | 24% |
+| illiquid | 8.7% | 9.4% | 35% |
+| consumption | 36% | 2.6% | 99% |
+| income | no codes | | |
+
+- **Liquid:** checking and savings are imputed for 8.3% of holders, card debt for 2.5% of those with a balance. The rate roughly doubles in 2021–2023, to 10–11% of couple-waves.
+- **Illiquid:** among holders, other assets are imputed for 17%, stocks 14%, IRAs 13%, business assets 11% and vehicles 4%.
+  - PSID's own wealth-with-equity total is imputed in 9–19% of waves, and 19% in 2023.
+  - Home equity is imputed in at least 1.3% of couple-waves.
+- **Consumption:** usually only small items.
+  - **2015:** vehicle repair was imputed for 94% of couples. The codebook notes: "A programming error at ER60878 (F77) caused ER60881 (F80D) to be skipped if a valid response (in the range $1-$999,997) was given at ER60878 (F77)."
+  - **2021–2023:** parking, bus/train, taxi and other transport are imputed for 7–31% of couples.
+  - **By amount,** only 2.6% is imputed.
+  - Our own imputation adds to PSID's: owners' rent for 2011–2017 is imputed backwards from their 2019+ value (§5).
+
+**Does imputation explain PSID's noise?** §43.9's signature a = 2V₁ − V₂ was recomputed using only changes between waves in which nothing in that feature was imputed. For illiquid wealth, this also requires PSID's with-equity total to be unimputed, since home equity has no code of its own.
+
+| feature | a, every change | a, unimputed changes only | V₁, every / unimputed | changes kept |
+|---|---|---|---|---|
+| consumption | 0.046 | 0.031 | 0.070 / 0.071 | 1,004 of 2,454 |
+| liquid | 0.0043 | 0.0037 | 0.0069 / 0.0061 | 2,201 |
+| illiquid | 0.063 | 0.026 | 0.175 / 0.138 | 1,948 |
+
+- **The "every change" column reproduces §43.9.**
+- **Illiquid: imputed values carry about 60% of PSID's noise signature.** Without them a is 0.026, at the bottom of §43.9's 90% interval (0.023–0.102). There the minimum illiquid noise is about 0.115, not 0.175.
+- **Consumption: about a third.** But the kept changes exclude nearly all of 2015, so the two sets differ in more than imputation.
+- **Liquid: little.**
+- **Selection caveat:** couples and waves without imputation may be calmer for other reasons, for example simpler portfolios.
+
+**Published validation evidence.** PSID's own validation study, which matched workers' survey reports with their employer's payroll records, found annual earnings "fairly accurate", with errors "moderately larger for changes in earnings" (Bound, Brown, Duncan and Rodgers 1994, *Journal of Labor Economics*). That fits the rule giving income no noise (§43.9). We found no published PSID estimate of the size of reporting error in wealth or consumption items. The PSID website refused automated access, so its data-quality pages were not read directly.
+
+### 49.3 Reading
+
+- **The noise question matters for the household intervals.** Noise-free models given noisy data cover the truth about 60% of the time per parameter.
+- **PSID's codes locate part of that noise: imputed values, above all in illiquid wealth.** They give flags, not error sizes, and cover neither income nor pensions.
+- **Options, not started; the user decides:**
+  - **(a)** Treat PSID's imputed values as missing, with a mask channel in the network's input. Then recalibrate the noise on unimputed changes only, which lowers illiquid's minimum toward 0.115. This needs retraining.
+  - **(b)** Drop or down-weight imputed couple-waves in PSID's input. This cannot be done inside a fixed 7-wave window without (a).
+  - **(c)** Keep A2n's noise as calibrated, which covers imputation and reporting error together.
+
+  Lowering the noise without (a) would leave the network overconfident on PSID's imputed values.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --noisy_inputs
+    PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py
