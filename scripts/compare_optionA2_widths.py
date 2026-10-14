@@ -1,0 +1,295 @@
+"""Posterior widths of the A2, A2w and A2n ensembles on the same simulated
+households (RESULTS 48).
+
+Figures 36, 39 and 42 each show one held-out household, but each picks its own
+household by rule, so they differ in age, theta and card. This puts the same
+households through all three ensembles.
+
+**Households.** The main run's two held-out shards (draws 31,744-32,767),
+which all three ensembles hold out. Windows are cut once (``windows_raw``,
+``HELD_SEED``), one per draw (``one_per_draw``, seed 0): 1,024 households, the
+same rows ``check_optionA2_heldout`` uses for A2. A2 and A2w see them
+noise-free, as they were trained. A2n sees them with its observation noise,
+seeded as in its own pipeline (the main run's group, offset 0), so it sees
+exactly the windows it was checked on; this is verified against
+``windows_raw`` over A2n's own shards. Each household's drawn noise sigma per
+feature is recorded.
+
+**Figure households.** Each figure's household is rebuilt by the plotting
+script's own rule (``plot_optionA2_households.simulated``: pool of 300, the
+saved pick) and checked against the figure's saved draw id. All three lie in
+the main run's group, so every ensemble sees the same window.
+
+**Reported.**
+- each figure household's 90% widths under each ensemble, and figure 56: each
+  one's posteriors under the three ensembles, overlaid
+  (``56_same_household_fig{36,39,42}.png``);
+- on the 1,024: median 90% widths, and per-household width ratios A2w / A2 and
+  A2n / A2w; widths by window start age;
+- A2n: log 90% width regressed on each feature's drawn sigma, scaled to its
+  range, so a coefficient is the change from the bottom of the range to the top.
+
+**Signal against noise** (``--signal_only``, CPU, no ensembles). On all 16,384
+windows of the main run's held-out group, the IQR-based variance of 1-wave and
+6-wave changes, ((p75 - p25) / 1.349)^2, on the network's input scale (log
+over mean income for consumption; asinh over mean income for wealth), without
+and with A2n's noise: for every window, and for illiquid holders (illiquid
+>= 0.5 x mean income in every wave, noise-free, as in RESULTS 44.2). Income
+carries no noise, so the mean-income anchor is the same in both.
+
+Usage::
+
+    PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py
+    PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --signal_only
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import numpy as np
+import torch
+
+from hh_npe.evaluation.plots import contour_corner
+from hh_npe.evaluation.weighted import resample, sample_weighted
+from scripts import optionA as oa
+from scripts.plot_optionA2_households import weighted_draws
+
+MAIN = Path("data/processed/couples_dataset_shards")
+STRIP = Path("data/processed/couples_strip_dataset_shards")
+MODELS = {"A2": ("outputs/optionA2", [MAIN]),
+          "A2w": ("outputs/optionA2w", [MAIN, STRIP]),
+          "A2n": ("outputs/optionA2n", [MAIN, STRIP])}
+FIGURES = {"A2": "figures/36_simulated_household_optionA2.npz",
+           "A2w": "figures/39_simulated_household_optionA2w.npz",
+           "A2n": "figures/42_simulated_household_optionA2n.npz"}
+POOL = 300
+N = oa.BOX.names
+
+
+def noise_sigmas(x: torch.Tensor, noise, seed: int) -> dict[str, np.ndarray]:
+    """Each row's sigma per noisy feature, drawn exactly as ``add_obs_noise``
+    draws it (same generator, same order)."""
+    g = torch.Generator().manual_seed(seed)
+    torch.randn(x.shape, generator=g, dtype=x.dtype)
+    u = torch.rand((x.shape[0], x.shape[-1]), generator=g, dtype=x.dtype)
+    out = {}
+    for f, lo, hi in noise:
+        j = oa.FEATURES_TWOASSET_AGE.index(f)
+        out[f] = (lo + (hi - lo) * u[:, j]).numpy().astype(float)
+    return out
+
+
+def figure_row(files, theta_all, noise, fig: dict) -> int:
+    """The plotting script's pick, as a row of ``windows_raw(files)``."""
+    _th, _x, pid = oa.windows_raw(files, theta_all, seed=oa.HELD_SEED, noise=noise)
+    pick1 = oa.one_per_draw(pid, seed=0)
+    pool = np.sort(np.random.default_rng(1).choice(pick1, min(POOL, len(pick1)),
+                                                   replace=False))
+    row = int(pool[int(fig["pick"])])
+    if int(pid[row]) != int(fig["draw"]):
+        raise SystemExit(f"rebuilt pick is draw {int(pid[row])}, the figure's is "
+                         f"{int(fig['draw'])}")
+    return row
+
+
+def widths(r: dict) -> np.ndarray:
+    return r["hi"] - r["lo"]
+
+
+def iqr_var(v: np.ndarray) -> float:
+    q75, q25 = np.percentile(v, [75, 25])
+    return float(((q75 - q25) / 1.349) ** 2)
+
+
+def signal_table(x0: torch.Tensor, xn: torch.Tensor) -> dict:
+    """IQR-based variance of 1- and 6-wave changes per noisy feature, on the
+    network's input scale, noise-free and with A2n's noise."""
+    t0, feats = oa.transform(x0)
+    tn, _f = oa.transform(xn)
+    t0, tn = t0.numpy(), tn.numpy()
+    j_ill = oa.FEATURES_TWOASSET_AGE.index("illiquid_assets")
+    ybar = x0[..., oa.FEATURES_TWOASSET_AGE.index("income")].mean(1, keepdim=True)
+    holders = (x0[..., j_ill] >= 0.5 * ybar).all(1).numpy()
+    out = {"holders_share": float(holders.mean())}
+    print(f"\nchanges on the network's scale, IQR-based variance; illiquid holders "
+          f"{holders.mean():.3f} of {len(holders)} windows")
+    print(f"  {'feature':16s}{'windows':>9s}{'V1 free':>10s}{'V1 noisy':>10s}"
+          f"{'V6 free':>10s}{'V6 noisy':>10s}")
+    for f in ("consumption", "liquid_assets", "illiquid_assets"):
+        j = feats.index(f)
+        for grp, k in (("all", np.ones(len(holders), bool)), ("holders", holders)):
+            if grp == "holders" and f != "illiquid_assets":
+                continue
+            row = {}
+            for lag in (1, 6):
+                row[f"V{lag}_free"] = iqr_var((t0[k, lag:, j] - t0[k, :-lag, j]).ravel())
+                row[f"V{lag}_noisy"] = iqr_var((tn[k, lag:, j] - tn[k, :-lag, j]).ravel())
+            out[f"{f}, {grp}"] = row
+            print(f"  {f[:12] + ', ' + grp:16s}{int(k.sum()):9d}" + "".join(
+                f"{row[c]:10.4f}" for c in ("V1_free", "V1_noisy", "V6_free", "V6_noisy")))
+    return out
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--n_draws", type=int, default=4000)
+    ap.add_argument("--n_raw", type=int, default=40000)
+    ap.add_argument("--n_plot", type=int, default=20000)
+    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--out", type=Path, default=Path("outputs/optionA2_widths"))
+    ap.add_argument("--fig", type=Path, default=Path("figures/56_same_household"))
+    ap.add_argument("--signal_only", action="store_true",
+                    help="Only the signal-against-noise table (CPU).")
+    args = ap.parse_args()
+
+    if args.signal_only:
+        cfg = json.loads((Path(MODELS["A2n"][0]) / "s0" / "results.json").read_text())["_config"]
+        noise_n = oa.spec_of(cfg).obs_noise
+        theta_all, _c, _tr, held, _p, _cfg = oa.load_shards([MAIN, STRIP])
+        _th, x0, _pid = oa.windows_raw([s for s in held if s.offset == 0], theta_all,
+                                       seed=oa.HELD_SEED)
+        xn = oa.add_obs_noise(x0, noise_n, seed=oa.NOISE_SEED + oa.HELD_SEED)
+        res = signal_table(x0, xn)
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / "signal.json").write_text(json.dumps(res, indent=1))
+        print(f"wrote {args.out}/signal.json")
+        return
+
+    ens = {}
+    for name, (d, _shards) in MODELS.items():
+        members, proposal, cfg = oa.load_members([Path(d) / f"s{i}" for i in range(5)],
+                                                 args.device)
+        spec = oa.spec_of(cfg)
+        ens[name] = (members, spec, *oa._weighting(proposal, spec))
+        print(f"{name}: {len(members)} members; {spec.describe()}")
+    noise_n = ens["A2n"][1].obs_noise
+    if ens["A2"][1].obs_noise or ens["A2w"][1].obs_noise:
+        raise SystemExit("A2 / A2w carry observation noise; this script assumes not")
+
+    theta_all, card_all, _tr, held, _p, _cfg = oa.load_shards([MAIN, STRIP])
+    main_held = [s for s in held if s.offset == 0]
+    th, x0, pid = oa.windows_raw(main_held, theta_all, seed=oa.HELD_SEED)
+    seed_n = oa.NOISE_SEED + oa.HELD_SEED
+    xn = oa.add_obs_noise(x0, noise_n, seed=seed_n)
+    sig = noise_sigmas(x0, noise_n, seed_n)
+    _t, xn_own, pid_own = oa.windows_raw(held, theta_all, seed=oa.HELD_SEED, noise=noise_n)
+    if not (torch.equal(xn_own[:len(xn)], xn) and torch.equal(pid_own[:len(pid)], pid)):
+        raise SystemExit("A2n's own held-out windows differ from the rebuilt ones")
+    print(f"main run's held-out group: {len(pid)} windows; A2n's noise reproduced")
+
+    rows = list(oa.one_per_draw(pid, seed=0))
+    figs = {}
+    for name, (_d, shards) in MODELS.items():
+        files = main_held if shards == [MAIN] else held
+        fig = np.load(FIGURES[name])
+        row = figure_row(files, theta_all, noise_n if name == "A2n" else (), fig)
+        if row >= len(pid):
+            raise SystemExit(f"figure {name}'s household is not in the main run's group")
+        figs[name] = row
+        print(f"figure {name}: draw {int(fig['draw'])}, row {row}, ages "
+              f"{int(x0[row, 0, -1])}-{int(x0[row, -1, -1])}, card {int(card_all[pid[row]])}")
+    rows_all = rows + list(figs.values())
+    t = th[rows_all].numpy().astype(float)
+
+    res = {}
+    for name, (members, spec, inv, lw) in ens.items():
+        xr = xn if name == "A2n" else x0
+        x, _f = oa.transform(xr[rows_all])
+        fb = spec.flow_box()
+        torch.manual_seed(0)
+        res[name] = sample_weighted(members, x, args.n_draws, fb.low, fb.high, invert=inv,
+                                    log_weight=lw, truth=t)
+    n = len(rows)
+    W = {m: widths(r) for m, r in res.items()}
+    age = x0[rows_all, 0, -1].numpy()
+    summary = {"n": n, "figure_households": {}, "median_width": {}, "ratio": {},
+               "by_start_age": {}, "a2n_noise_regression": {}}
+
+    print("\n=== figure households: 90% widths (beta, delta, rho, R_gamma) ===")
+    for k, (fname, row) in enumerate(figs.items()):
+        i = n + k
+        tr = t[i]
+        summary["figure_households"][fname] = {
+            "draw": int(pid[row]), "truth": tr.tolist(), "start_age": int(age[i]),
+            **{m: W[m][i].tolist() for m in W}}
+        print(f"  figure {fname}'s household (draw {int(pid[row])}, ages {int(age[i])}-"
+              f"{int(age[i]) + 12}, truth {np.round(tr, 4).tolist()})")
+        for m in W:
+            print(f"    {m:4s} " + "  ".join(f"{N[j]} {W[m][i, j]:.4f}" for j in range(4)))
+
+    print(f"\n=== {n} common households ===")
+    print(f"{'':10s}" + "".join(f"{v:>10s}" for v in N))
+    for m in W:
+        med = np.nanmedian(W[m][:n], 0)
+        summary["median_width"][m] = med.tolist()
+        print(f"{'width ' + m:10s}" + "".join(f"{v:10.4f}" for v in med))
+    for a, b in (("A2w", "A2"), ("A2n", "A2w"), ("A2n", "A2")):
+        rat = W[a][:n] / W[b][:n]
+        q = np.nanpercentile(rat, [25, 50, 75], 0)
+        wider = np.nanmean(rat > 1, 0)
+        summary["ratio"][f"{a}/{b}"] = {"p25": q[0].tolist(), "median": q[1].tolist(),
+                                        "p75": q[2].tolist(), "share_wider": wider.tolist()}
+        print(f"{a + '/' + b:10s}" + "".join(f"{q[1, j]:6.2f} ({wider[j]:.2f})"
+                                             for j in range(4))
+              + "   median ratio (share wider)")
+
+    print("\nmedian 90% width of rho by window start age:")
+    bins = [(20, 35), (35, 45), (45, 70)]
+    for lo, hi in bins:
+        k = (age[:n] >= lo) & (age[:n] < hi)
+        row = {m: np.nanmedian(W[m][:n][k], 0).tolist() for m in W}
+        summary["by_start_age"][f"{lo}-{hi - 1}"] = {"n": int(k.sum()), **row}
+        print(f"  {lo}-{hi - 1} (n {k.sum():4d}): " + "  ".join(
+            f"{m} {row[m][2]:.2f}" for m in W))
+
+    print("\nA2n: log 90% width on drawn sigma, scaled to its range (bottom -> top):")
+    feats = [f for f, lo, hi in noise_n if hi > lo]
+    rng = {f: (lo, hi) for f, lo, hi in noise_n}
+    Xs = np.column_stack([np.ones(n)] + [(sig[f][rows] - rng[f][0]) / (rng[f][1] - rng[f][0])
+                                         for f in feats])
+    for j, p in enumerate(N):
+        y = np.log(W["A2n"][:n, j])
+        ok = np.isfinite(y)
+        b, *_ = np.linalg.lstsq(Xs[ok], y[ok], rcond=None)
+        resid = y[ok] - Xs[ok] @ b
+        se = np.sqrt(np.diag(np.linalg.inv(Xs[ok].T @ Xs[ok])) * resid.var(ddof=Xs.shape[1]))
+        summary["a2n_noise_regression"][p] = {f: {"factor": float(np.exp(b[i + 1])),
+                                                  "se_log": float(se[i + 1])}
+                                              for i, f in enumerate(feats)}
+        print(f"  {p:8s} " + "  ".join(f"{f} x{np.exp(b[i + 1]):.2f} (se {se[i + 1]:.2f})"
+                                       for i, f in enumerate(feats)))
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    np.savez(args.out / "widths.npz", rows=np.array(rows_all), draw=pid[rows_all].numpy(),
+             theta=t, start_age=age, **{f"sigma_{f}": sig[f][rows_all] for f in sig},
+             **{f"{m}_{k}": res[m][k] for m in res for k in ("mean", "sd", "lo", "hi")})
+    (args.out / "summary.json").write_text(json.dumps(summary, indent=1))
+    print(f"\nwrote {args.out}/widths.npz, summary.json")
+
+    box = ens["A2w"][1].box
+    for k, (fname, row) in enumerate(figs.items()):
+        series = {}
+        for m, (members, spec, inv, lw) in ens.items():
+            xr = xn if m == "A2n" else x0
+            x, _f = oa.transform(xr[row:row + 1])
+            torch.manual_seed(0)
+            d, w = weighted_draws(members, x, args.n_raw, spec.flow_box(), inv, lw)
+            series[f"{m}" + (" (observation noise)" if m == "A2n" else "")] = resample(
+                d, w, args.n_plot, seed=0)
+        num = Path(FIGURES[fname]).name[:2]
+        path = args.fig.with_name(f"{args.fig.name}_fig{num}.png")
+        a0 = int(age[n + k])
+        contour_corner(series, box, truth={"true θ": t[n + k]}, truth_colors=("#d62728",),
+                       reflect_axes=("delta",), path=path,
+                       title=f"Figure {num}'s household (draw {int(pid[row])}, ages {a0}-"
+                             f"{a0 + 12}, {'cardholder' if card_all[pid[row]] else 'no card'})"
+                             "\nthe same window under A2, A2w and A2n (RESULTS 48)")
+        print(f"wrote {path}")
+
+
+if __name__ == "__main__":
+    main()

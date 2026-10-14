@@ -7642,3 +7642,94 @@ Work returns to option A3 (§44). This section records what §45–46 establishe
   Their tests (18) are in `tests/test_population.py`, `tests/test_hierarchical_summary.py` and `tests/test_summary_likelihood.py`.
 - **Outputs (git-ignored):** `outputs/hier_optionA2n_couples/` (935 MB, mostly the fits' importance-sampling points), `outputs/hier_summary/` and `outputs/hier_validation/`.
 - **Figures:** 52 and 53 (§45), 54 and 55 (§46).
+
+## 48. Why A2n's household posteriors are wider than A2's and A2w's
+
+**Question (user, 2026-10-14).** "let's compare the A2n simulated household fig and A2 simulated household fig. what made the posterior area that large on A2n? what's the main reason? even the A2w is larger." Then: "but A2w has much wider width on rho."
+
+**Method.** Figures 36, 39 and 42 each show a different household. Each figure picks the median-error household of its own pool (§43.4), not one of typical width. `scripts/compare_optionA2_widths.py` puts the same households through all three ensembles:
+- 1,024 held-out households, one per draw of the main run's two held-out shards, which all three ensembles hold out;
+- the three figure households, rebuilt by the plotting script's rule and checked against each figure's draw id;
+- A2 and A2w see the windows noise-free, as they were trained. A2n sees them with its own noise, checked to be identical to its held-out check's windows.
+
+### 48.1 A2 and A2w are the same width; figure 39's household is a wide one
+
+**90% widths of the figure households:**
+
+| household | ensemble | β | δ | ρ | R_gamma |
+|---|---|---|---|---|---|
+| figure 36 (draw 32207, ages 44–56) | A2 | 0.42 | 0.033 | 1.93 | 0.0078 |
+| | A2w | 0.42 | 0.029 | 2.03 | 0.0068 |
+| | A2n | 0.58 | 0.043 | 3.07 | 0.0125 |
+| figure 39 (draw 32655, ages 34–46) | A2 | 0.45 | 0.034 | **2.86** | 0.0104 |
+| | A2w | 0.45 | 0.041 | **2.61** | 0.0111 |
+| | A2n | 0.47 | 0.088 | 2.17 | 0.0171 |
+| figure 42 (draw 31955, ages 36–48) | A2 | 0.50 | 0.038 | 2.13 | 0.0106 |
+| | A2w | 0.46 | 0.037 | 2.18 | 0.0122 |
+| | A2n | 0.54 | 0.043 | 2.59 | 0.0249 |
+
+**On the 1,024 households:**
+
+| | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| median 90% width, A2 | 0.361 | 0.0372 | 1.88 | 0.0167 |
+| A2w | 0.357 | 0.0377 | 1.89 | 0.0171 |
+| A2n | 0.513 | 0.0802 | 2.72 | 0.0273 |
+| A2w ÷ A2, median ratio (share wider) | 1.00 (0.47) | 1.00 (0.51) | 1.01 (0.54) | 1.06 (0.67) |
+| A2n ÷ A2w, median ratio (share wider) | 1.35 (0.92) | 1.52 (0.92) | 1.34 (0.92) | 1.48 (0.83) |
+
+- **A2w is not wider than A2.** The same household gets the same width: ρ's ratio is 1.01. R_gamma is 6% wider, as A2w's box reaches down to 1.021.
+- **Figure 39's household is wide under every ensemble.** Its ρ width is 2.86 under A2 and 2.61 under A2w, against a median of 1.88. Figure 36's household sits near the median (1.93). The difference between figures 36 and 39 is the household, not the model.
+- **Window age does not explain it.** ρ's median width under A2 is 1.88, 1.88 and 1.83 for windows starting at 20–34, 35–44 and 45 or older.
+
+Figure 56 (`56_same_household_fig{36,39,42}.png`) overlays each figure household's three posteriors.
+
+### 48.2 A2n: the observation noise
+
+**A2n is A2w plus observation noise; nothing else in the training setup changed (§43.7).** On the same households it is 1.34–1.52 times wider, for 83–92% of them. This is the held-out contraction loss of §43.8 (β 0.62 → 0.36), seen household by household.
+
+**Signal against noise** (`--signal_only`). The IQR-based variance of changes on the network's input scale, over the 16,384 windows of the main run's held-out group:
+
+| feature | windows | 1-wave, noise-free | 1-wave, A2n | share that is noise | 6-wave, noise-free | 6-wave, A2n |
+|---|---|---|---|---|---|---|
+| consumption | 16,384 | 0.021 | 0.044 | 51% | 0.181 | 0.199 |
+| liquid | 16,384 | 0.0139 | 0.0145 | 4% | 0.063 | 0.064 |
+| illiquid | 16,384 | 0.0055 | 0.026 | 79% | 0.368 | 0.398 |
+| illiquid, holders | 6,374 | 0.015 | 0.178 | **91%** | 0.315 | 0.502 |
+
+"Holders" have illiquid wealth ≥ 0.5 × mean income in every wave (§44.2).
+- **For couples who hold illiquid wealth, one-wave changes are 91% noise.** Over six waves, 37%.
+- **The noise is PSID's.** With it, the model's holders have a one-wave variance of 0.178, against PSID holders' 0.179 (§44.2).
+
+**Within A2n, a household's drawn noise hardly matters.** Log 90% width was regressed on each feature's drawn σ, scaled to its range. Each factor is the change in width from the bottom of the range to the top (se of the log about 0.02–0.09):
+
+| | consumption 0–0.15 | liquid 0–0.08 | illiquid 0.175–0.455 |
+|---|---|---|---|
+| β | ×1.08 | ×1.03 | ×1.03 |
+| δ | ×1.16 | ×1.00 | ×1.02 |
+| ρ | ×1.05 | ×1.03 | ×1.03 |
+| R_gamma | ×1.16 | ×1.02 | ×0.98 |
+
+So a household's width is set mostly by the noise ranges the network was trained on, not by how noisy that household's window actually is.
+- The network cannot read a household's σ from its window, so it allows for the whole range.
+- Consumption is the partial exception (×1.16 for δ and R_gamma). Its noise has a signature the network can partly see: excess variance at short gaps (§43.7).
+
+**Which feature: most likely illiquid wealth.**
+- **Its noise is the largest against the model's own movement:** 91% of holders' one-wave changes. It is also the only noise that never reaches zero (0.175 at the least).
+- **Illiquid wealth is ρ's main source of precision.** Dropping it from the inputs widened ρ's interval sevenfold (§31.2, phase-3 model).
+- **§43.10's arms agree.** Scaling every range by 2/3 (illiquid 0.117–0.303) recovers β's contraction only to 0.415, against 0.366 for A2n (both two members) and 0.624 for A2w (five).
+
+This is not proven. A regression within A2n's ranges cannot see the step from no illiquid noise to 0.175. The test: retrain two members with the illiquid noise off and everything else as in A2n, then compare with A2n's members 0 and 1 as in §43.10 (about 2 GPU-hours).
+
+### 48.3 Reading
+
+- **The main reason A2n's posteriors are wider is the observation noise,** and most likely the illiquid noise. A2 and A2w are equally wide, and the figures differed because they show different households.
+- **A2n's widths are the price of noisy data, and they are calibrated:** held-out 90% coverage is 0.894–0.908 (§43.8).
+  - A2 and A2w were narrow because they treated every window as exactly measured.
+  - PSID's windows are not, and A2w read PSID's noise as signal: its couples' ρ piled at the floor, and A2n's did not (§43.8).
+- **Narrower posteriors would need less noise.** That is honest only if PSID's illiquid volatility is not measurement error. §44.2 found the model's holders match PSID's persistence only with this noise.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py
+    PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --signal_only
