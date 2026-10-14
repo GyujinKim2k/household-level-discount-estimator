@@ -41,9 +41,16 @@ Two regions, both reported:
   43.2, where 87-88% of couples' posterior means lie), with rho, R_gamma and
   card type free, so the rule does not presuppose rho.
 
+**Masked PSID** (``--mask_tau``, RESULTS 50). PSID's signature uses only
+changes between waves that are not masked: a feature-wave is masked where PSID
+imputed some part of it and the imputed share of its amount is at least tau
+(``psid_accuracy_codes.masks``). The model side is unchanged.
+
 Usage::
 
     PYTHONPATH=. .venv/bin/python scripts/noise_calibration.py
+    PYTHONPATH=. .venv/bin/python scripts/noise_calibration.py --mask_tau 0.25 \
+        --out outputs/optionA2m/noise_calibration_tau0.25.json
 """
 
 from __future__ import annotations
@@ -87,11 +94,16 @@ def robust_var(v: np.ndarray) -> float:
     return ((q75 - q25) / 1.349) ** 2
 
 
-def signature(z: np.ndarray) -> tuple[float, float, float]:
-    """(a, V_1, V_2) of an (N, waves) series on the input scale."""
-    v1 = robust_var((z[:, 1:] - z[:, :-1]).ravel())
-    v2 = robust_var((z[:, 2:] - z[:, :-2]).ravel())
-    return 2 * v1 - v2, v1, v2
+def signature(z: np.ndarray, clean: np.ndarray | None = None) -> tuple[float, float, float]:
+    """(a, V_1, V_2) of an (N, waves) series on the input scale, using only
+    changes whose waves are all ``clean`` (None: every change)."""
+    v = []
+    for k in (1, 2):
+        d = z[:, k:] - z[:, :-k]
+        ok = (np.ones_like(d, bool) if clean is None else
+              np.logical_and.reduce([clean[:, j:j + d.shape[1]] for j in range(k + 1)]))
+        v.append(robust_var(d[ok]))
+    return 2 * v[0] - v[1], v[0], v[1]
 
 
 def region(name: str, box) -> dict:
@@ -170,12 +182,24 @@ def main() -> None:
     ap.add_argument("--every", type=int, default=2, help="Use every n-th shard.")
     ap.add_argument("--n_boot", type=int, default=200)
     ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--mask_tau", type=float, default=None,
+                    help="Mask PSID feature-waves whose imputed share is >= this "
+                         "(psid_accuracy_codes.masks).")
     ap.add_argument("--profiles", action="store_true",
                     help="Only the lag profiles (RESULTS 43.7's table), into the output's "
                          "'profiles' key.")
     args = ap.parse_args()
 
-    px = torch.load(PSID_X, weights_only=False)["x"].numpy().astype(np.float64)
+    pd_ = torch.load(PSID_X, weights_only=False)
+    px = pd_["x"].numpy().astype(np.float64)
+    clean = {}
+    if args.mask_tau is not None:
+        from scripts import psid_accuracy_codes as pac
+        m = pac.masks(pac.collect(Path("PSID-data"), pd_["psid_row"].numpy()), args.mask_tau)
+        clean = {"consumption": ~m["consumption"], "liquid_assets": ~m["liquid"],
+                 "illiquid_assets": ~m["illiquid"]}
+        print(f"PSID masked at tau {args.mask_tau}: " + ", ".join(
+            f"{f} {1 - c.mean():.3f}" for f, c in clean.items()))
     theta, card, train, held, _p, cfg = oa.load_shards([MAIN, STRIP])
     box = oa.box_of(cfg)
     files = (train + held)[::args.every]
@@ -190,7 +214,8 @@ def main() -> None:
         print(f"wrote {args.out}")
         return
     boot = np.random.default_rng(0).integers(0, len(px), (args.n_boot, len(px)))
-    res = {"rule": "per feature, the range [minimum, typical] of the multiplicative "
+    res = {"mask_tau": args.mask_tau,
+           "rule": "per feature, the range [minimum, typical] of the multiplicative "
                    "log-normal sigma (iid per household-wave) at which a cell of the region "
                    "reaches PSID couples' a = 2 V1 - V2 (IQR-based, network input scale): "
                    "minimum over the region's cells, and their prior-weighted median",
@@ -205,7 +230,8 @@ def main() -> None:
               f">= {MIN_CELL} windows")
         out = res["regions"][name] = {"bounds": reg, "features": {}}
         for f in ("income", "consumption", "liquid_assets", "illiquid_assets"):
-            out["features"][f] = calibrate(f, px, boot, x, cell, use, reg)
+            out["features"][f] = calibrate(f, px, boot, x, cell, use, reg,
+                                            clean.get(f))
         out["sigma_range"] = {f: [v["sigma_min"], v["sigma_typical"]]
                               for f, v in out["features"].items()}
         print(f"\nregion {name}: sigma range (minimum, typical) {out['sigma_range']}")
@@ -250,9 +276,10 @@ def profiles(px, th, x, cd, names) -> dict:
     return out
 
 
-def calibrate(f, px, boot, x, cell, use, reg) -> dict:
-    a_p, v1, v2 = signature(input_scale(px, f))
-    a_b = np.array([signature(input_scale(px[b], f))[0] for b in boot])
+def calibrate(f, px, boot, x, cell, use, reg, clean=None) -> dict:
+    a_p, v1, v2 = signature(input_scale(px, f), clean)
+    a_b = np.array([signature(input_scale(px[b], f), None if clean is None else clean[b])[0]
+                    for b in boot])
     rng = np.random.default_rng(1)
     stop = max(a_p, np.percentile(a_b, 95))
     curves = {int(c): curve(x[cell == c], f, rng, stop) for c in use}

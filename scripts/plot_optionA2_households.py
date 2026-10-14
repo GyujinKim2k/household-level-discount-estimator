@@ -60,7 +60,8 @@ def describe(x_raw: np.ndarray) -> str:
     ages = x_raw[:, -1].astype(int)
     rows = [f"  ages {ages.tolist()}"]
     for j, f in enumerate(FEATS):
-        rows.append(f"  {f:16s} " + " ".join(f"{int(round(v)):>9,d}" for v in x_raw[:, j]))
+        rows.append(f"  {f:16s} " + " ".join("  missing" if np.isnan(v) else
+                                             f"{int(round(v)):>9,d}" for v in x_raw[:, j]))
     return "\n".join(rows)
 
 
@@ -87,13 +88,13 @@ def simulated(args, members, spec, inv, lw, label) -> None:
         raise SystemExit(f"{args.shards} cover R_gamma {sh_cfg['rgamma_range']}, not the "
                          f"ensemble's box")
     th, x_raw, pid = oa.windows_raw(held_f, theta_all, seed=oa.HELD_SEED,
-                                     noise=spec.obs_noise)
+                                     noise=spec.obs_noise, mask=spec.mask_patterns())
     pick1 = oa.one_per_draw(pid, seed=0)
     # one_per_draw's rows are grouped by window start age; sample, not a prefix.
     pool = np.sort(np.random.default_rng(1).choice(pick1, min(args.pool, len(pick1)),
                                                    replace=False))
     th, x_raw, pid = th[pool].numpy().astype(float), x_raw[pool], pid[pool].numpy()
-    x, _f = oa.transform(x_raw)
+    x, _f = oa.transform(x_raw, masked=spec.masked)
     torch.manual_seed(0)
     r = sample_weighted(members, x, args.pool_draws, fb.low, fb.high, invert=inv,
                         log_weight=lw)
@@ -137,12 +138,13 @@ def psid(args, members, spec, inv, lw, label) -> None:
     dist[~ok] = np.inf
     pick = int(np.argmin(dist))
     dd = torch.load(args.x, weights_only=False)
-    x_raw = dd["x"].numpy()[keep]
+    x_raw = oa.set_missing(dd["x"].numpy()[keep],
+                           oa.psid_missing(spec, dd["psid_row"].numpy()[keep]))
     assert len(x_raw) == len(m), "tensor and posterior file disagree on households"
     print(f"\n=== PSID: household #{pick} of {len(m)} (nearest the median posterior "
           f"mean; standardised distance {dist[pick]:.3f}) ===")
     print(describe(x_raw[pick]))
-    x, _f = oa.transform(torch.from_numpy(x_raw[pick:pick + 1]).float())
+    x, _f = oa.transform(torch.from_numpy(x_raw[pick:pick + 1]).float(), masked=spec.masked)
     torch.manual_seed(0)
     d, w = weighted_draws(members, x, args.n_raw, fb, inv, lw)
     ref = np.append(LAIBSON, 1.05)

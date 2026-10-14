@@ -238,16 +238,91 @@ def box_of(cfg: dict) -> PriorBox:
     return dataclasses.replace(BOX, rgamma_low=float(lo), rgamma_high=float(hi))
 
 
-def transform(x: torch.Tensor):
-    """The adopted input chain: level channel from dollar levels, then anchor."""
+def transform(x: torch.Tensor, masked: bool = False):
+    """The adopted input chain: level channel from dollar levels, then anchor.
+
+    ``masked`` (RESULTS 50): consumption, liquid and illiquid values marked
+    missing (NaN, :func:`add_imputation_mask`) are set to 0, and one 0/1
+    channel per such feature marks them. Income, the anchor, is never missing.
+    Without ``masked`` the chain is exactly as before."""
     x, feats = mean_income_channel(x, FEATURES_TWOASSET_AGE)
-    return anchor_log(x, feats), feats
+    x = anchor_log(x, feats)
+    if not masked:
+        return x, feats
+    miss = torch.stack([torch.isnan(x[..., feats.index(f)]) for f in MASKABLE], -1)
+    if int(torch.isnan(x).sum()) != int(miss.sum()):
+        raise ValueError("missing values outside consumption, liquid and illiquid wealth")
+    x = torch.nan_to_num(x, nan=0.0)
+    return (torch.cat([x, miss.to(x.dtype)], -1),
+            tuple(feats) + tuple(f"missing_{f}" for f in MASKABLE))
 
 
 #: Dollar features that may carry observation noise (RESULTS 43.7); age is exact.
 NOISY = ("income", "consumption", "liquid_assets", "illiquid_assets")
 #: Added to a window seed for its noise stream, so noise never reuses it.
 NOISE_SEED = 437_000
+#: Features PSID's accuracy codes can mark as imputed (RESULTS 49, 50). Income
+#: and age carry no codes and are never masked.
+MASKABLE = ("consumption", "liquid_assets", "illiquid_assets")
+#: Added to a window seed for its imputation-mask stream.
+MASK_SEED = 529_000
+
+
+def load_mask_patterns(path, sha256: str | None = None) -> dict:
+    """PSID couples' imputation masks (``psid_accuracy_codes.py --write_mask``):
+    ``mask`` (couples, 7, len(MASKABLE)) bool, ``psid_row``, ``tau``. With
+    ``sha256``, the file must be the one a checkpoint was trained with."""
+    import hashlib
+    path = Path(path)
+    if sha256 is not None and hashlib.sha256(path.read_bytes()).hexdigest() != sha256:
+        raise SystemExit(f"{path} is not the mask file this model was trained with")
+    d = torch.load(path, weights_only=False)
+    if tuple(d["features"]) != MASKABLE:
+        raise SystemExit(f"{path}: mask features {d['features']} are not {MASKABLE}")
+    return d
+
+
+def psid_missing(spec, psid_rows: np.ndarray) -> np.ndarray | None:
+    """PSID's own masks for rows ``psid_rows`` (couples, 7, len(MASKABLE)),
+    from the file the run was trained with; None for an unmasked run. The
+    file must cover exactly these rows, in this order."""
+    if not spec.masked:
+        return None
+    md = load_mask_patterns(spec.imputation_mask[0], spec.imputation_mask[2])
+    if not np.array_equal(md["psid_row"].numpy(), np.asarray(psid_rows)):
+        raise SystemExit(f"{spec.imputation_mask[0]} covers other PSID rows")
+    return md["mask"].numpy()
+
+
+def set_missing(x_raw: np.ndarray, miss: np.ndarray | None) -> np.ndarray:
+    """Raw (dollar) windows with masked feature-waves set to NaN."""
+    if miss is None:
+        return x_raw
+    out = np.asarray(x_raw, dtype=float).copy()
+    for k, f in enumerate(MASKABLE):
+        j = FEATURES_TWOASSET_AGE.index(f)
+        out[..., j] = np.where(miss[..., k], np.nan, out[..., j])
+    return out
+
+
+def add_imputation_mask(x: torch.Tensor, patterns, seed: int) -> torch.Tensor:
+    """Mark simulated feature-waves missing (NaN) the way PSID's are (RESULTS
+    50). Each household (row) takes the whole mask of one PSID couple drawn
+    uniformly, wave for wave, so the rate by feature and wave, and how masks
+    cluster within a household, are PSID couples'. Masks are drawn
+    independently of theta and of the values, so the network learns to read a
+    masked value as missing, never as evidence about theta."""
+    m = torch.as_tensor(np.asarray(patterns), dtype=torch.bool)
+    if x.shape[1] != m.shape[1]:
+        raise ValueError(f"windows have {x.shape[1]} waves, the masks {m.shape[1]}")
+    g = torch.Generator().manual_seed(seed)
+    pick = torch.randint(0, len(m), (x.shape[0],), generator=g)
+    out = x.clone()
+    for k, f in enumerate(MASKABLE):
+        j = FEATURES_TWOASSET_AGE.index(f)
+        out[..., j] = torch.where(m[pick, :, k], torch.full_like(x[..., j], torch.nan),
+                                  x[..., j])
+    return out
 
 
 def _noise_range(v) -> tuple[float, float]:
@@ -287,13 +362,15 @@ def add_obs_noise(x: torch.Tensor, noise, seed: int) -> torch.Tensor:
     return out
 
 
-def windows_raw(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=()):
+def windows_raw(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=(), mask=None):
     """``build_windowed`` over shards of one or more runs, untransformed.
     ``files`` are :class:`Shard`\\ s or plain paths (one run, offset 0). Draw
     ids, and the window seeds (``seed + lo``), are offset per run, so ids stay
     unique for the grouped validation split; one run is exactly as before.
     ``noise`` (a :class:`Spec`'s ``obs_noise``) adds observation noise, seeded
-    by the window seed."""
+    by the window seed; ``mask`` (PSID couples' mask patterns,
+    :meth:`Spec.mask_patterns`) then marks feature-waves missing, from its own
+    stream, so the noise is the same with or without it."""
     groups: dict[int, list[Path]] = {}
     for f in files:
         path, off = (f.path, f.offset) if isinstance(f, Shard) else (Path(f), 0)
@@ -303,13 +380,15 @@ def windows_raw(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=()):
         th, x, pid = build_windowed(paths, theta_all[off:], k=1, seed=seed + off,
                                     **{**WINDOW, "n_waves": n_waves})
         x = add_obs_noise(x, noise, seed=NOISE_SEED + seed + off)
+        if mask is not None:
+            x = add_imputation_mask(x, mask, seed=MASK_SEED + seed + off)
         out.append((th, x, pid + off))
     return tuple(torch.cat(t) for t in zip(*out))
 
 
-def windows(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=()):
-    th, x, pid = windows_raw(files, theta_all, seed, n_waves, noise)
-    x, feats = transform(x)
+def windows(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=(), mask=None):
+    th, x, pid = windows_raw(files, theta_all, seed, n_waves, noise, mask)
+    x, feats = transform(x, masked=mask is not None)
     return th, x, pid, feats
 
 
@@ -334,12 +413,30 @@ class Spec:
     (RESULTS 43.7), ``((feature, low, high), ...)``, each household's sigma
     uniform on [low, high]; every simulated window scored against the run must
     carry the same (``windows(..., noise=spec.obs_noise)``). PSID never gets
-    any."""
+    any.
+
+    ``imputation_mask``: ``(patterns file, tau, sha256)`` when the run was
+    trained with PSID's imputed values treated as missing (RESULTS 50), else
+    empty. Simulated windows scored against it take masks from the same file
+    (``windows(..., mask=spec.mask_patterns())``), and PSID's own masked
+    values are set missing."""
 
     box: PriorBox = BOX
     beta_transform: str = "linear"
     rgamma_transform: str = "linear"
     obs_noise: tuple = ()
+    imputation_mask: tuple = ()
+
+    @property
+    def masked(self) -> bool:
+        return bool(self.imputation_mask)
+
+    def mask_patterns(self):
+        """The mask patterns to draw simulated masks from (None if unmasked)."""
+        if not self.masked:
+            return None
+        path, _tau, sha = self.imputation_mask
+        return load_mask_patterns(path, sha)["mask"]
 
     def __post_init__(self) -> None:
         if self.beta_transform not in BETA_TRANSFORMS:
@@ -387,8 +484,10 @@ class Spec:
         noise = ("; observation noise sigma " + ", ".join(
             f"{f} {lo:g}" + (f"-{hi:g}" if hi != lo else "") for f, lo, hi in self.obs_noise)
             if self.obs_noise else "")
+        mask = (f"; imputed PSID values missing (tau {self.imputation_mask[1]:g})"
+                if self.masked else "")
         return (f"box R_gamma {self.box.rgamma_low}-{self.box.rgamma_high}; beta target "
-                f"{self.beta_transform}; R_gamma target {self.rgamma_transform}{noise}")
+                f"{self.beta_transform}; R_gamma target {self.rgamma_transform}{noise}{mask}")
 
 
 def spec_of(cfg: dict) -> Spec:
@@ -396,7 +495,10 @@ def spec_of(cfg: dict) -> Spec:
     return Spec(box=box_of(cfg), beta_transform=cfg.get("beta_transform", "linear"),
                 rgamma_transform=cfg.get("rgamma_transform", "linear"),
                 obs_noise=tuple((f, *_noise_range(v))
-                                for f, v in cfg.get("obs_noise", {}).items()))
+                                for f, v in cfg.get("obs_noise", {}).items()),
+                imputation_mask=tuple(cfg["imputation_mask"][k] for k in
+                                      ("patterns", "tau", "sha256"))
+                if "imputation_mask" in cfg else ())
 
 
 def _spec(s) -> Spec:
@@ -425,10 +527,16 @@ def train(args) -> None:
         args.shards, args.train_shards)
     noise = tuple((f, *_noise_range([float(v) for v in r.split(":")] if ":" in r else float(r)))
                   for f, r in (e.split("=") for e in args.obs_noise))
+    mask = ()
+    if args.mask_patterns:
+        import hashlib
+        d = load_mask_patterns(args.mask_patterns)
+        mask = (str(args.mask_patterns), float(d["tau"]),
+                hashlib.sha256(Path(args.mask_patterns).read_bytes()).hexdigest())
     spec = Spec(box=box_of(cfg), beta_transform=args.beta_transform,
-                rgamma_transform=args.rgamma_transform, obs_noise=noise)
+                rgamma_transform=args.rgamma_transform, obs_noise=noise, imputation_mask=mask)
     th, x, pid, feats = windows(train_f, theta_all, seed=0, n_waves=args.n_waves,
-                                noise=spec.obs_noise)
+                                noise=spec.obs_noise, mask=spec.mask_patterns())
     drawn = np.unique(pid.numpy())
     train_ids = np.concatenate([f.offset + np.arange(int(np.load(f.path)["lo"]),
                                                      int(np.load(f.path)["hi"]))
@@ -464,6 +572,9 @@ def train(args) -> None:
         extra["rgamma_transform"] = spec.rgamma_transform
     if spec.obs_noise:
         extra["obs_noise"] = {f: [lo, hi] for f, lo, hi in spec.obs_noise}
+    if spec.masked:
+        extra["imputation_mask"] = dict(zip(("patterns", "tau", "sha256"),
+                                            spec.imputation_mask, strict=True))
     (out / "results.json").write_text(json.dumps({"_config": {
         "shards": str(args.shards[0]) if len(args.shards) == 1 else list(map(str, args.shards)),
         "train_shards": args.train_shards,
@@ -605,7 +716,10 @@ def evaluate(args) -> None:
         raise SystemExit(f"{args.sbc_cache} was not simulated for option A")
     th_sbc, x_sbc, _ids = window_panel(cache["panels"], cache["thetas"].numpy(),
                                        k=1, seed=SBC_SEED, **WINDOW)
-    x_sbc, _ = transform(add_obs_noise(x_sbc, spec.obs_noise, seed=NOISE_SEED + SBC_SEED))
+    x_sbc = add_obs_noise(x_sbc, spec.obs_noise, seed=NOISE_SEED + SBC_SEED)
+    if spec.masked:
+        x_sbc = add_imputation_mask(x_sbc, spec.mask_patterns(), seed=MASK_SEED + SBC_SEED)
+    x_sbc, _ = transform(x_sbc, masked=spec.masked)
     th_sbc = th_sbc.numpy().astype(float)
     if args.n_sbc:
         th_sbc, x_sbc = th_sbc[:args.n_sbc], x_sbc[:args.n_sbc]
@@ -614,7 +728,8 @@ def evaluate(args) -> None:
     if box_of(sh_cfg) != spec.box:
         raise SystemExit(f"{args.shards} cover R_gamma {sh_cfg['rgamma_range']}, the "
                          f"ensemble's box {spec.box.rgamma_low}-{spec.box.rgamma_high}")
-    th_ho, x_ho, pid_ho, _f = windows(held_f, theta_all, seed=HELD_SEED, noise=spec.obs_noise)
+    th_ho, x_ho, pid_ho, _f = windows(held_f, theta_all, seed=HELD_SEED, noise=spec.obs_noise,
+                                      mask=spec.mask_patterns())
     pick = one_per_draw(pid_ho, seed=0)[:args.n_heldout]
     th_ho, x_ho = th_ho[pick], x_ho[pick]
     print(f"SBC: {len(th_sbc)} uniform-prior draws; held-out: {len(th_ho)} proposal "
@@ -732,9 +847,17 @@ def psid(args) -> None:
         summary["training_obs_noise"] = {f: [lo, hi] for f, lo, hi in spec.obs_noise}
     if args.debt_scale != 1.0:
         summary["debt_scale"] = args.debt_scale
+    # PSID's own imputed values, missing exactly where the accuracy codes put
+    # them (RESULTS 50), after the consumption correction so it sees no NaN.
+    miss = psid_missing(spec, d["psid_row"].numpy()[keep])
+    if miss is not None:
+        summary["imputation_mask"] = {"tau": spec.imputation_mask[1],
+                                      "share_missing": dict(zip(
+                                          MASKABLE, miss.mean((0, 1)).tolist(), strict=True))}
+        arms = {arm: set_missing(xa, miss) for arm, xa in arms.items()}
     for arm, xa in arms.items():
         torch.manual_seed(0)
-        xt, _ = transform(torch.from_numpy(xa).float())
+        xt, _ = transform(torch.from_numpy(xa).float(), masked=spec.masked)
         r = sample_weighted(members, xt, args.n_draws, fb.low, fb.high,
                             invert=inv, log_weight=lw)
         np.savez(args.out / f"posterior_{arm}.npz", mean=r["mean"], sd=r["sd"],
@@ -864,6 +987,10 @@ def main() -> None:
                    help="Observation noise on the simulated windows, per dollar feature: "
                         "each household's sigma uniform on [LOW, HIGH], or a fixed SIGMA "
                         "(RESULTS 43.7; noise_calibration.py's sigma_range).")
+    t.add_argument("--mask_patterns", type=Path, default=None,
+                   help="PSID couples' imputation masks (psid_accuracy_codes.py --write_mask): "
+                        "simulated windows take them, and the model gets missing-value "
+                        "channels (RESULTS 50).")
     t.add_argument("--out", type=Path, default=OUT)
     e = sub.add_parser("evaluate", help="SBC and held-out scores, ensemble and members.")
     e.add_argument("--run_dirs", type=Path, nargs="+", required=True)

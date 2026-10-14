@@ -7842,3 +7842,92 @@ One household is not evidence by itself. Over the 1,024 households of §48, each
 
     PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --noisy_inputs
     PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py
+
+## 50. Option (a): PSID's imputed values treated as missing — prepared, not launched
+
+**Decision (user, 2026-10-14).** "ok keep the source and method written. let's take option a" (§49.3 (a)).
+
+**First, a correction to §49.** Bootstrapping over couples shows that removing imputed waves lowers illiquid's noise signature by 0.037, with a 90% interval of +0.001 to +0.058. §49 now states that interval. Option (a) is still the principled treatment of values PSID itself marks as filled in. But how much it narrows the posteriors is open.
+
+### 50.1 The masking rule
+
+A couple-wave's consumption, liquid or illiquid value is **missing** if PSID imputed some part of it and the imputed share of its absolute amount is at least τ.
+- For illiquid wealth the amount includes home equity and pensions. Home equity counts as imputed where its lower bound (§49) says so.
+- Income and age have no codes and are never masked.
+
+**When something is imputed, how much of the amount is it?** Consumption: a median of 5% (p25 3%, p75 9%). Liquid: the whole value (median 100%). Illiquid: a median of 28% (p25 8%, p75 75%).
+
+`psid_accuracy_codes.py --tau 0 0.1 0.25` gives the share masked and PSID's signature a on unmasked changes, with 90% bootstrap intervals over couples:
+
+| τ | consumption: masked, a | liquid: masked, a | illiquid: masked, a |
+|---|---|---|---|
+| no mask (§43.9) | 0, 0.046 | 0, 0.0043 | 0, 0.063 (0.023–0.102) |
+| 0 (any imputation) | 0.360, 0.031 (0.006–0.061) | 0.069, 0.0037 | 0.100, 0.028 (−0.008 to 0.070) |
+| 0.10 | 0.085, 0.043 (0.030–0.054) | 0.065, 0.0036 | 0.069, 0.036 (0.007–0.091) |
+| 0.25 | 0.018, 0.045 (0.033–0.057) | 0.063, 0.0036 | 0.052, 0.043 (0.007–0.095) |
+
+- **τ = 0 masks 36% of consumption waves for imputations worth 2.6% of the amount.** Its lower consumption signature comes from dropping 2015, the year of PSID's vehicle-repair programming error. Above τ = 0 the consumption signature is back at its unmasked level.
+- **τ = 0.25 masks only material imputations:** 1.8% of consumption, 6.3% of liquid and 5.2% of illiquid couple-waves. **Recommended.**
+
+### 50.2 Noise recalibrated on unmasked changes
+
+`noise_calibration.py --mask_tau` uses PSID's signature on unmasked changes only. The model side is unchanged.
+
+| σ range, couples' region | consumption | liquid | illiquid |
+|---|---|---|---|
+| A2n (§43.9) | 0–0.15 | 0–0.08 | 0.175–0.455 |
+| τ = 0.25 | 0–0.15 | 0–0.07 | 0.155–0.41 (minimum's 90%: 0.080–0.215) |
+| τ = 0 | 0–0.125 | 0–0.075 | 0.125–0.365 (minimum's 90%: 0–0.185) |
+
+Masking lowers illiquid's noise by about 10% at τ = 0.25, and by 20–30% at τ = 0.
+
+### 50.3 Implementation
+
+**Code.**
+- **`optionA.py`:**
+  - `MASKABLE`, and `add_imputation_mask`: each simulated household takes the whole mask of a PSID couple drawn uniformly, wave for wave, from its own seed stream, independent of θ and of the noise.
+  - `transform(x, masked=True)`: a missing value becomes 0, plus a 0/1 channel per feature. Unmasked runs are exactly as before.
+  - `Spec.imputation_mask` records (file, τ, sha256), and `train --mask_patterns` sets it.
+  - `evaluate` and `psid`: PSID's own values are masked after the consumption correction, by `psid_missing` and `set_missing`.
+- **`psid_accuracy_codes.py`:** `collect`, `imputed_share`, `masks`, `--tau`, `--write_mask`.
+- **`noise_calibration.py`:** `--mask_tau`.
+- **Masks passed through to:** `check_optionA2_heldout.py`, `sbc_optionA2.py` and `plot_optionA2_households.py`. The household figures print a masked value as "missing".
+
+**Assumption.** Imputation is unrelated to θ given what the household reported, because simulated masks are drawn independently of θ. The network can therefore only learn to discount a masked value, never to read it as evidence.
+
+**Tests:** `tests/test_imputation_mask.py` (8). They check that:
+- masks touch only the three features, at PSID's rates, as whole patterns;
+- missing values become 0 with a flag, and everything else is unchanged;
+- an unmasked transform is unchanged;
+- the mask stream leaves the noise alone;
+- Spec round-trips;
+- the rule is monotone in τ.
+
+With the noise, strip and weighting tests, 58 pass.
+
+**Smoke test** (one member, one shard, two epochs, τ = 0.25): training gets nine channels and records the mask file's sha256. The PSID couples are masked at 1.8%, 6.3% and 5.2%, and the held-out check and household figures run.
+
+### 50.4 Run plan, gates stated before running
+
+`scripts/run_optionA2m_model.sh 0.25`, about 3.5 GPU-hours (A2n's five members took 2.9 h). It runs:
+- five members two at a time (A2n's setup plus masks and the recalibrated noise);
+- PSID couples;
+- the held-out check;
+- SBC on A2n's SBC set (figure 57);
+- figures 58–60.
+
+**Gates.**
+- Held-out 90% coverage 0.87–0.93 per parameter, with masks and noise as in training.
+- SBC as in §43.11.
+- Only if both pass: PSID couples are compared with A2n (medians, widths, the floors). The headline changes only after the user reviews them.
+
+**Expected effect: modest.**
+- §43.10's arm with every noise range scaled by 2/3 (illiquid 0.117–0.303) raised β's contraction only from 0.366 to 0.415, and these ranges are about 0.9 of A2n's.
+- Masking also removes some values.
+- The main gain is that the network no longer reads PSID's filled-in values as the household's behaviour.
+
+**Reproduce the preparation.**
+
+    PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py --tau 0 0.1 0.25
+    PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py --write_mask 0.25 --out outputs/psid_accuracy/mask_tau0.25.json
+    PYTHONPATH=. .venv/bin/python scripts/noise_calibration.py --mask_tau 0.25 --out outputs/optionA2m/noise_calibration_tau0.25.json

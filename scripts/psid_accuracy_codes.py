@@ -37,9 +37,17 @@ their difference.
 ``psid_row``), 7 waves 2011-2023. Only shares are printed, never a household's
 values.
 
+**Masks** (``--write_mask TAU``, RESULTS 50): the couples' feature-waves to
+treat as missing, (couples, 7, 3) in ``optionA.MASKABLE`` order, with the
+couples' ``psid_row``, into ``data/processed/psid_mask_couples_tau<TAU>.pt``.
+Training draws simulated masks from these patterns, and ``optionA psid``
+masks the same couples' values.
+
 Usage::
 
     PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py
+    PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py --tau 0 0.1 0.25
+    PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py --write_mask 0.25
 """
 
 from __future__ import annotations
@@ -246,6 +254,8 @@ def main() -> None:
     ap.add_argument("--tau", type=float, nargs="*", default=None,
                     help="Masking thresholds to tabulate (RESULTS 50): share of couple-waves "
                          "masked and the signature on unmasked changes.")
+    ap.add_argument("--write_mask", type=float, default=None, metavar="TAU",
+                    help="Write the couples' masks at this threshold (RESULTS 50).")
     args = ap.parse_args()
 
     rows = torch.load(args.x, weights_only=False)["psid_row"].numpy()
@@ -334,6 +344,20 @@ def main() -> None:
                       f"{signature(z, None)['a'] - s['a']:+.4f} ({bs['diff_90'][0]:+.4f} to "
                       f"{bs['diff_90'][1]:+.4f})  changes kept {s['n1']}")
             res["tau"][str(tau)] = row
+    if args.write_mask is not None:
+        from scripts.optionA import MASKABLE
+        m = masks(c, args.write_mask)
+        mask = np.stack([m[f] for f in ("consumption", "liquid", "illiquid")], -1)
+        assert len(MASKABLE) == mask.shape[-1]
+        path = Path(f"data/processed/psid_mask_couples_tau{args.write_mask:g}.pt")
+        torch.save({"mask": torch.from_numpy(mask), "psid_row": torch.from_numpy(rows).long(),
+                    "tau": args.write_mask, "waves": b.WAVES, "features": list(MASKABLE),
+                    "source": str(args.x)}, path)
+        res["write_mask"] = {"path": str(path), "tau": args.write_mask,
+                             "share_missing": dict(zip(MASKABLE, mask.mean((0, 1)).tolist(),
+                                                       strict=True))}
+        print(f"\nwrote {path}: share missing " + ", ".join(
+            f"{f} {v:.3f}" for f, v in res["write_mask"]["share_missing"].items()))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(res, indent=1))
     print(f"\nwrote {args.out}")

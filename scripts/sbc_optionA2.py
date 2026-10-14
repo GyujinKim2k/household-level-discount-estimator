@@ -158,7 +158,7 @@ def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY) 
     by household (same first shard, seed, windows and noise)."""
     n = len(np.load(files_base[0])["theta"])
     th0, x0, pid0, _ = oa.windows(files_base[:1], theta_base, seed=oa.SBC_SEED,
-                                  noise=spec.obs_noise)
+                                  noise=spec.obs_noise, mask=spec.mask_patterns())
     th0 = th0.numpy().astype(float)
     _, raw0, _ = oa.windows_raw(files_base[:1], theta_base, seed=oa.SBC_SEED)
     r0 = posterior(members, x0, th0, spec, n_draws)
@@ -178,7 +178,7 @@ def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY) 
         if not np.array_equal(theta_s[:n], theta_base[:n]):
             raise SystemExit(f"{shards}: draws differ from the SBC set's")
         th1, x1, pid1, _ = oa.windows(files_s[:1], theta_s, seed=oa.SBC_SEED,
-                                      noise=spec.obs_noise)
+                                      noise=spec.obs_noise, mask=spec.mask_patterns())
         th1 = th1.numpy().astype(float)
         if not (np.array_equal(pid1.numpy(), pid0.numpy()) and np.array_equal(th1, th0)):
             raise SystemExit(f"{shards}: households are not paired with the SBC set's")
@@ -239,7 +239,8 @@ def main() -> None:
     members = Members(args.run_dirs, args.device)
     spec = oa.spec_of(members.cfg)
     theta_all, files, cfg = load_set(args.shards, spec.box)
-    th, x, pid, _f = oa.windows(files, theta_all, seed=oa.SBC_SEED, noise=spec.obs_noise)
+    th, x, pid, _f = oa.windows(files, theta_all, seed=oa.SBC_SEED, noise=spec.obs_noise,
+                                mask=spec.mask_patterns())
     th, pid = th.numpy().astype(float), pid.numpy()
     one = np.zeros(len(pid), bool)
     one[oa.one_per_draw(torch.from_numpy(pid), seed=0)] = True

@@ -153,7 +153,8 @@ def main() -> None:
     if oa.box_of(sh_cfg) != spec.box:
         raise SystemExit(f"{args.shards} cover R_gamma {sh_cfg['rgamma_range']}, not the "
                          f"ensemble's box")
-    th, x, pid, _f = oa.windows(held_f, theta_all, seed=oa.HELD_SEED, noise=spec.obs_noise)
+    th, x, pid, _f = oa.windows(held_f, theta_all, seed=oa.HELD_SEED, noise=spec.obs_noise,
+                                mask=spec.mask_patterns())
     pick = oa.one_per_draw(pid, seed=0)
     th, x, pid = th[pick], x[pick], pid[pick].numpy()
     t = th.numpy().astype(float)
