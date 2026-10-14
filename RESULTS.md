@@ -7931,3 +7931,79 @@ With the noise, strip and weighting tests, 58 pass.
     PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py --tau 0 0.1 0.25
     PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py --write_mask 0.25 --out outputs/psid_accuracy/mask_tau0.25.json
     PYTHONPATH=. .venv/bin/python scripts/noise_calibration.py --mask_tau 0.25 --out outputs/optionA2m/noise_calibration_tau0.25.json
+
+## 51. A2m results: calibrated, but no more precise than A2n, and PSID couples barely move
+
+**Run.** `scripts/run_optionA2m_model.sh 0.25`, launched 14:21 UTC on 2026-10-14.
+- **Training:** the five members finished between 15:11 and 16:53 (56 epochs for seed 1), every rc = 0. The run took 2.6 h, about 3 GPU-hours in all.
+- **First PSID pass failed** (rc = 1). nflows' rational-quadratic spline inverse asserted a negative discriminant in float32, the failure §46 met in `hierarchical_summary`.
+  - **Fix:** `weighted._sample_batch` now redraws a batch that asserts, up to three times. Without an assertion nothing changes, so earlier results reproduce bit for bit. Test: `test_a_batch_whose_spline_inverse_asserts_is_drawn_again`.
+  - **Rerun:** PSID then passed, with one redraw on one batch of 32 couples. The held-out check, which had stopped only at its PSID-floors step, was rerun. SBC and the figures passed in the run itself.
+- **Figure 57's title** said "Option A2n" because it was hardcoded in `sbc_optionA2.py`. It is now named after the run (`title`) and was redrawn from the saved ranks.
+
+### 51.1 Gates
+
+**Held-out** (§43.6's 1,536 draws, weighted by p / q_held, ESS 758; windows carry A2m's noise and masks). A2n in brackets:
+
+| 5-member ensemble | 90% coverage | corr | MAE / prior sd | contraction |
+|---|---|---|---|---|
+| β | 0.912 (0.908) | 0.596 (0.602) | 0.668 | 0.343 (0.363) |
+| δ | 0.906 (0.894) | 0.719 (0.722) | 0.548 | 0.519 (0.538) |
+| ρ | 0.906 (0.905) | 0.763 (0.773) | 0.517 | 0.583 (0.598) |
+| R_gamma | 0.904 (0.896) | 0.710 (0.722) | 0.540 | 0.510 (0.529) |
+
+- **Coverage passes the gate** (0.87–0.93): 0.904–0.912. Single members cover 0.872–0.900.
+- **Every parameter's contraction is 0.015–0.020 lower than A2n's.** The weighted held-out log q is 4.61, against 4.87; the windows differ, so this is a description, not a model comparison.
+
+**SBC** (A2n's SBC set: 1,024 uniform-prior draws, 16 households each, with A2m's noise and masks; figure 57):
+
+| | 90% coverage (90% CI) | KS p, one household per draw |
+|---|---|---|
+| β | 0.904 (0.898–0.910) | 0.706 |
+| δ | 0.900 (0.892–0.907) | 0.493 |
+| ρ | 0.902 (0.894–0.910) | 0.277 |
+| R_gamma | 0.900 (0.864–0.930) | 0.036 (A2n 0.103) |
+
+- **Coverage passes**, and by posterior-mean region it is 0.895–0.954.
+- **R_gamma's KS p of 0.036 is not a failure** after a Bonferroni correction for four parameters (0.0125). Its rank ECDF stays inside the KS band.
+- **The liquidation-penalty checks** behave as in §43.11.
+
+**Both gates pass.**
+
+### 51.2 PSID couples, A2m against A2n
+
+Uncorrected arm; A2n in brackets:
+
+| | couples' median of means | median posterior sd | median 90% width | Laibson's value inside the 90% interval |
+|---|---|---|---|---|
+| β | 0.603 (0.600) | 0.171 (0.164) | 0.546 (0.524) | 94% (93%) |
+| δ | 0.9859 (0.9847) | 0.0119 (0.0115) | 0.0330 (0.0336) | 71% (71%) |
+| ρ | 2.62 (2.72) | 1.00 (0.98) | 3.26 (3.23) | 96% (94%) |
+| R_gamma | 1.0534 (1.0538) | 0.0107 (0.0100) | 0.0344 (0.0326) | 79% (73%) |
+
+- **Per-couple correlation of the means with A2n's:** β 0.93, δ 0.94, ρ 0.90, R_gamma 0.88. That is about the agreement between A2n's own member pairs (§43.10).
+- **The floors are nearly the same.**
+
+  | share of couples | A2m | A2n |
+  |---|---|---|
+  | ρ mean < 1 | 0.007 | 0.007 |
+  | ρ's lower 5% < 0.55 | 0.012 | 0.017 |
+  | R_gamma's lower 5% within 0.0025 of its floor | 0.147 | 0.159 |
+
+- **Corrected arm:** medians β 0.600, δ 0.9769, ρ 2.59 and R_gamma 1.0559.
+- **Figures:** 58 (held-out simulated household), 59 (the typical couple) and 60 (couples' means, A2m against A2n; the two clouds nearly coincide).
+
+### 51.3 Reading
+
+- **Treating PSID's imputed values as missing changes neither the estimates nor their precision in any way that matters.**
+  - Couples' medians move by at most 0.1 in ρ.
+  - Posterior widths are 2–7% wider, as held-out contraction predicted. Masking removes about 5% of values, and the lower illiquid noise (0.155–0.41 against 0.175–0.455) does not make up for it.
+- **So A2n's conclusions are robust to how PSID's imputations are handled.**
+- **What option (a) was meant to answer, it answers: A2n's width is not an artefact of PSID's imputations.** It comes from reporting noise, which the masks cannot remove.
+- **A2n stays the headline.** A2m is the imputation-robustness check, unless the user prefers A2m's principled treatment of the imputed values at a 2–7% cost in width.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py --write_mask 0.25 --out outputs/psid_accuracy/mask_tau0.25.json
+    PYTHONPATH=. .venv/bin/python scripts/noise_calibration.py --mask_tau 0.25 --out outputs/optionA2m/noise_calibration_tau0.25.json
+    ./scripts/run_optionA2m_model.sh 0.25

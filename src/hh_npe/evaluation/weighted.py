@@ -117,6 +117,26 @@ def sample_weighted(
     return out
 
 
+def _sample_batch(members, xb, per: int, retries: int = 3) -> torch.Tensor:
+    """``per`` draws from every member for the rows ``xb``, ``(S, B, d)``.
+
+    nflows' rational-quadratic spline inverse occasionally asserts a negative
+    discriminant in float32 (RESULTS 46, 50). The batch is then drawn again
+    from where the random stream stands, up to ``retries`` times. Without an
+    assertion nothing changes, so earlier results are reproduced bit for bit.
+    """
+    for attempt in range(retries + 1):
+        try:
+            return torch.cat([m.posterior_estimator.sample((per,), condition=xb)
+                              for m in members], dim=0)
+        except AssertionError:
+            if attempt == retries:
+                raise
+            print(f"spline inverse asserted on a batch of {len(xb)} rows; drawing it again "
+                  f"({attempt + 1}/{retries})", flush=True)
+    raise AssertionError("unreachable")
+
+
 def _kept_rows(members, x, n_draws, low, high, batch, max_per_call):
     """The sampling loop of :func:`sample_weighted` and :func:`sample_draws`:
     per batch of rows, ``(first row, in-box fraction per row, [each row's
@@ -129,8 +149,7 @@ def _kept_rows(members, x, n_draws, low, high, batch, max_per_call):
     with torch.no_grad():
         for b0 in range(0, len(x), batch):
             xb = x[b0:b0 + batch].to(dev)
-            s = torch.cat([m.posterior_estimator.sample((per,), condition=xb)
-                           for m in members], dim=0)              # (S, B, d)
+            s = _sample_batch(members, xb, per)                  # (S, B, d)
             inb = ((s >= lo_b) & (s <= hi_b)).all(-1)
             frac = inb.float().mean(0).cpu().numpy()
             s, inb = s.cpu().numpy(), inb.cpu().numpy()

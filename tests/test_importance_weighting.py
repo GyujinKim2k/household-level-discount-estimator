@@ -223,3 +223,30 @@ def test_one_per_draw_takes_one_random_row_per_draw():
     rows = one_per_draw(pid, seed=0)
     assert len(rows) == 50 and len(np.unique(pid.numpy()[rows])) == 50
     assert len(np.unique(rows % 16)) > 5          # not always the first household
+
+
+def test_a_batch_whose_spline_inverse_asserts_is_drawn_again():
+    """nflows' spline inverse can assert in float32 (RESULTS 50): the batch is
+    redrawn, and an estimator that never asserts gives the same draws as before."""
+    class _Flaky(_ExactUnderProposal._Est):
+        def __init__(self, rng, fail):
+            super().__init__(rng)
+            self.fail = fail
+
+        def sample(self, shape, condition):
+            if self.fail:
+                self.fail -= 1
+                raise AssertionError
+            return super().sample(shape, condition)
+
+    x = torch.tensor([[0.3], [0.6]])
+    m = _ExactUnderProposal(0)
+    m.posterior_estimator = _Flaky(np.random.default_rng(0), fail=2)
+    r = sample_weighted([m], x, 2000, [0.0], [1.0])
+    assert np.isfinite(r["mean"]).all()
+    m.posterior_estimator = _Flaky(np.random.default_rng(0), fail=4)
+    with pytest.raises(AssertionError):
+        sample_weighted([m], x, 2000, [0.0], [1.0])
+    a = sample_weighted([_ExactUnderProposal(5)], x, 2000, [0.0], [1.0])
+    b = sample_weighted([_ExactUnderProposal(5)], x, 2000, [0.0], [1.0])
+    assert all(np.array_equal(a[k], b[k]) for k in ("mean", "sd", "lo", "hi"))

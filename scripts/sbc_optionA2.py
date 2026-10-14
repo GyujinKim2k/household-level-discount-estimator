@@ -125,6 +125,15 @@ def show(s: dict, title: str) -> None:
                   f"  {f(r['coverage_90'])}  {f(r['above_95'])}  {f(r['below_5'])}")
 
 
+def title(run_dirs, spec) -> str:
+    """The SBC figure's title, named after the ensemble's run directory."""
+    name = Path(run_dirs[0]).parent.name.replace("option", "Option ")
+    what = "the training observation noise" + (
+        f" and PSID's imputation masks (tau {spec.imputation_mask[1]:g})" if spec.masked else "")
+    return (f"{name}: SBC rank calibration on 1,024 uniform-prior draws, 16 households each, "
+            f"with {what}; R_gamma ranks are shared within blocks of 16 draws")
+
+
 def figure(u: np.ndarray, one: np.ndarray, path: Path, title: str) -> None:
     """ECDF of the ranks minus the uniform, per parameter, one household per
     draw; the band is the KS 95% band for its n."""
@@ -258,10 +267,7 @@ def main() -> None:
     sets = {float(k): Path(v) for k, v in (a.split("=", 1) for a in args.penalty)}
     res["penalty"] = penalty_check(members, spec, theta_all, files, args.n_draws, sets)
     (args.out / "sbc16.json").write_text(json.dumps(res, indent=2))
-    figure(r["u"], one & np.isfinite(r["u"]).all(1), args.figure,
-           "Option A2n: SBC rank calibration on 1,024 uniform-prior draws, 16 households "
-           "each, with the training observation noise; R_gamma ranks are shared within "
-           "blocks of 16 draws")
+    figure(r["u"], one & np.isfinite(r["u"]).all(1), args.figure, title(args.run_dirs, spec))
     print(f"\nwrote {args.out}/ and {args.figure}")
 
 
