@@ -130,7 +130,7 @@ def title(run_dirs, spec) -> str:
     name = Path(run_dirs[0]).parent.name.replace("option", "Option ")
     what = "the training observation noise" + (
         f" and PSID's imputation masks (tau {spec.imputation_mask[1]:g})" if spec.masked else "")
-    return (f"{name}: SBC rank calibration on 1,024 uniform-prior draws, 16 households each, "
+    return (f"{name}: SBC rank calibration on 1,024 uniform-prior draws, 16 households each,\n"
             f"with {what}; R_gamma ranks are shared within blocks of 16 draws")
 
 
