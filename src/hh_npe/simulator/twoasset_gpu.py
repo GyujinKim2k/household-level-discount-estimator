@@ -87,6 +87,15 @@ def _plan_batching(nX: int, nZ: int, theta_batch: int, chunk: int,
     return theta_batch, chunk
 
 
+def _margin(payoff, best, u_flat, ev_scaled_abs) -> np.ndarray:
+    """Best minus second-best payoff, over the payoff's scale at the best
+    choice (``solve_batch(margins=...)``, audit only). float32 on the CPU."""
+    top = payoff.topk(2, dim=-1).values
+    scale = (u_flat.gather(-1, best[..., None]).abs()
+             + ev_scaled_abs.expand_as(payoff).gather(-1, best[..., None])).squeeze(-1)
+    return ((top[..., 0] - top[..., 1]) / scale.clamp_min(1e-300)).float().cpu().numpy()
+
+
 #: Below this, ``(x**(1-rho) - 1) / (1-rho)`` is replaced by its limit,
 #: ``log x``. The CPU path (``twoasset._crra``) has always had this branch; the
 #: GPU path did not, so ``solve_batch`` at rho == 1 -- log utility, the
@@ -128,12 +137,22 @@ def solve_batch(
     theta_batch: int = 32,
     chunk: int = 48,
     progress: bool = False,
+    margins: dict | None = None,
 ) -> list[Solution]:
     """Backward-induct the two-asset model for many ``(beta, delta, rho)`` draws.
 
     Returns one :class:`~hh_npe.simulator.twoasset.Solution` per row of
     ``thetas``, with policy arrays on the CPU so the existing forward
     simulation and wave aggregation work unchanged.
+
+    ``margins`` (an empty dict, audit only, RESULTS 54) is filled with float32
+    arrays ``(T, n_draws, nX, nZ, nS)``: ``"beh"``, the gap between the best
+    and second-best payoff of the acting self's choice, and ``"val"``, the same
+    for the believed self's choice that sets the value (naive draws only;
+    ``"beh"`` otherwise), each divided by the payoff's scale ``|u| + beta delta
+    |EV|`` at the choice. A gap near 1e-16 is a choice float64 cannot resolve
+    (RESULTS 40); exactly 0 is a tie. None, the default, computes nothing
+    extra, and the solve is unchanged.
     """
     thetas = np.asarray(thetas, dtype=np.float64)
     if thetas.ndim != 2 or thetas.shape[1] != 3:
@@ -208,6 +227,9 @@ def solve_batch(
     theta_batch, chunk = _plan_batching(nX, nZ, theta_batch, chunk, device)
     n_total = thetas.shape[0]
     out: list[Solution] = []
+    if margins is not None:
+        for k in ("beh", "val"):
+            margins[k] = np.empty((T, n_total, nX, nZ, nS), dtype=np.float32)
 
     for b0 in range(0, n_total, theta_batch):
         b1 = min(b0 + theta_batch, n_total)
@@ -303,6 +325,11 @@ def solve_batch(
                     evs = ev_c[:, :, s].view(B, 1, 1, nX * nZ)
                     payoff = u_flat + bd * evs
                     best = _first_argmax(payoff, ar_choice)
+                    if margins is not None:
+                        evabs = (evs + ev_ref[:, :, s].view(B, 1, 1, 1)).abs()
+                        rel = _margin(payoff, best, u_flat, bd * evabs)
+                        margins["beh"][t, b0:b1, lo:hi, :, s] = rel
+                        margins["val"][t, b0:b1, lo:hi, :, s] = rel
                     ok = payoff.gather(-1, best[..., None]).squeeze(-1) > NEG / 2
                     jx, jz = best // nZ, best % nZ
 
@@ -320,6 +347,10 @@ def solve_batch(
                         # payoff_hat = payoff + (betahat - beta) * delta * EV
                         payoff.add_((bhat_d - bd) * evs)
                         best_h = _first_argmax(payoff, ar_choice)
+                        if margins is not None:
+                            rel_h = _margin(payoff, best_h, u_flat, bhat_d * evabs)
+                            nv = naive.cpu().numpy()
+                            margins["val"][t, b0:b1, lo:hi, :, s][nv] = rel_h[nv]
                         max_h = payoff.gather(-1, best_h[..., None]).squeeze(-1)
                         ev_at = ev_true.expand(B, hi - lo, nZ, -1).gather(
                             -1, best_h[..., None]).squeeze(-1)

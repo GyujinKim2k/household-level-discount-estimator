@@ -409,8 +409,11 @@ final year**, not summed over it (`waves.flow_agg = "last"`).
 
 - **Flows** (`income`, `consumption`) — the value in the **final year** of the
   window. Identical to the old behaviour at `wave_years = 1`.
-- **Stocks** (`liquid_assets`, `illiquid_assets`, `age`) — value at the **end
-  of the final year** of the window.
+- **Stocks** (`liquid_assets`, `illiquid_assets`, `age`) — read at the
+  **final year** of the window, where the simulator's `liquid_assets` and
+  `illiquid_assets` are the position at the **start** of that year, before its
+  income arrives (Laibson et al.'s `simL`, `simZ`). *Corrected 2026-10-15
+  (RESULTS 54); this line used to say "end of the final year".*
 
 **Why it changed.** A PSID biennial interview reports income for the single
 preceding calendar year: the 2011 wave carries `TOTAL FAMILY INCOME-2010`, the
@@ -430,10 +433,14 @@ for Phase 1–2 artifacts.
 
 **Known residual.** PSID's stock and flow dates differ by about a year — the
 interview records wealth at the interview date but income for the prior
-calendar year — whereas this rule reads both from the same simulated year. A
-one-year offset within a two-year wave is second-order next to the factor-of-two
-it replaces, and correcting it would require the simulator to model an interview
-date it does not have. PSID's expenditure components are themselves split across
+calendar year — whereas this rule reads both from the same simulated year. The
+simulated stocks are start-of-year positions, i.e. already the interview's
+date, so it is the simulated **flows** that sit a year later than PSID's. It
+would be corrected by reading income and consumption one year earlier than the
+stocks, from the stored panel, with no regeneration. RESULTS 54 measures what
+the offset changes: levels and volatilities hardly at all, but the correlation
+of liquid wealth over income with the next wave's income change goes from
+-0.05 (as generated) to -0.18 (PSID's timing). PSID's expenditure components are themselves split across
 two reference years within one wave (food from the interview year, education and
 clothing from the year before), so no single choice makes the empirical series
 internally coherent in time.
