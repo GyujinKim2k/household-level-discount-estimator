@@ -1292,6 +1292,33 @@ def cmd_fullgrid_l(args) -> None:
         print(f"{k:28s}", " ".join(f"{x:7.3f}" for x in v))
 
 
+def cmd_h7_levels(args) -> None:
+    """H7: income levels exp(log(k * $1,000)) off the lattice, how often the
+    expectation step's cash snap differs from the realised (rounded) one, and
+    on which levels numpy and Octave land on different sides of the lattice."""
+    from hh_npe.simulator import grids
+
+    lat = np.arange(1, 441) * 1000.0
+    y = np.exp(np.log(lat))
+    side = np.sign(y - lat)
+    X, _ = grids.liquid_grid(grids.ages())
+    Xp = X[X >= 0]
+    diff = tot = 0
+    for yl, yf in zip(lat[:150], y[:150], strict=True):        # incomes up to $150k
+        snap = twoasset._nearest_index
+        diff += int((snap(X, Xp + yl) != snap(X, Xp + yf)).sum())
+        tot += len(Xp)
+    res = {"levels": len(lat),
+           "numpy below / exact / above": [int((side == v).sum()) for v in (-1, 0, 1)],
+           "cash queries (X >= 0, income <= $150k) snapping differently": diff / tot}
+    f = OUT / "octave/explog_levels.txt"
+    if f.exists():
+        oct_side = np.sign(np.loadtxt(f)[:440] - lat)
+        res["levels where numpy and Octave differ in side"] = int((oct_side != side).sum())
+    (OUT / "h7_levels.json").write_text(json.dumps(res, indent=1))
+    print(json.dumps(res, indent=1))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1304,6 +1331,7 @@ def main() -> None:
     sub.add_parser("statics")
     sub.add_parser("timing")
     sub.add_parser("plot_statics")
+    sub.add_parser("h7_levels")
     fr = sub.add_parser("fullgrid_ref")
     fr.add_argument("--matlab", action="store_true")
     fr.add_argument("--octave_levels", action="store_true",
@@ -1326,7 +1354,8 @@ def main() -> None:
      "plot_statics": cmd_plot_statics, "fullgrid_ref": cmd_fullgrid_ref,
      "fullgrid_compare": cmd_fullgrid_compare, "pool_scale": cmd_pool_scale,
      "h8_impact": cmd_h8_impact, "h8_design": cmd_h8_design,
-     "attribute": cmd_attribute, "fullgrid_l": cmd_fullgrid_l}[args.cmd](args)
+     "attribute": cmd_attribute, "fullgrid_l": cmd_fullgrid_l,
+     "h7_levels": cmd_h7_levels}[args.cmd](args)
 
 
 if __name__ == "__main__":

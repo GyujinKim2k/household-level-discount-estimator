@@ -8179,3 +8179,152 @@ Uncorrected arm, two members each:
     ./scripts/run_optionA2n_noise_off.sh consumption
     PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --noise_off consumption=outputs/optionA2n_sens/consoff
     PYTHONPATH=. .venv/bin/python scripts/optionA2n_noise_sensitivity.py
+
+## 54. Simulation audit: three ways, against Laibson et al.'s own code
+
+**Question (user, 2026-10-15).** "So, the result of the previous headline is made by abnormal simulation. therefore, the A2w step was inevitable. to make the process robust, I want to double check that there aren't any error left on the simulation. check all simulation code and read generated data file whether there is some perculiar behavior." Then: "on every step, compare with the original Laibson's code. do not believe everything on the original code. do the double check just like making new simulation code from Laibson's simulation with python".
+
+**Design.** Every check compares up to three solvers.
+- **L, their code, run.** Laibson et al.'s `LifecycleSim.m`, `_BackwardInduct.m` and `_ForwardIter.m`, unmodified, under GNU Octave 8.4 (`scripts/laibson_octave/run_lifecycle.m`, set up as `EDFbatch_baseline.m` does). Octave has no `griddedInterpolant`, so a shim (`scripts/laibson_octave/shim/`) supplies the one form they use: nearest neighbour, nearest extrapolation, midpoints to the higher index (asserted at start-up). MATLAB's own midpoint rule cannot be checked here; it is the one the port assumes.
+- **R, a new reference.** `src/hh_npe/simulator/reference.py`, written from the model's equations and sharing no code with the port: one loop per state, float64, its own grids, the first stage read straight from the package's `.mat` and CSV files. Options the port lacks: utility centred or not, MATLAB's tie order or the port's, income rounded in the expectation step or not. Its tests (`tests/test_reference_model.py`) check it by other routes: MATLAB's budget assertion on every policy, the naive value algebra, and a Monte Carlo of the lifetime payoff against the value function.
+- **P, our port.** `twoasset.solve` (CPU) and `twoasset_gpu.solve_batch` (the production solver).
+
+All checks are subcommands of `scripts/audit_simulation.py`; outputs in `outputs/audit/`.
+
+### 54.1 R against the frozen inputs
+
+R's first stage, read from the package, equals `laibson_calibration.py` exactly (difference 0.0), mortality included. Its age-specific X grids, Z grid, credit limits, mean income, household size and transitory discretisation equal `grids.py` on the coarse, mid and full grids; Tauchen's matrix to 1.1e-16.
+
+### 54.2 The three solvers, solution by solution
+
+**Coarse grid** (their 50/10 cells per step are hard-coded, so L runs at xjump $6,000, zjump $24,000: 72 × 49 points), 10 θ, 2,000 households on L's own uniforms (`three_way`, `attribute`):
+
+| θ (β, δ, ρ; R_gamma; card) | L = R (MATLAB arithmetic) | uncentred: choices at float resolution | centred R vs production, x' same | production vs L: window paths differ (ages 25–59) |
+|---|---|---|---|---|
+| Laibson (0.5305, 0.9891, 1.9355; 1.05) | 100% of states; V to 3e-15 | — | 99.88% | 1.3% |
+| (0.3, 0.95, 2) | 100%; 3e-15 | — | 99.64% | 8.4% |
+| (1, 0.99, 1) log | 100%; 1e-14 | — | 99.91% | 0 |
+| (0.6, 0.97, 0.5) | 100%; 4e-15 | — | 99.80% | 0 |
+| (0.8, 0.98, 3.5) | V to 4e-15 but only **91.5%** of x' | 8.5% of states | 99.92% | 17% |
+| (0.8, 0.98, 4.6) | **degenerate**: 13.6% of x' | most states | 99.93% | 100% |
+| (0.7, 0.999, 2) | 100% | — | 99.95% | 0 |
+| (0.7, 0.85, 2; 1.075) | 100% | — | 99.14% | 12.7% |
+| (0.7, 0.97, 2; 1.021; no card) | 100% | — | 100% | 0 |
+| (0.5, 0.99, 5; no card) | **degenerate**: 90.2% of x' | most states | 100% | 100% |
+
+- **R reproduces their code exactly** wherever their arithmetic is well posed. R's forward pass on L's policies and uniforms reproduces L's income, cash, illiquid and consumption panels exactly.
+- **RESULTS 40's bug is in Laibson et al.'s own code.** Uncentred, at ρ = 3.5, 8.5% of choices are already decided at float resolution: L and R agree on values to 4e-15 but not on those choices. At ρ = 4.6 and 5 the uncentred solvers each produce a different degenerate economy:
+
+| ρ = 4.6, (0.8, 0.98) | illiquid / mean income | share in debt | sd Δlog c |
+|---|---|---|---|
+| L (their code) | 0.00 | 0.63 | 0.53 |
+| R uncentred | 0.00 | 0.69 | 0.50 |
+| P uncentred (the pre-fix port) | 0.42 | 0.68 | 0.54 |
+| R centred | 2.49 | 0.21 | 0.154 |
+| **production (centred)** | **2.49** | **0.21** | **0.154** |
+
+  No-card at ρ = 5: uncentred, households are hand-to-mouth with no wealth of either kind; centred (R = production), illiquid 2.04 × mean income. Their published ρ of 1.94 is below the failure; any search above ρ ≈ 3.5 with their code is not.
+- **Two places where the port departs from their code:**
+  - *Tie order.* MATLAB's `max` then `max` takes the lowest z' among exact ties, then the lowest x'; the port's flat argmax the lowest x' (most borrowing) first. 0.013% of states on this grid, no window path.
+  - *u(0).* For ρ ≥ 1 MATLAB's utility of zero consumption is −∞, so any plan with a positive probability of a year forced to zero consumption is −∞. The port clamps consumption at 1e-9 and gives impossible choices −1e30, a large but finite penalty. MATLAB's best payoff is −∞ at 0.06% of states and never at a visited one, so its choices are not arbitrary there: it avoids such plans, while the port tolerates risks below roughly 1e-9. All of the "production vs L" column at θ below 3.5 is this. Paths part late: median age 66–70 over the lifecycle. Within the window (ages 25–59) it touches 1.3% of households at their θ and 8–13% at the impatient, present-biased corners, all indebted cardholders. The mean feature change is 0.1–0.7% of a between-household sd.
+
+**Full grid**, the one every dataset uses, at Laibson et al.'s θ (`fullgrid_l`; L took 3,580 s; 10,000 households on L's uniforms):
+
+| | x' same | z' same | household paths differ: ever / ages 25–59 |
+|---|---|---|---|
+| R (centred, port's tie order) vs production | 99.97% | 99.98% | **0 / 0** |
+| L vs production | 98.9% | 99.93% | 36.8% / 29.0% |
+| L vs R with MATLAB's arithmetic and tie order (uncentred, z' first) | 98.96% | 99.95% | 36.8% / 29.0% |
+| R: uncentred vs centred, either tie order | ≥ 99.998% | ≥ 99.998% | 0 / 0 |
+| **L vs R with MATLAB's arithmetic and Octave's own income levels** | **99.9999%** | **100%** | **0 / 0** |
+
+- **The whole full-grid gap between their code and ours is H7 (§54.6) acting through the maths library.** Income levels are `exp(log(k · $1,000))`. numpy and Octave put 7 of the 440 levels on different sides of the lattice. At every grid midpoint one of those incomes reaches, the expectation step snaps differently. That changes about 1% of liquid choices and 29% of household paths in the window. Given Octave's own levels (`fullgrid_ref --octave_levels`), R reproduces L exactly. MATLAB's own library would give yet another pattern, so their published simulations depend on it too.
+- **Tie order and centring change nothing on the full grid at their θ:** every R variant has the same paths as production.
+- **Their 16 moments.** MATLAB as shipped, with their own random numbers, gives q = 77.2. L under Octave gives 83.7, as does R with Octave's levels. R with numpy's levels and production give 84.3. Moment by moment they agree within simulation noise (e.g. wealth given debt, ages 41–50: 2.639 / 2.608 / 2.588, standard error 0.227).
+
+### 54.3 The production solver's numerics
+
+- **The stored data are what the current code produces.** One block of 16 draws from each of the main run's pilot (shard 0) and switched part (shard 40), the strip and the SBC set, re-solved on this V100 with the recorded configuration: panels **bit-identical**, through the generation path and through `solve_batch(margins=...)` alike (`reproduce`).
+- **No decision is made at float resolution** (`margins`). For 60 corner θ — ρ 0.5–5, β 0.3–1, δ up to 0.99999 (bequest weight 5e4), both card types, R_gamma 1.021–1.075 — the gap between the best and second-best payoff, over the payoff's scale, at every state households visit at ages 20–60: none below 1e-12, no exact ties, 1st percentile at least 2e-7 (nine orders above float64's resolution). The pre-fix solver's failure mode is absent everywhere in the box.
+- **Batch invariance.** Each of the 60 θ solved alone and in its batch of 12: 100% of visited choices identical, panels identical.
+- **CPU parity** (`parity`). At the six θ of `refine`, on the full grid, the production GPU solver and the CPU reference choose identically at **100% of solvable states**. Consumption differs by at most 6e-11 dollars of float rounding. The forward pass reads only the policy indices and income, so the household paths are identical too.
+
+### 54.4 The stored data
+
+All five A2 datasets (main 32,768 draws, strip 3,072, SBC 1,024 and its two penalty variants; 43.0M household-years):
+- **Integrity** (`integrity`): every stored θ equals its proposal's regeneration, card type and R_gamma their per-block draws, `init_wealth` and `init_state` their seed-pool draws; `x` equals the aggregated panel; nothing non-finite; shards contiguous.
+- **Invariants** (`invariants`): income always positive and on the $1,000 lattice; cash always on its grid, illiquid on its; cash = liquid + income everywhere; no cardholder at the credit floor.
+- **The budget identity holds exactly.** MATLAB's own assertion, with next year's x' recovered from consecutive years and each set's penalty scale: 0 failures in 42.4M transitions, recovered x' within 1.2e-10 dollars of a grid point.
+- **Zero consumption: 2 household-years**, both at age 90 with nothing: the last period's no-Ponzi rule forces it. Outside every window.
+- **Phantom debt.** Cash is snapped to the nearest grid point; above $50k the grid is coarser than the income lattice, so cash can snap *below* the household's own choice. 3,000 no-card household-years (0.014%) show a small negative liquid balance they cannot hold, and 254 cardholder-years sit just below their limit. Inherited (their `simL` has it), and negligible.
+- **Caps**: cash at the $400k top in 0.068% of household-years, illiquid at the $3.5M top in 0.093%. None at ages 35–44 at any δ, even δ ≥ 0.999 (`statics`).
+
+### 54.5 Behaviour across θ
+
+Figure 65 (`plot_statics`): each statistic the network reads against each parameter, on the 81,920 households of uniform draws.
+- Every direction economics fixes holds: wealth rises with δ, β and R_gamma; debt falls with β and δ (Spearman over bins +0.83 to +0.98, −1.00, −0.95).
+- No cliff anywhere. Consumption volatility falls smoothly with ρ; illiquid wealth rises with ρ at the top of the box (the fixed solver, §41.5), where the pre-fix solver collapsed it.
+
+### 54.6 Inherited flaws and design choices, measured
+
+**H7: unrounded income in the expectation step (inherited; affects all data).** Income levels are `exp(log(k·xjump))`, which misses the lattice by an ulp, below it for 216 of the 440 levels (`h7_levels`). The forward pass rounds them (`simY__ = round(simY__)`); the backward induction does not. Wherever cash plus income lands exactly midway between two grid points — common above $50k, where the grid is coarser than the lattice — the expectation then rounds down while the realised path rounds up: 9.5% of cash queries at incomes up to $150k. Full grid, R with and without rounding (production = R exactly):
+
+| | illiquid / mean income | liquid / mean income | share in debt | sd Δlog c |
+|---|---|---|---|---|
+| Laibson θ, as generated | 2.016 | −0.069 | 0.563 | 0.211 |
+| Laibson θ, rounded | 1.973 | −0.036 | 0.538 | 0.210 |
+| PSID couples' region (0.6, 0.98, 2.7), as generated | 1.449 | −0.036 | 0.525 | 0.211 |
+| same, rounded | 1.392 | −0.017 | 0.503 | 0.210 |
+
+Two thirds of liquid choices stay the same, but almost every path changes. Households borrow a little more than the consistent model says (+2.2–2.5 points of debt share, about twice the average debt) and hold 2–4% more illiquid wealth. Consumption volatility does not move. Fixing it means regenerating.
+
+**Grid adequacy (H4, H6; `refine`).** Six θ at the full grid, each axis at twice its resolution, and the caps doubled:
+- the caps bind nowhere except 0.01% of household-years at (0.35, 0.9995, 4.8; 1.075), and doubling them removes it;
+- consumption volatility moves by about 1% and wealth ratios by about 2%;
+- **The share in debt depends on the grid.** With X at twice the resolution it rises by 4–8 points, but mostly through tiny debts the $1,000 grid cannot hold.
+  - Counting only debt above 2% of mean income, the share moves +1.2 points in PSID couples' region (0.506 → 0.518), and −4 to −5 points (Z ×2) or +2 to +3 points (X ×2) at the other cardholder θ. Debtors' mean debt moves by about 10%.
+
+**H1: stocks and flows are a year apart from PSID's (`timing`).** A PSID wave reports wealth and age at the interview but income for the year before. The simulator reads both in one year, and its stocks are start-of-year positions — already the interview's date — so its flows are a year late. On 24,816 households in PSID couples' region, re-reading flows a year earlier leaves levels and volatilities nearly unchanged but moves one dynamic relation: the correlation of liquid wealth over income with the next wave's income change is −0.05 as generated and −0.18 under PSID's timing (wealth then already holds the year's saving out of a transitory shock that reverses). SIMULATOR_SPEC §6.2 described the stocks as end-of-year; corrected. Fixable by re-windowing from the stored panels and retraining, with no regeneration.
+
+**H2: seed-pool scale (`pool_scale`).** The pool stores wealth over mean income at the person's own age (20–24); the forward pass multiplies by age-20 mean income, so a person seen at 24 starts with 0.80 of their wealth. Started correctly, 47% of paths differ at 20 and 6–13% at 59, but window statistics barely move: illiquid wealth +0.7% to +8% in level, debt share ±0.001, consumption volatility −0.001.
+
+**H8: β and R_gamma are not independent in the generated design (`h8_design`, `h8_impact`).** R_gamma is a 1-D Sobol value per block of 16 draws. The likely mechanism (not proved): within a block, the mixture's concentrated rows put β on [0.4, 1], where its Sobol strata do not line up with cells, and their offsets within the strata are set by the same bits of the block index as R_gamma. Permuting R_gamma across blocks, 400 times, never reproduces the observed imbalance (largest 4×4 cell deviation 0.0081 against at most 0.0022; p < 0.0025). On an 8 × 8 grid the switched part's weighted density over the assumed one runs 0.74–1.22; the uniform pilot is exactly 1. Reweighting PSID couples' A2n draws by its inverse moves posterior means by a median 0.002–0.005 posterior sd (90th percentile ≤ 0.013), medians not at all.
+
+**Seeds and streams.** Main run draw j uses seed j + 1 (1–32,768), the strip 100,001–103,072, the SBC set 40,000,001 onward; the pool's own stream is separate. No overlap.
+
+### 54.7 Verdict
+
+| item | inherited from their code? | effect on what the network reads | fix | cost |
+|---|---|---|---|---|
+| RESULTS 40 float-resolution bug | yes, already at ρ = 3.5 in their code | removed: production = independent centred reference; no visited decision below 1e-12 | done (§41) | — |
+| H7 unrounded income in the expectation step | yes | debt share +2–2.5 points, average debt ~2×, illiquid +2–4%; results depend on the maths library (29% of window paths, L vs P) | round income in the backward induction | regeneration |
+| grid resolution of the debt margin | yes (their grid) | material debt share +1 point in PSID couples' region, ±3–5 elsewhere; debtors' debt ±10% | finer X/Z grid | regeneration, about 3–4× cost |
+| H1 flow timing vs PSID | no (our windowing) | levels unchanged; corr(liquid/income, next Δlog y) −0.05 vs −0.18 | read flows a year earlier | retraining only |
+| u(0) finite in the port | no (port) | ≤ 0.7% of an sd; window paths of 1–13% of indebted cardholders | −∞ as MATLAB | regeneration |
+| tie order | no (port) | none below ρ = 3.5 | MATLAB's order | regeneration |
+| H2 seed-pool scale | no (our seed pool) | illiquid +1–8% at 35–44; other statistics < 1% | scale by own-age income | regeneration |
+| H8 β × R_gamma design | no (our generation) | posteriors ≤ 0.013 sd | permute R_gamma across blocks | next generation |
+| phantom debt, caps | yes | ≤ 0.1% of household-years | — | — |
+
+**Reading.**
+- **No error of RESULTS 40's kind is left.**
+  - L, R and P implement the same model: given the same arithmetic, they produce the same households.
+  - The production solver decides every choice households make with nine orders of magnitude to spare, its data are what it produces, and those data obey the model's rules exactly.
+- **The largest thing found is inherited: H7.** The expectation step does not round income the way the forward pass does. That biases simulated borrowing up by about 2.5 points, and it makes the simulation depend on the last bit of a library function. Its fix is one line, but every dataset would have to be regenerated.
+- **Smaller:**
+  - the grid's resolution of the debt margin;
+  - our window's flow timing against PSID's (H1; retraining only);
+  - our seed pool's scale (H2);
+  - the port's finite u(0);
+  - our generation design (H8).
+
+  None moves what the network reads by more than a few percent of a between-household sd, except H1's one dynamic relation.
+- **The user decides** whether to regenerate for H7 (and with it the grid, H2 and u(0)), and whether to retrain for H1.
+
+**Reproduce.** (all `PYTHONPATH=.:src .venv/bin/python scripts/audit_simulation.py ...`)
+
+    integrity; invariants; statics; plot_statics; timing; h8_design; h7_levels
+    three_way --octave outputs/audit/octave/<name>.mat; attribute --octave ...
+    reproduce; margins; parity; refine --n 4000; pool_scale; h8_impact
+    fullgrid_ref; fullgrid_ref --matlab; fullgrid_ref --octave_levels; fullgrid_compare; fullgrid_l
+    octave --no-gui --eval "run_lifecycle('cfg.json')"   # in scripts/laibson_octave
