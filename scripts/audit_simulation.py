@@ -127,10 +127,15 @@ def panel_stats(p: dict, model: ref.Model) -> dict:
     c, y = p["consumption"], p["income"]
     w = np.arange(11, 25, 2)                       # ages 31..43, biennial
     dlc = np.diff(np.log(c[:, w]), axis=1)
+    liq = p["liquid"][:, a] / my
     return {
         "illiquid/mean income": float(np.median(p["illiquid"][:, a] / my)),
-        "liquid/mean income": float(np.median(p["liquid"][:, a] / my)),
-        "share in debt": float((p["liquid"][:, a] < 0).mean()),
+        "liquid/mean income": float(np.median(liq)),
+        "share in debt": float((liq < 0).mean()),
+        # The median sits near zero, so it moves far more than debt does.
+        "share in debt > 2% of mean income": float((liq < -0.02).mean()),
+        "mean debt / mean income, all": float(np.where(liq < 0, -liq, 0.0).mean()),
+        "mean debt / mean income, debtors": float(-liq[liq < 0].mean()),
         "consumption/income": float(np.median(c[:, a] / y[:, a])),
         "sd dlog c (2y)": float(np.std(dlc)),
     }

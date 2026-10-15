@@ -8269,14 +8269,14 @@ Figure 65 (`plot_statics`): each statistic the network reads against each parame
 
 **H7: unrounded income in the expectation step (inherited; affects all data).** Income levels are `exp(log(k·xjump))`, which misses the lattice by an ulp, below it for 216 of the 440 levels (`h7_levels`). The forward pass rounds them (`simY__ = round(simY__)`); the backward induction does not. Wherever cash plus income lands exactly midway between two grid points — common above $50k, where the grid is coarser than the lattice — the expectation then rounds down while the realised path rounds up: 9.5% of cash queries at incomes up to $150k. Full grid, R with and without rounding (production = R exactly):
 
-| | illiquid / mean income | liquid / mean income | share in debt | sd Δlog c |
-|---|---|---|---|---|
-| Laibson θ, as generated | 2.016 | −0.069 | 0.563 | 0.211 |
-| Laibson θ, rounded | 1.973 | −0.036 | 0.538 | 0.210 |
-| PSID couples' region (0.6, 0.98, 2.7), as generated | 1.449 | −0.036 | 0.525 | 0.211 |
-| same, rounded | 1.392 | −0.017 | 0.503 | 0.210 |
+| | illiquid / mean income (median) | liquid / mean income (median) | share in debt | share in debt > 2% of mean income | mean debt / mean income: all, debtors | sd Δlog c |
+|---|---|---|---|---|---|---|
+| Laibson θ, as generated | 2.016 | −0.069 | 0.563 | 0.549 | 0.123, 0.218 | 0.211 |
+| Laibson θ, rounded | 1.973 | −0.036 | 0.538 | 0.512 | 0.116, 0.215 | 0.210 |
+| PSID couples' region (0.6, 0.98, 2.7), as generated | 1.449 | −0.036 | 0.525 | 0.513 | 0.113, 0.215 | 0.211 |
+| same, rounded | 1.392 | −0.017 | 0.503 | 0.483 | 0.108, 0.215 | 0.210 |
 
-Two thirds of liquid choices stay the same, but almost every path changes. Households borrow a little more than the consistent model says (+2.2–2.5 points of debt share, about twice the average debt) and hold 2–4% more illiquid wealth. Consumption volatility does not move. Fixing it means regenerating.
+Two thirds of liquid choices stay the same, but almost every path changes. As generated, more households borrow than the consistent model says: +2.2–2.5 points of debt share, +3.0–3.7 points counting only debt above 2% of mean income. Mean debt is 4–6% higher, and debtors' mean debt is unchanged. The median balance halves when rounded only because the median household sits at zero. Illiquid wealth is 2–4% higher. Consumption volatility does not move. Fixing it means regenerating. (Corrected 2026-10-15: this paragraph first read "about twice the average debt", a misreading of the median column.)
 
 **Grid adequacy (H4, H6; `refine`).** Six θ at the full grid, each axis at twice its resolution, and the caps doubled:
 - the caps bind nowhere except 0.01% of household-years at (0.35, 0.9995, 4.8; 1.075), and doubling them removes it;
@@ -8297,7 +8297,7 @@ Two thirds of liquid choices stay the same, but almost every path changes. House
 | item | inherited from their code? | effect on what the network reads | fix | cost |
 |---|---|---|---|---|
 | RESULTS 40 float-resolution bug | yes, already at ρ = 3.5 in their code | removed: production = independent centred reference; no visited decision below 1e-12 | done (§41) | — |
-| H7 unrounded income in the expectation step | yes | debt share +2–2.5 points, average debt ~2×, illiquid +2–4%; results depend on the maths library (29% of window paths, L vs P) | round income in the backward induction | regeneration |
+| H7 unrounded income in the expectation step | yes | debt share +2–2.5 points (+3–3.7 above 2% of mean income), mean debt +4–6%, illiquid +2–4%; results depend on the maths library (29% of window paths, L vs P) | round income in the backward induction | regeneration |
 | grid resolution of the debt margin | yes (their grid) | material debt share +1 point in PSID couples' region, ±3–5 elsewhere; debtors' debt ±10% | finer X/Z grid | regeneration, about 3–4× cost |
 | H1 flow timing vs PSID | no (our windowing) | levels unchanged; corr(liquid/income, next Δlog y) −0.05 vs −0.18 | read flows a year earlier | retraining only |
 | u(0) finite in the port | no (port) | ≤ 0.7% of an sd; window paths of 1–13% of indebted cardholders | −∞ as MATLAB | regeneration |
