@@ -8042,6 +8042,7 @@ The same 1,024 held-out households as §48, each ensemble on its own windows. "H
 - **The jump from A2w to A2n is the consumption and liquid noise.** For ρ it is all of it: ×1.34, then ×1.00.
 - **The illiquid noise matters only for holders, and only for δ and R_gamma** (×1.08 and ×1.13). Even for holders, ρ's ratio is 1.04.
 - **Consumption is the likely part, not liquid.** Consumption's noise is 51% of its one-wave variance and liquid's 4% (§48.2), and §43.10's consumption arms moved ρ's held-out contraction (0.587–0.620). This run does not separate the two.
+  - *Update (§53):* the consumption-off arm removes 55–59% of the A2w → A2n gap for β, δ and ρ. The other 30–44% is the liquid noise or the noises together.
 - **Calibrated on its own windows.** The held-out check gives 90% coverage of 0.892–0.905 and contraction β 0.391, δ 0.555, ρ 0.611, R_gamma 0.556 (A2n's members 0, 1: 0.366, 0.550, 0.604, 0.535). Weighted log q is 4.93 against 4.75; the windows differ, so this is description, not model comparison.
 
 **The arm on windows that carry the illiquid noise.** These are A2n's windows, noisy as PSID's illiquid amounts are. The arm was trained without illiquid noise and given them:
@@ -8097,4 +8098,84 @@ Uncorrected arm, two members each:
 
     ./scripts/run_optionA2n_illiquid_off.sh
     PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --illiquid_off outputs/optionA2n_sens/illoff
+    PYTHONPATH=. .venv/bin/python scripts/optionA2n_noise_sensitivity.py
+
+## 53. Consumption noise off: the largest single cost to ρ's width, and what keeps PSID couples off the ρ floor
+
+**Question (user, 2026-10-15).** "ok but I think the noise range of other features were very low. are they making rho's posterior width wider?" Then: "run the consumption noise off test".
+
+**Run.** `scripts/run_optionA2n_noise_off.sh consumption`, 05:25–06:53 UTC on 2026-10-15, every step rc = 0.
+- **The arm (`consoff`):** A2n with the consumption noise set to 0. Liquid stays 0–0.08, illiquid 0.175–0.455 and income 0. Data, setup and seeds (0, 1) are A2n's. The other noise is A2n's draw for draw, as checked by `compare_optionA2_widths.py --noise_off`.
+- **One script for both arms.** `run_optionA2n_noise_off.sh FEATURE` now runs §52's arm too: `run_optionA2n_illiquid_off.sh` calls it with `illiquid_assets` and writes the same outputs. `--illiquid_off DIR` became `--noise_off FEATURE=DIR`, keeping the old flag. Rerun through the new code, §52's comparison output is identical to the one reported.
+
+### 53.1 Simulated households
+
+The same 1,024 held-out households as §48 and §52, each ensemble at two members on its own windows:
+
+| median 90% width | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| A2w (no noise) | 0.351 | 0.0377 | 1.84 | 0.0166 |
+| consumption off (liquid and illiquid noise only) | 0.421 | 0.0488 | 2.22 | 0.0222 |
+| illiquid off (consumption and liquid noise only; §52) | 0.502 | 0.0740 | 2.65 | 0.0253 |
+| A2n | 0.511 | 0.0780 | 2.67 | 0.0269 |
+
+| share of the mean log width gap A2w → A2n | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| removed by turning the consumption noise off | **0.55** | **0.59** | **0.58** | 0.39 |
+| removed by turning the illiquid noise off (§52) | 0.09 | 0.11 | 0.04 | 0.17 |
+| neither: liquid noise, or the noises together | 0.36 | 0.30 | 0.38 | 0.44 |
+
+- **The consumption noise is the largest single cost: 55–59% of the gap for β, δ and ρ.** Per household, A2n is ×1.16 (β), ×1.23 (δ), ×1.17 (ρ) and ×1.15 (R_gamma) wider than the arm, for 73–85% of households.
+- **A small σ is not a small noise for consumption.** Its range is 0–0.15, but model consumption is smooth: the noise is 51% of its one-wave change variance (§48.2). How much a household smooths is what ρ governs.
+- **About 30–44% is in neither arm.** That is the liquid noise (0–0.08, only 4% of liquid's one-wave variance), or the noises acting together: each arm keeps the other noisy features. A liquid-off arm would separate them; it was not run.
+- **The arm is calibrated on its own windows.** Held-out 90% coverage is 0.888–0.910. Contraction is β 0.553, δ 0.671, ρ 0.713, R_gamma 0.574, against A2n's 0.366, 0.550, 0.604, 0.535 (members 0, 1). Weighted log q is 6.00 against 4.75; the windows differ, so this is description, not model comparison.
+
+**The arm on windows that carry the consumption noise** (A2n's windows, noisy as PSID's consumption is, §43.9):
+
+| 90% coverage, unweighted | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| consumption off, own windows | 0.924 | 0.873 | 0.893 | 0.911 |
+| consumption off, A2n's windows | **0.762** | **0.726** | **0.737** | 0.806 |
+| same, illiquid holders / non-holders | 0.819 / 0.721 | 0.789 / 0.682 | 0.684 / 0.774 | 0.793 / 0.814 |
+
+Weighted by p / q_held (ESS 658), it is 0.72–0.82. Its widths stay near those on its own windows (ρ 2.32 against 2.22). **Without the consumption noise, the network reads noise in consumption as information.** This is §49.1's A2w finding, now traced to consumption.
+
+**Figure 63** (`63_consumption_off_fig{36,39,42}.png`): each figure household under A2w, the arm and A2n (members 0, 1). For figure 36's household, the arm's β width is A2w's (0.38 against 0.36; A2n 0.58). Its δ and ρ widths lie between A2w's and A2n's: δ 0.038 against 0.028 and 0.044, ρ 2.96 against 2.01 and 3.22.
+
+### 53.2 PSID couples: without the consumption noise they fall to the ρ floor
+
+Uncorrected arm, two members each:
+
+| | β | δ | ρ | R_gamma | ρ, known-ρ scale |
+|---|---|---|---|---|---|
+| couples' median of means, consumption off | 0.789 | 0.9759 | **1.01** | 1.0571 | **0.83** |
+| A2n (members 0, 1) | 0.591 | 0.9852 | 2.78 | 1.0552 | 2.07 |
+| *A2n member pairs (10), min–max* | *0.591–0.612* | *0.9831–0.9864* | *2.63–2.82* | *1.0529–1.0552* | *1.83–2.23* |
+| median 90% width, consumption off | 0.495 | 0.0305 | 1.49 | 0.0292 | |
+| A2n (members 0, 1) | 0.517 | 0.0332 | 3.12 | 0.0299 | |
+| per-couple correlation of means with A2n | 0.20 | 0.61 | 0.29 | 0.73 | |
+
+- **Half the couples sit on ρ's floor.** ρ mean < 1 for 49.1% of couples (A2n 1.0%), and ρ's lower 5% < 0.55 for 61.9% (A2n 1.5%). The known-ρ scale reads couples at a true ρ of 0.83.
+- **β rises to 0.79.** Per-couple correlations with A2n are 0.20 for β and 0.29 for ρ, far below seed-to-seed (0.88–0.91, 0.79–0.89).
+- **ρ's 90% width halves to 1.49.** That is the floor squeezing the posterior, not information.
+- **This is A2w's PSID result (§43.8: 69% of couples with ρ mean < 1), and the consumption noise is what removed it.** PSID's consumption moves more from wave to wave than the model's noise-free consumption can (signature a = 0.046, 90% 0.034–0.056; §43.9, §49). Without noise to absorb that, the network reads it as weak smoothing, which means low ρ.
+- **Corrected arm:** medians β 0.791, δ 0.9674, ρ 0.93 and R_gamma 1.0605.
+- **Figure 64** (`64_optionA2n_consoff_psid.png`): couples' means, the arm against A2n. The arm's 68% region of couples' means lies at ρ below about 2.2 and β 0.5–0.95; A2n's lies at ρ 1.9–3.8 and β 0.37–0.8.
+
+### 53.3 Reading
+
+- **Yes: the consumption noise, small as its range looks, is the largest single source of ρ's (and β's and δ's) extra width.** Consumption is the smoothest series the model makes, so a few percent of reporting noise hides much of what it says about ρ. The illiquid noise, large as its range is, costs almost nothing (§52). About a third is still unassigned (liquid noise or the noises together).
+- **It cannot be dropped.** PSID's consumption carries a measured noise signature. Without the noise, the network is overconfident on noisy consumption (coverage 0.73–0.81) and puts half the PSID couples on the ρ floor.
+- **A2n's ρ width is therefore the price of PSID consumption's reporting noise.** Narrowing it honestly needs a smaller consumption-noise range justified by evidence on PSID consumption error. §43.10's 0–0.10 arm already moved couples' ρ down 0.2 (known-ρ 1.85).
+- **A2n's calibrated ranges stand.**
+
+**Limits.**
+- Two members, one seed pair.
+- No liquid-off arm, so the unassigned third is not split.
+- The noise's form (iid, multiplicative) is A2n's.
+
+**Reproduce.**
+
+    ./scripts/run_optionA2n_noise_off.sh consumption
+    PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --noise_off consumption=outputs/optionA2n_sens/consoff
     PYTHONPATH=. .venv/bin/python scripts/optionA2n_noise_sensitivity.py

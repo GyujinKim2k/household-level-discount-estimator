@@ -1,5 +1,6 @@
 """Collect the A2n noise-range arms into one table (RESULTS 43.10; the
-illiquid-noise-off arm ``illoff``, RESULTS 52).
+illiquid- and consumption-noise-off arms ``illoff`` and ``consoff``, RESULTS
+52 and 53).
 
 Reads what ``run_optionA2n_noise_sensitivity.sh`` and
 ``run_optionA2n_member_pairs.sh`` wrote and prints, per arm: PSID couples'
@@ -30,7 +31,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path("outputs/optionA2n_sens")
-ARMS = ["a2n_2m", "cons010", "cons020", "all067", "all133", "illoff"]
+ARMS = ["a2n_2m", "cons010", "cons020", "all067", "all133", "illoff", "consoff"]
 PARAMS = ["beta", "delta", "crra", "R_gamma"]
 
 
