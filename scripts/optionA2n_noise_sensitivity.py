@@ -1,4 +1,5 @@
-"""Collect the A2n noise-range arms into one table (RESULTS 43.10).
+"""Collect the A2n noise-range arms into one table (RESULTS 43.10; the
+illiquid-noise-off arm ``illoff``, RESULTS 52).
 
 Reads what ``run_optionA2n_noise_sensitivity.sh`` and
 ``run_optionA2n_member_pairs.sh`` wrote and prints, per arm: PSID couples'
@@ -29,7 +30,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path("outputs/optionA2n_sens")
-ARMS = ["a2n_2m", "cons010", "cons020", "all067", "all133"]
+ARMS = ["a2n_2m", "cons010", "cons020", "all067", "all133", "illoff"]
 PARAMS = ["beta", "delta", "crra", "R_gamma"]
 
 
@@ -51,6 +52,7 @@ def row(psid_dir: Path, rec_path: Path, heldout_path: Path | None) -> dict:
            "median": {p: u["median_of_means"][p] for p in PARAMS},
            "corrected_median": {p: s["corrected"]["median_of_means"][p] for p in PARAMS},
            "rho_median_90_width": u["median_90_width"]["crra"],
+           "median_90_width": {p: u["median_90_width"][p] for p in PARAMS},
            "rho_median_sd": u["median_posterior_sd"]["crra"],
            "known_rho": known_rho(rec),
            "recovery_psid_rho_median": rec["psid"]["median_of_means"],
@@ -95,6 +97,10 @@ def main() -> None:
         hi = [max(f(r) for r in pairs.values()) for _, f, _ in keys]
         print(f"{'':10s}" + "".join(f"{a:>6.{d}f}-{b:<7.{d}f}"
                                     for a, b, (_, _, d) in zip(lo, hi, keys, strict=True)))
+
+    print("\nPSID couples: median 90% width, " + " ".join(PARAMS))
+    for a, r in arms.items():
+        print(f"{a:10s} " + " ".join(f"{r['median_90_width'][p]:.4g}" for p in PARAMS))
 
     print("\nCouples' floors: rho mean < 1, rho lower 5% < 0.55, either floor, both")
     for a, r in arms.items():

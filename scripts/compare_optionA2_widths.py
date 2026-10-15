@@ -45,11 +45,25 @@ parameter and for all four jointly, unweighted and weighted by p / q_held as in
 ``check_optionA2_heldout``, the median 90% width, and the median |mean - truth|
 in posterior sds.
 
+**Illiquid noise off** (``--illiquid_off DIR``, RESULTS 52). A2w, A2n with
+only the illiquid noise off (DIR) and A2n, each at members 0 and 1 and on its
+own windows of the same households. The arm's consumption and liquid noise is
+A2n's draw for draw (checked), so A2w -> arm is what the consumption and
+liquid noise cost and arm -> A2n what the illiquid noise costs: median 90%
+widths and per-household ratios, for every household and split into illiquid
+holders and the rest, illiquid's share of the mean log width gap, 90%
+coverage, and figure 61 (``61_illiquid_off_fig{36,39,42}.png``): each figure
+household's three posteriors overlaid. The arm is also scored on A2n's windows,
+which carry the illiquid noise as PSID's data do: its coverage there says
+whether its precision would hold on PSID.
+
 Usage::
 
     PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py
     PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --signal_only
     PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --noisy_inputs
+    PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py \
+        --illiquid_off outputs/optionA2n_sens/illoff
 """
 
 from __future__ import annotations
@@ -76,6 +90,7 @@ FIGURES = {"A2": "figures/36_simulated_household_optionA2.npz",
            "A2n": "figures/42_simulated_household_optionA2n.npz"}
 POOL = 300
 N = oa.BOX.names
+NOISY_ILL = "illiquid off, A2n windows"
 
 
 def noise_sigmas(x: torch.Tensor, noise, seed: int) -> dict[str, np.ndarray]:
@@ -195,6 +210,139 @@ def noisy_inputs(args, ens, x0, xn, rows, figs, t_all, pid) -> None:
     print(f"wrote {args.out}/noisy_inputs.json")
 
 
+def illiquid_off(args, x0, xn, rows, figs, t_all, pid, held, theta_all, card_all) -> None:
+    """A2w, the illiquid-noise-off arm and A2n at members 0 and 1, each on its
+    own windows of the same households (RESULTS 52). The arm's consumption and
+    liquid noise is A2n's draw for draw, so A2w -> arm is the consumption and
+    liquid noise and arm -> A2n is the illiquid noise."""
+    from scripts.check_optionA2_heldout import heldout_log_weight
+    dirs = {"A2w": Path(MODELS["A2w"][0]), "illiquid off": args.illiquid_off,
+            "A2n": Path(MODELS["A2n"][0])}
+    ens = {}
+    for name, d in dirs.items():
+        members, proposal, cfg = oa.load_members([d / "s0", d / "s1"], args.device)
+        spec = oa.spec_of(cfg)
+        ens[name] = (members, spec, *oa._weighting(proposal, spec))
+        print(f"{name}: {len(members)} members; {spec.describe()}")
+    off, a2n = ({f: (lo, hi) for f, lo, hi in ens[m][1].obs_noise} for m in ("illiquid off", "A2n"))
+    if off.pop("illiquid_assets", (0, 0)) != (0, 0) or a2n.pop("illiquid_assets")[1] == 0 \
+            or off != a2n:
+        raise SystemExit(f"the arm's noise is not A2n's with the illiquid noise off: {off}")
+
+    seed_n = oa.NOISE_SEED + oa.HELD_SEED
+    xo = oa.add_obs_noise(x0, ens["illiquid off"][1].obs_noise, seed=seed_n)
+    _t, xo_own, _p = oa.windows_raw(held, theta_all, seed=oa.HELD_SEED,
+                                    noise=ens["illiquid off"][1].obs_noise)
+    j_ill = oa.FEATURES_TWOASSET_AGE.index("illiquid_assets")
+    other = [j for j in range(x0.shape[-1]) if j != j_ill]
+    if not (torch.equal(xo_own[:len(xo)], xo) and torch.equal(xo[..., other], xn[..., other])
+            and torch.equal(xo[..., j_ill], x0[..., j_ill])):
+        raise SystemExit("the arm's windows are not A2n's with the illiquid noise removed")
+    print("the arm's held-out windows reproduced: A2n's, illiquid noise-free")
+    windows = {"A2w": x0, "illiquid off": xo, "A2n": xn}
+
+    n = len(rows)
+    rows_all = rows + list(figs.values())
+    t = t_all[:n]
+    *_, cfg_main = oa.load_shards([MAIN])
+    w = np.exp(heldout_log_weight(cfg_main, pid[rows].numpy(), t))
+    w /= w.sum()
+    ybar = x0[rows, :, oa.FEATURES_TWOASSET_AGE.index("income")].mean(1, keepdim=True)
+    holders = (x0[rows, :, j_ill] >= 0.5 * ybar).all(1).numpy()
+    groups = {"all": np.ones(n, bool), "illiquid holders": holders, "non-holders": ~holders}
+    res, W = {}, {}
+    for m, (members, spec, inv, lw) in ens.items():
+        x, _f = oa.transform(windows[m][rows_all])
+        fb = spec.flow_box()
+        torch.manual_seed(0)
+        res[m] = sample_weighted(members, x, args.n_draws, fb.low, fb.high, invert=inv,
+                                 log_weight=lw, truth=t_all)
+        W[m] = widths(res[m])
+    # The arm on windows that carry A2n's illiquid noise, as PSID's do: is its
+    # precision kept, or is it overconfident (RESULTS 49.1's test for A2w)?
+    members, spec, inv, lw = ens["illiquid off"]
+    x, _f = oa.transform(xn[rows_all])
+    fb = spec.flow_box()
+    torch.manual_seed(0)
+    res[NOISY_ILL] = sample_weighted(members, x, args.n_draws, fb.low, fb.high, invert=inv,
+                                     log_weight=lw, truth=t_all)
+    W[NOISY_ILL] = widths(res[NOISY_ILL])
+
+    out = {"n": n, "holders": int(holders.sum()), "ess": float(1 / (w ** 2).sum()),
+           "median_width": {}, "ratio": {}, "illiquid_share_of_log_gap": {}, "cov90": {},
+           "figure_households": {}}
+    print(f"\n=== {n} common households, two members each; {holders.sum()} illiquid holders ===")
+    print(f"{'median 90% width':34s}" + "".join(f"{v:>10s}" for v in N))
+    for g, k in groups.items():
+        out["median_width"][g] = {}
+        for m in W:
+            med = np.nanmedian(W[m][:n][k], 0)
+            out["median_width"][g][m] = med.tolist()
+            print(f"{m + ', ' + g:34s}" + "".join(f"{v:10.4g}" for v in med))
+    print(f"\n{'median ratio (share wider)':34s}" + "".join(f"{v:>14s}" for v in N))
+    for a, b in (("illiquid off", "A2w"), ("A2n", "illiquid off"), ("A2n", "A2w")):
+        out["ratio"][f"{a}/{b}"] = {}
+        for g, k in groups.items():
+            rat = W[a][:n][k] / W[b][:n][k]
+            med, wider = np.nanmedian(rat, 0), np.nanmean(rat > 1, 0)
+            out["ratio"][f"{a}/{b}"][g] = {"median": med.tolist(), "share_wider": wider.tolist()}
+            print(f"{a + '/' + b + ', ' + g:34s}" + "".join(
+                f"{med[j]:7.2f} ({wider[j]:.2f})" for j in range(4)))
+    print(f"\n{'illiquid share of the log gap':34s}" + "".join(f"{v:>10s}" for v in N))
+    for g, k in groups.items():
+        gap = np.nanmean(np.log(W["A2n"][:n][k] / W["A2w"][:n][k]), 0)
+        ill = np.nanmean(np.log(W["A2n"][:n][k] / W["illiquid off"][:n][k]), 0)
+        out["illiquid_share_of_log_gap"][g] = (ill / gap).tolist()
+        print(f"{g:34s}" + "".join(f"{v:10.2f}" for v in ill / gap))
+    print(f"\n90% coverage, unweighted / weighted (ESS {out['ess']:.0f})")
+    for m, r in res.items():
+        inside = (r["lo"][:n] <= t) & (t <= r["hi"][:n])
+        ok = np.isfinite(r["mean"][:n]).all(1)
+        ww = w[ok] / w[ok].sum()
+        out["cov90"][m] = {"unweighted": inside[ok].mean(0).tolist(),
+                           "weighted": (ww @ inside[ok]).tolist(),
+                           **{f"unweighted, {g}": inside[ok & k].mean(0).tolist()
+                              for g, k in groups.items() if g != "all"}}
+        print(f"  {m:28s}" + " ".join(f"{a:.3f}/{b:.3f}" for a, b in zip(
+            inside[ok].mean(0), ww @ inside[ok], strict=True)))
+        for g, k in groups.items():
+            if g != "all":
+                print(f"    {g + ', unweighted':26s}" + " ".join(
+                    f"{v:11.3f}" for v in inside[ok & k].mean(0)))
+    print("\nfigure households: 90% widths")
+    for i, fname in enumerate(figs, start=n):
+        num = Path(FIGURES[fname]).name[:2]
+        out["figure_households"][num] = {m: W[m][i].tolist() for m in W}
+        print(f"  figure {num}'s household: " + "; ".join(
+            f"{m} " + " ".join(f"{v:.3g}" for v in W[m][i]) for m in W))
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "illiquid_off.json").write_text(json.dumps(out, indent=1))
+    np.savez(args.out / "illiquid_off.npz", rows=np.array(rows_all), theta=t_all, holders=holders,
+             **{f"{m.replace(',', '').replace(' ', '_')}_{k}": res[m][k]
+                for m in res for k in ("mean", "lo", "hi")})
+    print(f"wrote {args.out}/illiquid_off.json, illiquid_off.npz")
+
+    box = ens["A2w"][1].box
+    for k, (fname, row) in enumerate(figs.items()):
+        series = {}
+        for m, (members, spec, inv, lw) in ens.items():
+            x, _f = oa.transform(windows[m][row:row + 1])
+            torch.manual_seed(0)
+            d, wt = weighted_draws(members, x, args.n_raw, spec.flow_box(), inv, lw)
+            series[m] = resample(d, wt, args.n_plot, seed=0)
+        num = Path(FIGURES[fname]).name[:2]
+        path = args.fig.with_name(f"61_illiquid_off_fig{num}.png")
+        a0 = int(x0[row, 0, -1])
+        contour_corner(series, box, truth={"true θ": t_all[n + k]}, truth_colors=("#d62728",),
+                       reflect_axes=("delta",), path=path,
+                       title=f"Figure {num}'s household (draw {int(pid[row])}, ages {a0}-"
+                             f"{a0 + 12}, {'cardholder' if card_all[pid[row]] else 'no card'}), "
+                             "members 0 and 1\nA2w (no noise), A2n with the illiquid noise off, "
+                             "and A2n (RESULTS 52)")
+        print(f"wrote {path}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -208,6 +356,9 @@ def main() -> None:
                     help="Only the signal-against-noise table (CPU).")
     ap.add_argument("--noisy_inputs", action="store_true",
                     help="Only A2 and A2w scored on A2n's noisy windows.")
+    ap.add_argument("--illiquid_off", type=Path, metavar="DIR",
+                    help="Only A2w, the illiquid-noise-off arm in DIR (s0, s1) and A2n, "
+                         "members 0 and 1, each on its own windows (RESULTS 52).")
     args = ap.parse_args()
 
     if args.signal_only:
@@ -260,6 +411,9 @@ def main() -> None:
     t = th[rows_all].numpy().astype(float)
     if args.noisy_inputs:
         noisy_inputs(args, ens, x0, xn, rows, figs, t, pid)
+        return
+    if args.illiquid_off:
+        illiquid_off(args, x0, xn, rows, figs, t, pid, held, theta_all, card_all)
         return
 
     res = {}

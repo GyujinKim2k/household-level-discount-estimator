@@ -7721,6 +7721,8 @@ So a household's width is set mostly by the noise ranges the network was trained
 
 This is not proven. A regression within A2n's ranges cannot see the step from no illiquid noise to 0.175. The test: retrain two members with the illiquid noise off and everything else as in A2n, then compare with A2n's members 0 and 1 as in §43.10 (about 2 GPU-hours).
 
+*Correction (§52, 2026-10-15):* the test was run, and **the guess above is wrong for the simulated households' widths.** With the illiquid noise off, the widths are A2n's (ρ ×1.00, β ×1.02). The step from A2w to A2n is the consumption and liquid noise: illiquid accounts for 4% of ρ's log width gap and 9–17% of the others'. The illiquid noise matters on PSID instead (§52).
+
 ### 48.3 Reading
 
 - **The main reason A2n's posteriors are wider is the observation noise,** and most likely the illiquid noise. A2 and A2w are equally wide, and the figures differed because they show different households.
@@ -8007,3 +8009,92 @@ Uncorrected arm; A2n in brackets:
     PYTHONPATH=. .venv/bin/python scripts/psid_accuracy_codes.py --write_mask 0.25 --out outputs/psid_accuracy/mask_tau0.25.json
     PYTHONPATH=. .venv/bin/python scripts/noise_calibration.py --mask_tau 0.25 --out outputs/optionA2m/noise_calibration_tau0.25.json
     ./scripts/run_optionA2m_model.sh 0.25
+
+## 52. Illiquid noise off: it barely widens simulated households' posteriors, but PSID couples need it
+
+**Question (user, 2026-10-15).** "the reason of the rho's wider width was the noise method. wasnt it?" Then: "run the illiquid noise off test" (§48.2's proposed test).
+
+**Run.** `scripts/run_optionA2n_illiquid_off.sh`, 02:45–04:06 UTC on 2026-10-15, every step rc = 0.
+- **Run by hand afterwards, now in the script:** the arm scored on A2n's windows and coverage by holder group (`--illiquid_off` rerun twice; the numbers it had already printed came out identical), figure 62 and the noise-arm table.
+- **The arm:** A2n with the illiquid noise set to 0. Consumption stays 0–0.15, liquid 0–0.08 and income 0. The data, R_gamma strip, logit β and R_gamma, and seeds (0, 1) are A2n's.
+- **Only the illiquid noise differs.** `add_obs_noise` draws every feature's z and σ whatever its range, so the arm's consumption and liquid noise is A2n's draw for draw. `compare_optionA2_widths.py --illiquid_off` checks this on the held-out windows.
+- **Reference:** A2n's members 0 and 1 (§43.10's `a2n_2m`). A2w enters at members 0 and 1 too, so every comparison is at two members.
+
+### 52.1 Simulated households: the illiquid noise costs almost no width
+
+The same 1,024 held-out households as §48, each ensemble on its own windows. "Holders" (421) have illiquid wealth ≥ 0.5 × mean income in every wave (§44.2).
+
+| median 90% width | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| A2w (no noise) | 0.351 | 0.0377 | 1.84 | 0.0166 |
+| illiquid off | 0.502 | 0.0740 | 2.65 | 0.0253 |
+| A2n | 0.511 | 0.0780 | 2.67 | 0.0269 |
+| holders: A2w / illiquid off / A2n | 0.352 / 0.487 / 0.506 | 0.0187 / 0.0359 / 0.0408 | 1.92 / 2.73 / 2.84 | 0.0114 / 0.0207 / 0.0241 |
+
+| per-household width ratio, median (share wider) | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| illiquid off ÷ A2w: consumption and liquid noise | 1.33 (0.90) | 1.45 (0.92) | 1.34 (0.91) | 1.39 (0.82) |
+| A2n ÷ illiquid off: illiquid noise | 1.02 (0.59) | 1.02 (0.62) | 1.00 (0.51) | 1.02 (0.64) |
+| same, holders | 1.02 (0.62) | 1.08 (0.73) | 1.04 (0.66) | 1.13 (0.74) |
+| illiquid's share of the mean log gap A2w → A2n | 0.09 | 0.11 | 0.04 | 0.17 |
+| same, holders | 0.13 | 0.18 | 0.12 | 0.21 |
+
+- **The jump from A2w to A2n is the consumption and liquid noise.** For ρ it is all of it: ×1.34, then ×1.00.
+- **The illiquid noise matters only for holders, and only for δ and R_gamma** (×1.08 and ×1.13). Even for holders, ρ's ratio is 1.04.
+- **Consumption is the likely part, not liquid.** Consumption's noise is 51% of its one-wave variance and liquid's 4% (§48.2), and §43.10's consumption arms moved ρ's held-out contraction (0.587–0.620). This run does not separate the two.
+- **Calibrated on its own windows.** The held-out check gives 90% coverage of 0.892–0.905 and contraction β 0.391, δ 0.555, ρ 0.611, R_gamma 0.556 (A2n's members 0, 1: 0.366, 0.550, 0.604, 0.535). Weighted log q is 4.93 against 4.75; the windows differ, so this is description, not model comparison.
+
+**The arm on windows that carry the illiquid noise.** These are A2n's windows, noisy as PSID's illiquid amounts are. The arm was trained without illiquid noise and given them:
+
+| 90% coverage, unweighted | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| illiquid off, own windows | 0.920 | 0.884 | 0.880 | 0.902 |
+| illiquid off, A2n's windows | 0.784 | 0.789 | 0.837 | 0.692 |
+| same, holders | **0.634** | **0.717** | 0.808 | **0.430** |
+| same, non-holders | 0.889 | 0.839 | 0.857 | 0.876 |
+| A2n, own windows (holders) | 0.921 (0.917) | 0.877 (0.910) | 0.878 (0.884) | 0.899 (0.900) |
+
+Weighted by p / q_held (ESS 658) the arm's coverage on A2n's windows is 0.76–0.84. Its holders' widths there fall to β 0.421 and δ 0.0248, against 0.487 and 0.0359 on its own windows. **Without the illiquid noise, the network reads noise in illiquid wealth as information: narrower and wrong**, worst for R_gamma and β among holders. This is §49.1's finding for A2 and A2w, now traced to the illiquid feature.
+
+**Figure 61** (`61_illiquid_off_fig{36,39,42}.png`): each figure household's posterior under A2w, the arm and A2n (members 0, 1). In all three the arm and A2n largely coincide and A2w is the one that differs. It is narrower for figure 36's household; for figure 39's it leaves the true δ–ρ outside its 68% region.
+
+### 52.2 PSID couples: the illiquid noise moves the estimates
+
+Uncorrected arm, two members each:
+
+| | β | δ | ρ | R_gamma | ρ, known-ρ scale |
+|---|---|---|---|---|---|
+| couples' median of means, illiquid off | 0.472 | 0.9884 | 2.53 | 1.0420 | 1.69 |
+| A2n (members 0, 1) | 0.591 | 0.9852 | 2.78 | 1.0552 | 2.07 |
+| *A2n member pairs (10), min–max* | *0.591–0.612* | *0.9831–0.9864* | *2.63–2.82* | *1.0529–1.0552* | *1.83–2.23* |
+| median 90% width, illiquid off | 0.413 | 0.0225 | 2.85 | 0.0297 | |
+| A2n (members 0, 1) | 0.517 | 0.0332 | 3.12 | 0.0299 | |
+| per-couple correlation of means with A2n | 0.73 | 0.84 | 0.56 | 0.68 | |
+| *disjoint A2n member pairs* | *0.88–0.91* | *0.89–0.95* | *0.79–0.89* | *0.92–0.95* | |
+
+- **Couples move by more than A2n's seeds ever move them.**
+  - β falls 0.12 and R_gamma 0.013, both outside every member pair's range.
+  - Known-ρ falls to 1.69, below the lowest pair (1.83).
+  - Per-couple correlations with A2n are all below the seed-to-seed range.
+- **The R_gamma floor fills.** Couples whose R_gamma lower 5% is within 0.0025 of the floor: 0.337, against 0.144. R_gamma mean below 1.025: 0.090, against 0.032. ρ's floors barely change (ρ mean < 1: 0.007 against 0.010).
+- **PSID widths shrink** by 20% for β, 32% for δ and 9% for ρ. That is more than clean illiquid data ever bought on simulated households: 2% overall, and for holders 4% for β and 12% for δ (§52.1). It matches what §52.1 shows on noisy windows instead: overconfidence.
+- **Corrected arm:** medians β 0.475, δ 0.9847, ρ 2.48 and R_gamma 1.0440.
+- **Figure 62** (`62_optionA2n_illoff_psid.png`): couples' means, the arm against A2n. The arm's cloud shifts to lower β and spreads down to R_gamma's floor.
+
+### 52.3 Reading
+
+- **Yes, ρ's extra width is the observation noise, but the consumption (and liquid) noise, not the illiquid noise.** §48.2's guess was wrong. On simulated households the illiquid noise costs 0% of ρ's median width and 2% of the others' (holders: ρ 4%, δ 8%, R_gamma 13%).
+- **Removing the illiquid noise would not narrow A2n's honest intervals; it would make them wrong.** Clean illiquid data add little. Noisy illiquid data read as clean pull PSID couples to lower β and onto R_gamma's floor, with false precision (holders' coverage 0.43–0.81).
+- **The illiquid noise stays, whatever PSID's illiquid volatility is.** It is needed whether that volatility is measurement error or movement the model does not have (durables, housing; §44.2), since the noise-free model cannot produce it (one-wave variance 0.015 against PSID's 0.179).
+- **For precision, the lever is consumption, not illiquid.** §43.10's consumption 0–0.10 arm narrowed PSID's δ by 29%, but it moved ρ down 0.2 and left β, ρ and R_gamma 0–5% wider, not narrower. A narrower consumption range has to be earned by evidence on PSID consumption's reporting error. PSID's accuracy codes did not give it: the consumption signature without imputed waves was not distinguishable from the full one (§49).
+
+**Limits.**
+- Two members, one seed pair.
+- Consumption and liquid noise are not separated.
+- The noise's form (iid, multiplicative) is A2n's.
+
+**Reproduce.**
+
+    ./scripts/run_optionA2n_illiquid_off.sh
+    PYTHONPATH=. .venv/bin/python scripts/compare_optionA2_widths.py --illiquid_off outputs/optionA2n_sens/illoff
+    PYTHONPATH=. .venv/bin/python scripts/optionA2n_noise_sensitivity.py
