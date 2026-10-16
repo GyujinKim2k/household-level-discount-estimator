@@ -114,6 +114,8 @@ def test_windows_carry_the_noise_per_run_and_nothing_without_it(monkeypatch):
         return torch.zeros(len(x), 4), x, torch.arange(len(x))
 
     monkeypatch.setattr(oa, "build_windowed", fake_build)
+    # The fake shards have no solver_config.json to read a flow lag from.
+    monkeypatch.setattr(oa, "flow_lag_of", lambda paths: 0)
     files = [oa.Shard(oa.Path("main/s0.npz"), 0), oa.Shard(oa.Path("strip/s0.npz"), 320)]
     _t, x0, pid = oa.windows_raw(files, np.zeros((400, 4)), seed=999)
     assert torch.equal(x0, torch.cat([torch.from_numpy(base[o]).float() for o in (0, 320)]))

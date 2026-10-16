@@ -55,7 +55,9 @@ TRAIN = Path("data/processed/couples_dataset_shards")
 #: seed, proposal, R_gamma range, notes).
 SAME = ("simulator", "grid", "device", "gpu", "theta_batch", "chunk", "start_age",
         "n_waves", "wave_years", "store_panel", "n_households", "educ", "card_types",
-        "crra_centred", "init_pool_sha256", "init_pool_n")
+        "crra_centred", "init_pool_sha256", "init_pool_n",
+        # RESULTS 55 (v2); absent, and so equal, in earlier sets.
+        "round_income", "matlab_infinities", "tie", "flow_lag")
 #: Posterior-mean regions on A2's box.
 CUTS = {"beta": (0.30, 0.50, 0.80, 0.95, 1.00), "delta": (0.85, 0.95, 0.98, 1.00),
         "crra": (0.5, 1.0, 1.5, 2.5, 3.5, 5.0),
@@ -64,11 +66,12 @@ LABEL = {"beta": r"$\beta$", "delta": r"$\delta$", "crra": r"$\rho$",
          "R_gamma": r"$R_\gamma$"}
 
 
-def load_set(shards: Path, box, liqpen: float = 1.0):
+def load_set(shards: Path, box, liqpen: float = 1.0, train: Path = TRAIN):
     """theta per draw and the shard files, after checking the set was generated
-    as training was, from the uniform prior on ``box``, at penalty ``liqpen``."""
+    as training (``train``, a shard directory) was, from the uniform prior on
+    ``box``, at penalty ``liqpen``."""
     cfg = json.loads((shards / "solver_config.json").read_text())
-    ref = json.loads((TRAIN / "solver_config.json").read_text())
+    ref = json.loads((train / "solver_config.json").read_text())
     diff = {k: (cfg.get(k), ref.get(k)) for k in SAME if cfg.get(k) != ref.get(k)}
     if diff or cfg.get("proposal") != "uniform":
         raise SystemExit(f"{shards}: not generated as training was, from the uniform "
@@ -162,7 +165,8 @@ def figure(u: np.ndarray, one: np.ndarray, path: Path, title: str) -> None:
     plt.close(fig)
 
 
-def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY) -> dict:
+def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY,
+                  train: Path = TRAIN) -> dict:
     """Posterior shifts and coverage at penalty 0.5 and 1.5 against 1, paired
     by household (same first shard, seed, windows and noise)."""
     n = len(np.load(files_base[0])["theta"])
@@ -183,7 +187,7 @@ def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY) 
         if not shards.exists():
             print(f"scale {s}: {shards} missing; skipped")
             continue
-        theta_s, files_s, _cfg = load_set(shards, spec.box, liqpen=s)
+        theta_s, files_s, _cfg = load_set(shards, spec.box, liqpen=s, train=train)
         if not np.array_equal(theta_s[:n], theta_base[:n]):
             raise SystemExit(f"{shards}: draws differ from the SBC set's")
         th1, x1, pid1, _ = oa.windows(files_s[:1], theta_s, seed=oa.SBC_SEED,
@@ -243,11 +247,14 @@ def main() -> None:
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else None)
     ap.add_argument("--out", type=Path, default=Path("outputs/optionA2n/sbc"))
     ap.add_argument("--figure", type=Path, default=Path("figures/45_sbc_optionA2n.png"))
+    ap.add_argument("--train", type=Path, default=TRAIN,
+                    help="The training run's shard directory the sets must match.")
     args = ap.parse_args()
 
     members = Members(args.run_dirs, args.device)
     spec = oa.spec_of(members.cfg)
-    theta_all, files, cfg = load_set(args.shards, spec.box)
+    theta_all, files, cfg = load_set(args.shards, spec.box, train=args.train)
+    oa.check_flow_lag(members.cfg, files)
     th, x, pid, _f = oa.windows(files, theta_all, seed=oa.SBC_SEED, noise=spec.obs_noise,
                                 mask=spec.mask_patterns())
     th, pid = th.numpy().astype(float), pid.numpy()
@@ -265,7 +272,8 @@ def main() -> None:
     res = {"shards": str(args.shards), "seed": cfg["seed"], "run_dirs": list(map(str, args.run_dirs)),
            "spec": spec.describe(), "sbc": s}
     sets = {float(k): Path(v) for k, v in (a.split("=", 1) for a in args.penalty)}
-    res["penalty"] = penalty_check(members, spec, theta_all, files, args.n_draws, sets)
+    res["penalty"] = penalty_check(members, spec, theta_all, files, args.n_draws, sets,
+                                   train=args.train)
     (args.out / "sbc16.json").write_text(json.dumps(res, indent=2))
     figure(r["u"], one & np.isfinite(r["u"]).all(1), args.figure, title(args.run_dirs, spec))
     print(f"\nwrote {args.out}/ and {args.figure}")

@@ -89,9 +89,20 @@ def _solver_config(args) -> dict:
         # before the fix lack the key, so resuming one under the fix is refused.
         from hh_npe.simulator.twoasset import GRIDS
         cfg["crra_centred"] = GRIDS[args.grid].crra_centred
+        # RESULTS 54-55: income rounded when planning, MATLAB's infinities and
+        # tie order. Shards from before lack the keys, so none can be resumed
+        # under these settings.
+        for k in ("round_income", "matlab_infinities", "tie"):
+            cfg[k] = getattr(GRIDS[args.grid], k)
     if args.liqpen_scale != 1.0:
         # Only when changed, so every existing shard directory still resumes.
         cfg["liqpen_scale"] = args.liqpen_scale
+    if getattr(args, "rgamma_permute", False):
+        cfg["rgamma_permute"] = True
+    if getattr(args, "flow_lag", 0):
+        # Consumers (optionA.windows_raw) cut their windows with the lag
+        # recorded here, so data and training timing cannot drift apart.
+        cfg["flow_lag"] = args.flow_lag
     if args.init_pool is not None:
         # Only when used, so shard directories from before the pool existed
         # still resume. A different pool is a different simulator.
@@ -148,6 +159,14 @@ def _per_block_rgamma(theta_np, card_np, args):
     balanced -- a pilot of the first N draws is exactly the start of the full
     run. The card type, if drawn, is re-drawn per block the same way (seed + 1),
     because a batch must share one calibration to stay full.
+
+    ``--rgamma_permute`` (RESULTS 54.6, H8) then shuffles those values across
+    blocks with their own stream (seed + 3). The block index sets both the
+    R_gamma Sobol value and, through the proposal's own Sobol strata, where a
+    block's beta draws sit within them, so unshuffled the two are not
+    independent in the design. The shuffle keeps the same set of values, so
+    the marginal over the whole run is unchanged; prefixes lose their balance,
+    which only a pilot needs.
     """
     from scipy.stats import qmc
 
@@ -160,6 +179,8 @@ def _per_block_rgamma(theta_np, card_np, args):
     lo, hi = args.rgamma_range
     u = qmc.Sobol(d=1, scramble=True, seed=args.seed + 2).random(
         1 << int(np.ceil(np.log2(max(n_blocks, 2)))))[:n_blocks, 0]
+    if getattr(args, "rgamma_permute", False):
+        u = u[np.random.default_rng(args.seed + 3).permutation(n_blocks)]
     rg = np.repeat(lo + u * (hi - lo), tb)[: args.n_samples]
     if card_np is not None:
         card_np = np.repeat(np.random.default_rng(args.seed + 1).integers(
@@ -372,6 +393,17 @@ def main() -> None:
                              "check (RESULTS 43.11): generated with the SBC set's "
                              "seed, the same draws and shocks at another penalty. "
                              "Recorded in solver_config.json when not 1. cuda only.")
+    parser.add_argument("--rgamma_permute", action="store_true",
+                        help="Shuffle the per-block R_gamma values across blocks "
+                             "(seed + 3), so R_gamma is independent of the "
+                             "proposal's beta strata (RESULTS 54.6, H8). Recorded "
+                             "in solver_config.json.")
+    parser.add_argument("--flow_lag", type=int, default=0,
+                        help="Read flows (income, consumption) this many years "
+                             "before the stocks, in the stored x and in every "
+                             "window consumers cut. 1 is PSID's timing: wealth at "
+                             "the interview, income for the year before (RESULTS "
+                             "54.6, H1). Recorded in solver_config.json.")
     parser.add_argument("--max_draws", type=int, default=None,
                         help="Stop after the shards covering the first N draws "
                              "(a multiple of --block). For a pilot that is "
@@ -414,7 +446,7 @@ def main() -> None:
     if args.rgamma_range is not None:
         theta_np, card_np = _per_block_rgamma(theta_np, card_np, args)
     window = {"start_age": args.start_age, "n_waves": args.n_waves,
-              "wave_years": args.wave_years}
+              "wave_years": args.wave_years, "flow_lag": args.flow_lag}
 
     if args.assemble_only:
         assemble(out, theta_np, log.info, window)
@@ -497,7 +529,7 @@ def main() -> None:
                 None if educ_np is None else educ_np[lo:hi],
                 None if card_np is None else card_np[lo:hi],
                 None if args.rgamma_range is None else theta_np[lo:hi, 3],
-                pool, args.liqpen_scale,
+                pool, args.liqpen_scale, flow_lag=args.flow_lag,
             )
             xb, ab = out_batch[0], out_batch[1]
             if store_panel:

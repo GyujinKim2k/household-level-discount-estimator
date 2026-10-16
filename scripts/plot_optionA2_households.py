@@ -191,6 +191,7 @@ def main() -> None:
     args = ap.parse_args()
 
     members, proposal, cfg = oa.load_members(args.run_dirs, args.device)
+    oa.check_flow_lag(cfg, oa.load_shards(args.shards)[3])
     spec = oa.spec_of(cfg)
     inv, lw = oa._weighting(proposal, spec)
     print(f"{len(members)} members; proposal {proposal}; {spec.describe()}")

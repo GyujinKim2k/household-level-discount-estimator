@@ -123,6 +123,7 @@ def simulate_batch_twoasset_gpu(
     educ: np.ndarray | None = None, card: np.ndarray | None = None,
     r_gamma: np.ndarray | None = None, init_pool: np.ndarray | None = None,
     liqpen_scale: float = 1.0, z_sd: np.ndarray | None = None,
+    spec_overrides: dict | None = None, flow_lag: int = 0,
 ) -> tuple[np.ndarray, ...]:
     """Phase 3 on the GPU: many draws per backward induction, one panel each.
 
@@ -186,6 +187,12 @@ def simulate_batch_twoasset_gpu(
     blocks, and hence the GPU batches, are unchanged. ``None`` or 0 is the
     model without the shock, exactly as before.
 
+    ``spec_overrides`` replaces ``ModelSpec`` fields of ``GRIDS[grid]`` for
+    every draw, e.g. ``twoasset.LEGACY_FIXES`` to reproduce a dataset
+    generated before 2026-10-16. ``flow_lag`` is passed to
+    :func:`aggregate_waves` for the returned ``x`` (the panels do not depend
+    on it).
+
     The forward pass and wave aggregation stay on the CPU and are shared with
     :func:`simulate_one_twoasset` verbatim; only the solver differs.
     """
@@ -248,7 +255,7 @@ def simulate_batch_twoasset_gpu(
         if c == 0:
             calib = dataclasses.replace(calib, c0_credit=0.0, c1_credit=0.0,
                                         c2_credit=0.0)
-        spec = dataclasses.replace(GRIDS[grid], calib=calib)
+        spec = dataclasses.replace(GRIDS[grid], calib=calib, **(spec_overrides or {}))
         if liqpen_scale != 1.0:
             spec = dataclasses.replace(spec, liqpen_scale=float(liqpen_scale))
         if rg is not None:
@@ -272,7 +279,7 @@ def simulate_batch_twoasset_gpu(
                 x, alive = aggregate_waves(
                     panel, age_start_sim=AGE_START_SIM, start_age=start_age,
                     n_waves=n_waves, wave_years=wave_years,
-                    features=FEATURES_TWOASSET,
+                    features=FEATURES_TWOASSET, flow_lag=flow_lag,
                 )
                 xs[j], alives[j] = x, alive
                 if return_panels:

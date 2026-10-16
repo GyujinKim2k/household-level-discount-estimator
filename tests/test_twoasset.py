@@ -145,9 +145,12 @@ def test_unsolvable_states_are_deep_in_debt(sol):
     """
     bad = ~sol.solvable
     assert bad.any(), "expected some unaffordable corner states"
-    # Every unsolvable state has a negative liquid position.
+    # Every unsolvable state has a negative liquid position -- or, with
+    # MATLAB's infinities (RESULTS 55), none at all: from zero cash every
+    # affordable plan can force a year at zero consumption, worth -inf. Cash
+    # on hand includes the year's income, so households never hold zero.
     ix = np.nonzero(bad.any(axis=(0, 2, 3)))[0]
-    assert (sol.X[ix] < 0).all()
+    assert (sol.X[ix] < 0).all() if not TINY.matlab_infinities else (sol.X[ix] <= 0).all()
     # The forward pass must never land on one.
     panel = simulate(sol, n_households=32, seed=0)
     assert np.isfinite(panel["consumption"]).all()

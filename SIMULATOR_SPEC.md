@@ -153,6 +153,30 @@ affordable action (maximum debt, no illiquid buffer, near the terminal age).
 Their code lets `max` return an arbitrary index there. We expose a `solvable`
 mask instead, and assert the forward pass never reaches such a state.
 
+**Since the v2 regeneration (2026-10-16, RESULTS 55) the solver follows their
+code in three more places** (`ModelSpec` fields; `LEGACY_FIXES` restores the
+earlier behaviour, which every dataset before it was generated with):
+- *Income rounded when planning* (`round_income`). Income levels are
+  `exp(log(k·xjump))`, an ulp off the lattice; the forward pass rounds them,
+  so the expectation step now does too. Unrounded, a cash query midway
+  between two grid points snapped one way in the plan and the other in the
+  realised path (RESULTS 54.6, H7).
+- *MATLAB's infinities* (`matlab_infinities`). u(0) = −∞ for ρ ≥ 1 (no clamp
+  at 1e-9), an impossible choice is `u(max(c + dividend, 0)) − 1e100` as their
+  `ImpossibleC__`, and dying in debt or choosing an X' below next age's
+  credit limit is −∞ rather than a finite −1e30. A plan with any chance of a
+  year at zero consumption is then never taken. Where every choice is −∞ the
+  first point of next age's grid is chosen, as their `max` returns.
+  `solvable` means an affordable choice with a finite payoff.
+- *MATLAB's tie order* (`tie = "z_first"`). Among exactly tied payoffs their
+  `max` over X' then over Z' takes the lowest Z', then the lowest X'; the flat
+  argmax took the lowest X' first.
+
+With these, the port equals the independent reference model
+(`src/hh_npe/simulator/reference.py`) with the same options choice for
+choice, and that model reproduces their code exactly under their arithmetic
+(RESULTS 54.2, 55).
+
 **Floating-point precision is a modeling requirement, not an implementation
 detail.** The utility gap between adjacent liquid-grid points is
 `(C/hhs)^(−ρ)·xjump ≈ 1.1e−5` at typical consumption, while the continuation
@@ -431,16 +455,19 @@ and illiquid wealth.
 `flow_agg = "sum"` reproduces the pre-2026-09-04 behaviour and is retained only
 for Phase 1–2 artifacts.
 
-**Known residual.** PSID's stock and flow dates differ by about a year — the
-interview records wealth at the interview date but income for the prior
-calendar year — whereas this rule reads both from the same simulated year. The
-simulated stocks are start-of-year positions, i.e. already the interview's
-date, so it is the simulated **flows** that sit a year later than PSID's. It
-would be corrected by reading income and consumption one year earlier than the
-stocks, from the stored panel, with no regeneration. RESULTS 54 measures what
-the offset changes: levels and volatilities hardly at all, but the correlation
-of liquid wealth over income with the next wave's income change goes from
--0.05 (as generated) to -0.18 (PSID's timing). PSID's expenditure components are themselves split across
+**Flow timing (`flow_lag`; corrected for v2, RESULTS 55).** PSID's stock and
+flow dates differ by about a year — the interview records wealth at the
+interview date but income for the prior calendar year. The simulated stocks
+are start-of-year positions, i.e. already the interview's date, so reading
+both from one simulated year puts the simulated **flows** a year later than
+PSID's. `aggregate_waves(flow_lag=1)` reads income and consumption one year
+before the stocks; generation records the lag in `solver_config.json`
+(`--flow_lag`), and every consumer cuts its windows with the lag of the
+shards it reads (`optionA.windows_raw`), so data and training timing cannot
+drift apart. Data before v2 keep lag 0. RESULTS 54 measures what the offset
+changes: levels and volatilities hardly at all, but the correlation of
+liquid wealth over income with the next wave's income change goes from
+-0.05 (lag 0) to -0.18 (PSID's timing). PSID's expenditure components are themselves split across
 two reference years within one wave (food from the interview year, education and
 clothing from the year before), so no single choice makes the empirical series
 internally coherent in time.
@@ -459,9 +486,9 @@ sixteen target moments are wealth conditional on debt status** (§7). Dropping
 the identifying pattern is expensive borrowing held *simultaneously* with
 illiquid wealth. Output is `(n_households, n_waves, len(features))`, `float32`.
 
-`income` and `consumption` are flows; every other feature is a stock. Under the
-default `flow_agg = "last"` both are read from the window's final year, so the
-distinction affects only `flow_agg = "sum"`.
+`income` and `consumption` are flows; every other feature is a stock. Under
+`flow_agg = "last"` and `flow_lag = 0` both are read from the window's final
+year; `flow_lag = 1` (v2) reads the flows from the year before it.
 
 ### 6.3 Rebirth (single-lineage) filter
 HARK replaces dead agents with newborns (§5), so a raw window can splice two

@@ -8286,7 +8286,9 @@ Two thirds of liquid choices stay the same, but almost every path changes. As ge
 
 **H1: stocks and flows are a year apart from PSID's (`timing`).** A PSID wave reports wealth and age at the interview but income for the year before. The simulator reads both in one year, and its stocks are start-of-year positions — already the interview's date — so its flows are a year late. On 24,816 households in PSID couples' region, re-reading flows a year earlier leaves levels and volatilities nearly unchanged but moves one dynamic relation: the correlation of liquid wealth over income with the next wave's income change is −0.05 as generated and −0.18 under PSID's timing (wealth then already holds the year's saving out of a transitory shock that reverses). SIMULATOR_SPEC §6.2 described the stocks as end-of-year; corrected. Fixable by re-windowing from the stored panels and retraining, with no regeneration.
 
-**H2: seed-pool scale (`pool_scale`).** The pool stores wealth over mean income at the person's own age (20–24); the forward pass multiplies by age-20 mean income, so a person seen at 24 starts with 0.80 of their wealth. Started correctly, 47% of paths differ at 20 and 6–13% at 59, but window statistics barely move: illiquid wealth +0.7% to +8% in level, debt share ±0.001, consumption volatility −0.001.
+**H2: seed-pool scale (`pool_scale`).** The pool stores wealth over mean income at the person's own age (20–24); the forward pass multiplies by age-20 mean income, so a person seen at 24 starts with 0.80 of their wealth. Started with their own-age dollars instead, 47% of paths differ at 20 and 6–13% at 59, but window statistics barely move: illiquid wealth +0.7% to +8% in level, debt share ±0.001, consumption volatility −0.001.
+
+*Reclassified 2026-10-16 (§55): not a bug.* Every pool member is started at age 20, whatever age they were seen at. Their wealth relative to mean income at their own age is the age-normalised position, and it is Laibson et al.'s own seed convention: the median wealth over income at ages 20–24, times age-20 mean income (§42.2). It is also the convention of the pool's income column, which is relative to the own-age mean log income. Own-age dollars would start 20-year-olds with 24-year-olds' wealth while their income starts from a relative position. Left as is.
 
 **H8: β and R_gamma are not independent in the generated design (`h8_design`, `h8_impact`).** R_gamma is a 1-D Sobol value per block of 16 draws. The likely mechanism (not proved): within a block, the mixture's concentrated rows put β on [0.4, 1], where its Sobol strata do not line up with cells, and their offsets within the strata are set by the same bits of the block index as R_gamma. Permuting R_gamma across blocks, 400 times, never reproduces the observed imbalance (largest 4×4 cell deviation 0.0081 against at most 0.0022; p < 0.0025). On an 8 × 8 grid the switched part's weighted density over the assumed one runs 0.74–1.22; the uniform pilot is exactly 1. Reweighting PSID couples' A2n draws by its inverse moves posterior means by a median 0.002–0.005 posterior sd (90th percentile ≤ 0.013), medians not at all.
 
@@ -8302,7 +8304,7 @@ Two thirds of liquid choices stay the same, but almost every path changes. As ge
 | H1 flow timing vs PSID | no (our windowing) | levels unchanged; corr(liquid/income, next Δlog y) −0.05 vs −0.18 | read flows a year earlier | retraining only |
 | u(0) finite in the port | no (port) | ≤ 0.7% of an sd; window paths of 1–13% of indebted cardholders | −∞ as MATLAB | regeneration |
 | tie order | no (port) | none below ρ = 3.5 | MATLAB's order | regeneration |
-| H2 seed-pool scale | no (our seed pool) | illiquid +1–8% at 35–44; other statistics < 1% | scale by own-age income | regeneration |
+| H2 seed-pool scale | no (our seed pool) | illiquid +1–8% at 35–44; other statistics < 1% | none: on reflection the shared age-normalised convention, not a bug (reclassified in §55) | — |
 | H8 β × R_gamma design | no (our generation) | posteriors ≤ 0.013 sd | permute R_gamma across blocks | next generation |
 | phantom debt, caps | yes | ≤ 0.1% of household-years | — | — |
 
@@ -8314,7 +8316,7 @@ Two thirds of liquid choices stay the same, but almost every path changes. As ge
 - **Smaller:**
   - the grid's resolution of the debt margin;
   - our window's flow timing against PSID's (H1; retraining only);
-  - our seed pool's scale (H2);
+  - our seed pool's scale (H2; reclassified as a convention in §55);
   - the port's finite u(0);
   - our generation design (H8).
 
@@ -8328,3 +8330,128 @@ Two thirds of liquid choices stay the same, but almost every path changes. As ge
     reproduce; margins; parity; refine --n 4000; pool_scale; h8_impact
     fullgrid_ref; fullgrid_ref --matlab; fullgrid_ref --octave_levels; fullgrid_compare; fullgrid_l
     octave --no-gui --eval "run_lifecycle('cfg.json')"   # in scripts/laibson_octave
+
+## 55. Regeneration v2: the audit's fixes, launched unattended
+
+**Decision (user, 2026-10-16).** "let's regenerate the whole dataset. I can't stick to this work for 6days anyway bcs of the vacation. make sure everything is fixed that we found." The user's choices:
+- keep Laibson et al.'s grid;
+- train and evaluate automatically once the data exist;
+- no restart watchdog;
+- audit fixes only, no parked model change, so v2 pairs with v1 draw by draw.
+
+The noise-method discussion comes after the user returns. Noise enters at training (`--obs_noise`), so generation does not depend on it.
+
+### 55.1 What changed
+
+Each fix is a `ModelSpec` field or a generation flag, defaulting to the fixed behaviour. `twoasset.LEGACY_FIXES` restores the solver every earlier dataset came from. `solver_config.json` records every key, so no v1 directory can be resumed under v2.
+
+| item (§54) | v2 | where |
+|---|---|---|
+| H7, income unrounded when planning | `round_income`: the expectation step uses the rounded levels the forward pass realises | `solve_batch`, `twoasset._expectation_step` |
+| u(0) finite in the port | `matlab_infinities`: their `_BackwardInduct.m` exactly. u(0) = −∞ for ρ ≥ 1; impossible choices are `u(max(c + dividend, 0)) − 1e100`; dying in debt and unaffordable X' are −∞; where every choice is −∞, the first point of next age's grid, as their `max` returns | both solvers |
+| tie order | `tie = "z_first"`, their `max` then `max` | `_first_argmax` keys; `twoasset._choice` |
+| H8, β and R_gamma dependent | `--rgamma_permute`: the per-block Sobol R_gamma values are shuffled across blocks (seed + 3); same values, independent of the block index | `generate_dataset._per_block_rgamma` |
+| H1, flows a year late against PSID | `--flow_lag 1`: income and consumption are read a year before the stocks. The lag is recorded with the shards, and every consumer cuts windows with its shards' lag (`optionA.windows_raw`); members record it, and `check_flow_lag` refuses to score them on shards of another timing | `waves.aggregate_waves`, `windows.py`, `optionA.py` |
+
+**Guards that the infinities need.** 0 · −∞ is NaN, so:
+- the naive value's `(1 − β̂)·δ·EV` term is skipped at β̂ = 1;
+- a β = 1 draw inside a present-biased batch adds 0 · EV only where it is finite;
+- every income weight and Tauchen probability is asserted positive;
+- V is checked for NaN at every age;
+- the illiquid valuation shock of §44 (option A3's branch) has exact zeros in its matrix, so its contraction sums the finite terms and restores −∞ wherever a −∞ is reached with positive weight.
+
+`solvable` now means an affordable choice with a finite payoff.
+
+### 55.2 Not changed, and why
+
+- **H2 is reclassified: not a bug.** Every pool member starts at age 20, whatever age they were seen at. Their wealth over mean income at their own age is an age-normalised position. That is Laibson et al.'s own seed convention (median wealth over income at 20–24, times age-20 mean income, §42.2), and the convention of the pool's income column. Own-age dollars would start 20-year-olds with 24-year-olds' wealth while their income starts from a relative position. §54.6 and §54.7 are amended.
+- **Grid:** kept, the user's decision. One doubling does not converge, and the two axes move the debt share in opposite directions (§54.6).
+- **Caps** (no effect when doubled) and **phantom debt** (0.014% of household-years): inherited and negligible.
+
+### 55.3 Gates before launch
+
+All pass. Commands are under *Reproduce*.
+
+1. **Tests.** The whole suite passes; GPU tests ran with the card free. New: `tests/test_regen_v2_fixes.py`.
+   - On the coarse grid, CPU v2 equals R with the same options (centred, z_first, rounded income) at ρ 4.6 and at no-card ρ 5: identical choices, identical paths.
+   - GPU equals CPU in a present-biased batch that holds a β = 1 draw.
+   - `LEGACY_FIXES` reproduces the solver at commit 988cba2, by fingerprint.
+   - `flow_lag` reads flows at `t1 − 2` and stocks at `t1 − 1`.
+   - The R_gamma shuffle keeps the values and is independent of the block index.
+
+   Updated: two tests whose premise v2 changes. Unsolvable states may now sit at zero cash, where every plan forces a −∞ year. A fake-shard test now stubs the lag.
+2. **Coarse grid, the 10 θ of §54.2** (`v2_coarse`), on L's own shocks:
+   - R's forward pass on L's policies still reproduces L's panels at every θ.
+   - L = R where MATLAB's arithmetic resolves the choice: 100% at seven θ, and the float-resolution failures at ρ 3.5, 4.6 and no-card ρ 5, exactly as in §54.2.
+   - **R v2 = P v2 (CPU) at 100% of states and 0 of 2,000 paths at all 10 θ.**
+   - GPU v2 = CPU v2 at 100% of solvable states; consumption within 6e-11 dollars.
+3. **Full grid** (`v2_fullgrid`), at Laibson et al.'s θ and at (0.6, 0.98, 2.7) in PSID couples' region, 3.2M states: **R v2 = production v2 at 100% of choices; 0 of 4,000 households' paths differ.** The window statistics equal §54.6's rounded-income rows to the last digit, so at these θ the tie order and the infinities change nothing H7 does not.
+
+   | | illiquid / mean income | share in debt | > 2% of mean income | mean debt, all / debtors | sd Δlog c |
+   |---|---|---|---|---|---|
+   | Laibson θ, v1 production | 2.016 | 0.563 | 0.549 | 0.123 / 0.218 | 0.211 |
+   | Laibson θ, v2 | 1.973 | 0.538 | 0.512 | 0.116 / 0.215 | 0.210 |
+   | couples' region, v1 production | 1.449 | 0.525 | 0.513 | 0.113 / 0.215 | 0.211 |
+   | couples' region, v2 | 1.392 | 0.503 | 0.483 | 0.108 / 0.215 | 0.210 |
+4. **Margins, v2** (`--solver v2 margins`), at the 60 corner θ of §54.3:
+   - no visited decision below 1e-12 of its payoff's scale, behaviour or value, and no exact ties;
+   - the smallest 1st percentile is 5.6e-8 (no card, δ 0.9995), eight orders above float64's resolution;
+   - each θ solved alone and in its batch is identical at 100%;
+   - no NaN.
+5. **Legacy reproduction** (`reproduce`). The 4 stored v1 blocks re-solve **bit-identically** under `LEGACY_FIXES`, through generation and through `margins`. v1's results stay reproducible.
+6. **Smoke run of the whole chain** (`SMOKE=<dir> scripts/run_regen_v2.sh`): shards of 32 draws, 1 member, 1 epoch.
+   - Every stage ran to `DONE`.
+   - Integrity: OK. Invariants: budget exact (largest gap 5.8e-11 dollars), no zero-consumption year.
+   - The SBC set ran at 11.0 s per draw.
+   - Two fixes came out of it:
+     - the invariants gate had counted cardholders snapped below their limit as a failure, but this is §54.4's inherited phantom debt (v1: 254 household-years). It is now bounded at 0.1% of household-years (v1: 0.015%);
+     - the noise calibration needs at least 400 windows per cell, which only the full run has, so the smoke run used A2n's file there. Rerun on v1's shards through the new `--shards` argument, the calibration reproduces A2n's σ ranges and per-feature results exactly.
+
+### 55.4 The run
+
+| directory (`data/processed/`) | draws | proposal, seed | R_gamma |
+|---|---|---|---|
+| `couples_v2_dataset_shards` | 32,768 | a2_switched, 0 | 1.025–1.075 |
+| `couples_v2_strip_dataset_shards` | 3,072 | a2_strip, 100000 | 1.021–1.025 |
+| `optionA2v2_sbc16_shards` | 1,024 | uniform, 40,000,000 | 1.021–1.075 |
+| `optionA2v2_sbc16_liqpen{050,150}_shards` | 512 each | as the SBC set, penalty ×0.5 and ×1.5 | as the SBC set |
+
+The θ sequences, card draws, seeds, seed pool and generation settings are all v1's: full grid, V100, theta_batch 16, chunk 16, 16 households per draw, stored panels. v2 therefore pairs with v1 draw by draw in (β, δ, ρ), card, shocks and starting states; only R_gamma per block is re-assigned (H8). v1's data are untouched.
+
+`scripts/run_regen_v2.sh` runs the whole chain:
+1. The SBC and penalty sets first (about 7 h), then the audit's `integrity` and `invariants` on them, strict. A flaw stops the chain before the long run.
+2. The main run (about 4.85 d) and the strip (about 11 h), then both checks on all five sets.
+3. `noise_calibration.py` on v2, then five members in A2n's configuration (logit β and R_gamma, noise from step 3).
+4. PSID posteriors for couples and all 889, the held-out check, and SBC with the paired penalty shifts.
+5. Figures:
+   - 66, simulated household, 68/95% contours;
+   - 67, PSID household;
+   - 68, per-household posterior means against A2n;
+   - 69, SBC.
+6. `compare_regen_v2.py`: RESULTS 1's headline rows and the paired per-household shifts against A2n.
+
+Every stage appends to `outputs/regen_v2/STATUS`, and a failure writes `FAILED <stage>` and stops. Rerunning the launch command resumes from finished shards and checkpoints.
+
+**Expected.**
+- Generation: about 5.5 days at the smoke run's 11–13 s per draw.
+- Calibration, training and evaluation: about 6 h.
+
+If the machine or the job dies, nothing restarts it (the user declined a watchdog); the launch command resumes.
+
+**On return:**
+- `outputs/regen_v2/STATUS`, and the logs `logs/regen_v2_*.log`;
+- `outputs/audit/integrity_{sbc,all}.json` and `invariants_{sbc,all}.json`;
+- `outputs/optionA2v2/` (`noise_calibration.json`, `heldout_check.json`, `sbc/`, `comparison.json`);
+- figures 66–69.
+
+The posteriors are written up after that review. Figure 67's `.npz` holds PSID-derived values and stays uncommitted, like 59's.
+
+**Reproduce.**
+
+    nohup setsid ./scripts/run_regen_v2.sh >> logs/regen_v2.log 2>&1 &     # the run (resumes)
+    SMOKE=<dir> ./scripts/run_regen_v2.sh                                      # gate 6
+    PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_regen_v2_fixes.py   # gate 1, new tests
+    PYTHONPATH=.:src .venv/bin/python scripts/audit_simulation.py --solver v2 v2_coarse      # gate 2
+    PYTHONPATH=.:src .venv/bin/python scripts/audit_simulation.py --solver v2 v2_fullgrid    # gate 3
+    PYTHONPATH=.:src .venv/bin/python scripts/audit_simulation.py --solver v2 margins        # gate 4
+    PYTHONPATH=.:src .venv/bin/python scripts/audit_simulation.py reproduce                  # gate 5

@@ -116,6 +116,7 @@ def aggregate_waves(
     wave_years: int = 2,
     features: tuple[str, ...] = FEATURES,
     flow_agg: str = "last",
+    flow_lag: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Collapse an annual simulation panel to an ``(N, n_waves, n_features)`` tensor.
 
@@ -142,6 +143,12 @@ def aggregate_waves(
         wave's final year, matching PSID's single-year income report) or
         ``"sum"`` (window total, the pre-2026-09-04 behaviour). See
         :data:`FLOW_AGG`. Identical at ``wave_years = 1``.
+    flow_lag
+        Years by which flows are read *before* the stocks (RESULTS 54.6, H1).
+        The panel's stocks are start-of-year positions -- the interview's
+        date -- while PSID reports income for the calendar year before the
+        interview, so ``1`` puts simulated flows on PSID's timing. ``0``, the
+        default, reads both in one year, as every dataset before 2026-10-16.
 
     Returns
     -------
@@ -155,6 +162,8 @@ def aggregate_waves(
         raise ValueError(f"wave_years must be >= 1; got {wave_years}")
     if flow_agg not in FLOW_AGG:
         raise ValueError(f"flow_agg must be one of {FLOW_AGG}; got {flow_agg!r}")
+    if flow_lag < 0:
+        raise ValueError(f"flow_lag must be >= 0; got {flow_lag}")
 
     missing = [f for f in features if f not in panel]
     if missing:
@@ -164,6 +173,9 @@ def aggregate_waves(
     N, T = panel[features[0]].shape
     t_start = start_age - age_start_sim
     t_end = t_start + wave_years * n_waves
+    if t_start - flow_lag < 0:
+        raise ValueError(f"start_age {start_age} with flow_lag {flow_lag} reads flows "
+                         f"before the simulator's first age {age_start_sim}")
     if t_end > T:
         raise ValueError(
             f"Observation window ages {start_age}..{start_age + t_end - t_start - 1} "
@@ -178,16 +190,18 @@ def aggregate_waves(
         t1 = t0 + wave_years  # exclusive
         for k, name in enumerate(features):
             series = panel[name]
+            lag = flow_lag if name in FLOWS else 0
             if name in FLOWS and flow_agg == "sum":
-                x[:, w, k] = series[:, t0:t1].sum(axis=1)
+                x[:, w, k] = series[:, t0 - lag:t1 - lag].sum(axis=1)
             else:
                 # Flows under "last", and every stock, are read at the final
-                # year of the wave -- the survey's reference year.
-                x[:, w, k] = series[:, t1 - 1]
+                # year of the wave -- the survey's reference year -- flows
+                # ``flow_lag`` years earlier.
+                x[:, w, k] = series[:, t1 - 1 - lag]
 
         # Rebirth detection: t_age must be monotonically non-decreasing across
         # the window (and across the boundary from the prior period if any).
-        check_start = max(t0 - 1, 0)
+        check_start = max(t0 - 1 - flow_lag, 0)
         window_t_age = t_age[:, check_start:t1]
         diffs = np.diff(window_t_age, axis=1)
         alive[:, w] = (diffs >= 0).all(axis=1)

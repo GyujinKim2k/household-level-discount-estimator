@@ -179,6 +179,8 @@ def describe_cell(c: int, reg: dict) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--shards", type=Path, nargs="+", default=[MAIN, STRIP],
+                    help="The training runs' shard directories (main run, then strip).")
     ap.add_argument("--every", type=int, default=2, help="Use every n-th shard.")
     ap.add_argument("--n_boot", type=int, default=200)
     ap.add_argument("--out", type=Path, default=OUT)
@@ -200,7 +202,7 @@ def main() -> None:
                  "illiquid_assets": ~m["illiquid"]}
         print(f"PSID masked at tau {args.mask_tau}: " + ", ".join(
             f"{f} {1 - c.mean():.3f}" for f, c in clean.items()))
-    theta, card, train, held, _p, cfg = oa.load_shards([MAIN, STRIP])
+    theta, card, train, held, _p, cfg = oa.load_shards(args.shards)
     box = oa.box_of(cfg)
     files = (train + held)[::args.every]
     th, x, pid = oa.windows_raw(files, theta, seed=oa.HELD_SEED)

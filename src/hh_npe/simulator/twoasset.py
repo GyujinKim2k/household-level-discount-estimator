@@ -98,6 +98,33 @@ class ModelSpec:
     #: Laibson et al.'s model, where Z moves only by deposits and withdrawals,
     #: and leaves the solve and the simulation exactly as before.
     z_return_sd: float = 0.0
+    #: Income levels in the expectation step rounded to whole dollars, the
+    #: values the forward pass realises (RESULTS 54.6, H7). Laibson et al.'s
+    #: levels are ``exp(log(k * xjump))``, an ulp off the lattice either way
+    #: depending on the maths library; at cash-grid midpoints the plan then
+    #: snaps one way and the realised path the other. False reproduces every
+    #: dataset generated before 2026-10-16.
+    round_income: bool = True
+    #: MATLAB's infinities (RESULTS 54.2): u(0) = -inf for rho >= 1 (no
+    #: clamp at 1e-9), an impossible choice ``u(max(c + dividend, 0)) - 1e100``,
+    #: and -inf for dying in debt or choosing an unaffordable X'. A plan with
+    #: any chance of a year at zero consumption is then never worth it, as in
+    #: their ``_BackwardInduct.m``. False keeps the earlier finite sentinels.
+    matlab_infinities: bool = True
+    #: Which of exactly tied (X', Z') choices wins: ``"z_first"``, MATLAB's
+    #: ``max`` over X' then over Z' (lowest Z', then lowest X'), or
+    #: ``"x_first"``, the flat argmax earlier datasets used (lowest X' first).
+    tie: str = "z_first"
+
+    def __post_init__(self) -> None:
+        if self.tie not in ("z_first", "x_first"):
+            raise ValueError(f"tie must be 'z_first' or 'x_first'; got {self.tie!r}")
+
+
+#: The solver settings of every dataset generated before 2026-10-16 (option
+#: A2's v1 data included): ``dataclasses.replace(spec, **LEGACY_FIXES)``
+#: reproduces them bit for bit.
+LEGACY_FIXES = {"round_income": False, "matlab_infinities": False, "tie": "x_first"}
 
 
 #: Gauss-Hermite nodes for the illiquid valuation shock (``z_shock_matrix``).
@@ -176,11 +203,19 @@ class Solution:
     prefs: tuple[float, float, float] = field(default=(1.0, 1.0, 1.0))
 
 
-def _crra(c: np.ndarray, hhs: float, rho: float, ref: float = 1.0) -> np.ndarray:
+def _crra(c: np.ndarray, hhs: float, rho: float, ref: float = 1.0,
+          floor: float = 1e-9) -> np.ndarray:
     """Per-period utility ``hhs * u(c / hhs)`` with CRRA ``rho``, centred at
     consumption ``ref`` per adult equivalent (``ModelSpec.crra_centred``).
-    ``ref = 1`` is the textbook form and reproduces it bit for bit."""
-    c = np.maximum(c, 1e-9)
+    ``ref = 1`` is the textbook form and reproduces it bit for bit.
+    ``floor = 0`` gives MATLAB's u(0): -inf for rho >= 1."""
+    if floor == 0.0:
+        with np.errstate(divide="ignore"):
+            return _crra_raw(np.maximum(c, 0.0), hhs, rho, ref)
+    return _crra_raw(np.maximum(c, floor), hhs, rho, ref)
+
+
+def _crra_raw(c: np.ndarray, hhs: float, rho: float, ref: float) -> np.ndarray:
     if ref == 1.0:
         if abs(rho - 1.0) < 1e-9:
             return hhs * np.log(c / hhs)
@@ -212,6 +247,7 @@ def _age_step(
     EV: np.ndarray, A: np.ndarray, B: np.ndarray, Z: np.ndarray,
     beta: float, delta: float, rho: float, betahat: float,
     hhs: float, R_gamma: float, spec: ModelSpec, ref: float = 1.0,
+    first_allowed: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """One backward-induction step.
 
@@ -247,12 +283,17 @@ def _age_step(
     live = EV_flat > NEG / 2
     ev_ref = np.where(live.any(axis=0), np.where(live, EV_flat, -np.inf).max(axis=0), 0.0)
 
+    inf_mode = spec.matlab_infinities
     for lo in range(0, nX, spec.chunk):
         hi = min(lo + spec.chunk, nX)
         # C[i, a, j, b] over this chunk of current liquid-asset rows.
         C = A[lo:hi, None, :, None] + B[None, :, None, :]
-        u = _crra(C + dividend[None, :, None, None], hhs, rho, ref).astype(spec.dtype)
-        u[C < 0.0] = NEG  # cannot consume negative amounts
+        u = _crra(C + dividend[None, :, None, None], hhs, rho, ref,
+                  floor=0.0 if inf_mode else 1e-9).astype(spec.dtype)
+        if inf_mode:
+            u -= 1e100 * (C < 0.0)  # their ``- 1e100*ImpossibleC__``
+        else:
+            u[C < 0.0] = NEG  # cannot consume negative amounts
         C4 = C.reshape(hi - lo, nZ, nX, nZ)
         u4 = u.reshape(hi - lo, nZ, nX, nZ)
         u = u.reshape(hi - lo, nZ, nX * nZ)
@@ -261,26 +302,32 @@ def _age_step(
             ev = EV_flat[:, s]
             ev_c = (ev - ev_ref[s]).astype(spec.dtype)
             payoff = u + (beta * delta) * ev_c[None, None, :]
-            best = payoff.argmax(axis=-1)
+            jx, jz = _choice(payoff, nX, nZ, spec.tie)
+            rows = np.arange(hi - lo)[:, None]
+            cols = np.arange(nZ)[None, :]
+            best_pay = payoff.reshape(hi - lo, nZ, nX, nZ)[rows, cols, jx, jz]
+            if inf_mode:
+                # Every choice -inf: their max returns the first point of next
+                # age's grid (lowest affordable X', Z' = 0). Unaffordable X'
+                # are -inf here too and must not win.
+                none = np.isneginf(best_pay)
+                jx, jz = np.where(none, first_allowed, jx), np.where(none, 0, jz)
+            next_x[lo:hi, :, s] = jx
+            next_z[lo:hi, :, s] = jz
+            cons[lo:hi, :, s] = C4[rows, cols, jx, jz]
             # A state is unsolvable when every (X', Z') is unaffordable; their
             # code lets ``max`` return an arbitrary index there. Such states are
             # unreachable in the forward pass, but must not be asserted over.
-            solvable[lo:hi, :, s] = (
-                np.take_along_axis(payoff, best[..., None], -1).squeeze(-1) > NEG / 2
-            )
-            jx, jz = np.divmod(best, nZ)
-            next_x[lo:hi, :, s] = jx
-            next_z[lo:hi, :, s] = jz
-            rows = np.arange(hi - lo)[:, None]
-            cols = np.arange(nZ)[None, :]
-            cons[lo:hi, :, s] = C4[rows, cols, jx, jz]
+            # With MATLAB's infinities an impossible choice (-1e100) can beat a
+            # possible one worth -inf, so affordability is checked directly.
+            solvable[lo:hi, :, s] = ((cons[lo:hi, :, s] >= 0.0) & np.isfinite(best_pay)
+                                     if inf_mode else best_pay > NEG / 2)
 
             if naive:
                 # Re-optimize under the *believed* future discounting; the value
                 # handed to the previous self is evaluated at that policy.
                 bhat = u + (betahat * delta) * ev_c[None, None, :]
-                best_hat = bhat.argmax(axis=-1)
-                jxh, jzh = np.divmod(best_hat, nZ)
+                jxh, jzh = _choice(bhat, nX, nZ, spec.tie)
                 V[lo:hi, :, s] = (
                     u4[rows, cols, jxh, jzh].astype(np.float64)
                     + delta * ev.reshape(nX, nZ)[jxh, jzh]
@@ -295,8 +342,22 @@ def _age_step(
 
         del C, C4, u, u4
 
-    np.maximum(V, NEG, out=V)
+    if not inf_mode:
+        np.maximum(V, NEG, out=V)
     return next_x, next_z, cons, solvable, V
+
+
+def _choice(payoff: np.ndarray, nX: int, nZ: int, tie: str) -> tuple[np.ndarray, np.ndarray]:
+    """``(jx, jz)`` of the maximum over the last axis, flat ``jx * nZ + jz``.
+    ``np.argmax`` returns the first maximum, so the axis order sets which of
+    exactly tied choices wins: lowest X' first (``"x_first"``), or MATLAB's
+    ``max`` then ``max``, lowest Z' first (``"z_first"``)."""
+    if tie == "x_first":
+        return np.divmod(payoff.argmax(axis=-1), nZ)
+    lead = payoff.shape[:-1]
+    k = payoff.reshape(*lead, nX, nZ).swapaxes(-1, -2).reshape(*lead, nZ * nX).argmax(axis=-1)
+    jz, jx = np.divmod(k, nX)
+    return jx, jz
 
 
 def solve(
@@ -340,6 +401,8 @@ def solve(
     mean_hhs, mean_hhy = hhs.mean(), ylevel.mean()
     ref = utility_ref(spec, mean_hhs, mean_hhy)
     Mz = z_shock_matrix(Z, spec.z_return_sd) if spec.z_return_sd > 0 else None
+    if spec.matlab_infinities and not (P > 0).all():
+        raise FloatingPointError("a zero transition probability would make 0 * -inf")
 
     # Cost today of holding X[j] tomorrow: saved at R, borrowed at R_CC.
     cost_next = np.maximum(X / spec.R, 0.0) + np.minimum(X / spec.R_CC, 0.0)
@@ -351,6 +414,9 @@ def solve(
     cons = np.empty((T, nX, nZ, nS), dtype=spec.dtype)
     solvable = np.empty((T, nX, nZ, nS), dtype=bool)
 
+    # Their code has no grid points below the credit limit at all and -inf for
+    # dying in debt; the finite sentinel is the earlier datasets' convention.
+    off = -np.inf if spec.matlab_infinities else NEG
     EV = None
     for t in range(T - 1, -1, -1):
         beq = _bequest_utility(
@@ -360,7 +426,7 @@ def solve(
             # Terminal: continuation value is the bequest, and the no-Ponzi
             # condition forbids dying in debt.
             EV = np.repeat(beq[:, :, None], nS, axis=2)
-            EV[X < 0.0, :, :] = NEG
+            EV[X < 0.0, :, :] = off
 
         B = (-dZ + zliqpen[t] * np.minimum(dZ, 0.0)).astype(spec.dtype)
         A = A_full.copy()
@@ -368,16 +434,18 @@ def solve(
         # terminal age the grid is its own successor (their ``nextX_ = X_``).
         allowed = feasible[t + 1] if t < T - 1 else feasible[t]
         EV_t = EV.copy()
-        EV_t[~allowed, :, :] = NEG
+        EV_t[~allowed, :, :] = off
 
         nx, nz, c, ok, V = _age_step(
             EV_t, A, B, Z, beta, delta, rho, spec.betahat,
-            float(hhs[t]), spec.R_gamma, spec, ref
+            float(hhs[t]), spec.R_gamma, spec, ref, int(np.flatnonzero(allowed)[0])
         )
         next_x[t], next_z[t], cons[t], solvable[t] = nx, nz, c, ok
 
         if t > 0:
-            V[~feasible[t], :, :] = NEG
+            V[~feasible[t], :, :] = off
+            if spec.matlab_infinities and np.isnan(V).any():
+                raise FloatingPointError(f"NaN in V at age index {t}")
             EV = _expectation_step(
                 V, X, ymean[t], states, P, spec, xmin[t], nX, nZ, nS, Mz
             )
@@ -408,7 +476,15 @@ def _expectation_step(
     leaves ``V`` untouched.
     """
     if Mz is not None:
-        V = np.einsum("ab,xbs->xas", Mz, V)
+        if spec.matlab_infinities:
+            # The shock matrix has exact zeros and 0 * -inf is NaN: sum the
+            # finite part, then -inf wherever a -inf is reached with weight.
+            dead = np.isneginf(V)
+            reach = np.einsum("ab,xbs->xas", (Mz > 0).astype(float), dead.astype(float))
+            V = np.einsum("ab,xbs->xas", Mz, np.where(dead, 0.0, V))
+            V[reach > 0] = -np.inf
+        else:
+            V = np.einsum("ab,xbs->xas", Mz, V)
     # V_shift[s2] = E_nu[ V(X + nu, Z, s2) ]
     V_shift = np.empty((nS, nX, nZ), dtype=np.float64)
     for s2 in range(nS):
@@ -417,6 +493,10 @@ def _expectation_step(
             xjump=spec.xjump, xmax=spec.xmax, xmin=xmin_t, c=spec.calib,
             disrupt_p=spec.disrupt_p, disrupt_mult=spec.disrupt_mult,
         )
+        if spec.round_income:
+            levels = np.round(levels)  # what the forward pass realises
+        if spec.matlab_infinities and not (probs > 0).all():
+            raise FloatingPointError("a zero income weight would make 0 * -inf")
         acc = np.zeros((nX, nZ), dtype=np.float64)
         for p, y in zip(probs, levels):
             acc += p * V[_nearest_index(X, X + y), :, s2]

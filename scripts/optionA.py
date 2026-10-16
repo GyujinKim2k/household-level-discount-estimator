@@ -378,12 +378,35 @@ def windows_raw(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=(), mas
     out = []
     for off, paths in groups.items():
         th, x, pid = build_windowed(paths, theta_all[off:], k=1, seed=seed + off,
-                                    **{**WINDOW, "n_waves": n_waves})
+                                    **{**WINDOW, "n_waves": n_waves},
+                                    flow_lag=flow_lag_of(paths))
         x = add_obs_noise(x, noise, seed=NOISE_SEED + seed + off)
         if mask is not None:
             x = add_imputation_mask(x, mask, seed=MASK_SEED + seed + off)
         out.append((th, x, pid + off))
     return tuple(torch.cat(t) for t in zip(*out))
+
+
+def flow_lag_of(paths) -> int:
+    """The flow lag the shards' generation recorded (``generate_dataset
+    --flow_lag``; 0 for every run before RESULTS 55), refusing a mix."""
+    lags = {json.loads((Path(p).parent / "solver_config.json").read_text()).get("flow_lag", 0)
+            for p in paths}
+    if len(lags) != 1:
+        raise SystemExit(f"shards with different flow lags {sorted(lags)} in one run")
+    return int(lags.pop())
+
+
+def check_flow_lag(cfg: dict, files) -> None:
+    """Refuse to score members on windows of another timing: ``cfg`` is the
+    members' config (:func:`load_members`), ``files`` the shards whose windows
+    they are about to see."""
+    member = cfg.get("window", {}).get("flow_lag", 0)
+    paths = [f.path if isinstance(f, Shard) else Path(f) for f in files]
+    data = {flow_lag_of([p]) for p in paths}
+    if data != {member}:
+        raise SystemExit(f"members were trained with flow_lag {member}; these shards "
+                         f"were generated with {sorted(data)}")
 
 
 def windows(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=(), mask=None):
@@ -575,12 +598,15 @@ def train(args) -> None:
     if spec.masked:
         extra["imputation_mask"] = dict(zip(("patterns", "tau", "sha256"),
                                             spec.imputation_mask, strict=True))
+    # Recorded only when used, so a run like those before writes the same config.
+    lag = {"flow_lag": flow_lag_of([f.path for f in train_f])}
+    lag = lag if lag["flow_lag"] else {}
     (out / "results.json").write_text(json.dumps({"_config": {
         "shards": str(args.shards[0]) if len(args.shards) == 1 else list(map(str, args.shards)),
         "train_shards": args.train_shards,
         "proposal": proposal, "box": list(BOX.names), "delta_transform": True,
         "beta_transform": spec.beta_transform, **extra,
-        "window": {**WINDOW, "n_waves": args.n_waves}, "features": list(feats),
+        "window": {**WINDOW, "n_waves": args.n_waves, **lag}, "features": list(feats),
         "anchor_log": True,
         "mean_income_channel": True, "static_norm_channels": list(STATIC),
         "card": "marginalised", "arch": ARCH, "max_epochs": args.max_epochs,

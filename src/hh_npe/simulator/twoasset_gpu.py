@@ -46,9 +46,24 @@ def _nearest_index_np(grid: np.ndarray, values: np.ndarray) -> np.ndarray:
     return np.where(values - left < right - values, idx - 1, idx)
 
 
+def _choice_keys(nX: int, nZ: int, tie: str, device) -> "torch.Tensor":
+    """The tie-break key of each flat choice ``jx * nZ + jz`` for
+    :func:`_first_argmax`: the flat index itself (``"x_first"``, lowest X'
+    first), or ``jz * nX + jx`` (``"z_first"``, MATLAB's lowest Z' first)."""
+    k = torch.arange(nX * nZ, dtype=torch.int32, device=device)
+    return k if tie == "x_first" else (k % nZ) * nX + k // nZ
+
+
+def _from_key(key: "torch.Tensor", nX: int, nZ: int, tie: str) -> "torch.Tensor":
+    """The flat choice index ``jx * nZ + jz`` of a :func:`_choice_keys` key."""
+    return key if tie == "x_first" else (key % nX) * nZ + key // nX
+
+
 def _first_argmax(payoff: "torch.Tensor", ar: "torch.Tensor") -> "torch.Tensor":
     """Index of the maximum along the last axis, **ties resolved to the lowest
-    index** -- the rule ``np.argmax`` follows, and therefore the CPU solver's.
+    key** in ``ar`` (:func:`_choice_keys`); with the flat index as key, the
+    rule ``np.argmax`` follows, and therefore the CPU solver's. The result is
+    the winning *key*; :func:`_from_key` maps it back to the choice.
 
     ``torch.argmax`` leaves the choice among tied entries to the reduction
     order, which varies with tensor shape, batch size and GPU architecture. That
@@ -74,14 +89,16 @@ def _plan_batching(nX: int, nZ: int, theta_batch: int, chunk: int,
     batch, plus ``u`` and ``payoff`` for every theta in it -- and, inside
     :func:`_first_argmax`, a bool mask (1/8 slab) and an int32 index temporary
     (1/2 slab) per theta. That is ``2.625 * B + 2`` slabs of
-    ``chunk * nZ * nX * nZ`` float64 elements. Counting only ``B + 2``
-    overestimates what fits by more than a factor of two, which an 80 GB card
-    absorbs silently and a 16 GB one turns into an OOM mid-run.
+    ``chunk * nZ * nX * nZ`` float64 elements, plus one for the impossible-
+    choice penalty under ``ModelSpec.matlab_infinities``, always counted.
+    Counting only ``B + 2`` overestimates what fits by more than a factor of
+    two, which an 80 GB card absorbs silently and a 16 GB one turns into an
+    OOM mid-run.
     """
     free, _total = torch.cuda.mem_get_info(torch.device(device))
     budget = free * 0.70  # leave headroom for workspace and fragmentation
     per_slab = chunk * nZ * nX * nZ * 8
-    max_b = max(1, int((int(budget / per_slab) - 2) / 2.625))
+    max_b = max(1, int((int(budget / per_slab) - 3) / 2.625))
     if theta_batch > max_b:
         theta_batch = max_b
     return theta_batch, chunk
@@ -93,7 +110,12 @@ def _margin(payoff, best, u_flat, ev_scaled_abs) -> np.ndarray:
     top = payoff.topk(2, dim=-1).values
     scale = (u_flat.gather(-1, best[..., None]).abs()
              + ev_scaled_abs.expand_as(payoff).gather(-1, best[..., None])).squeeze(-1)
-    return ((top[..., 0] - top[..., 1]) / scale.clamp_min(1e-300)).float().cpu().numpy()
+    rel = (top[..., 0] - top[..., 1]) / scale.clamp_min(1e-300)
+    # With MATLAB's infinities: a finite best over a -inf runner-up is decided
+    # by any margin (+inf); where even the best is -inf there is no decision.
+    rel = torch.where(torch.isinf(top[..., 1]) | ~torch.isfinite(top[..., 0]),
+                      torch.full_like(rel, np.inf), rel)
+    return rel.float().cpu().numpy()
 
 
 #: Below this, ``(x**(1-rho) - 1) / (1-rho)`` is replaced by its limit,
@@ -172,6 +194,13 @@ def solve_batch(
     Z_np = grids.illiquid_grid(spec.zjump, spec.zmax, spec.z_cells_per_step)
     states_np, P_np = grids.tauchen(n_states=spec.n_income_states, c=spec.calib)
     nX, nZ, nS = len(X_np), len(Z_np), spec.n_income_states
+    # ModelSpec.matlab_infinities: -inf where earlier datasets used the finite
+    # sentinel NEG. Every product with a -inf below must then have a strictly
+    # positive weight, or 0 * -inf turns a value into NaN.
+    inf_mode = spec.matlab_infinities
+    off = -np.inf if inf_mode else NEG
+    if inf_mode and not (P_np > 0).all():
+        raise FloatingPointError("a zero transition probability would make 0 * -inf")
 
     hhs = grids.effective_hh_size(age, spec.calib)
     ymean = grids.mean_log_income(age, spec.calib)
@@ -208,6 +237,10 @@ def solve_batch(
                 c=spec.calib, disrupt_p=spec.disrupt_p,
                 disrupt_mult=spec.disrupt_mult,
             )
+            if spec.round_income:
+                levels = np.round(levels)  # what the forward pass realises (H7)
+            if inf_mode and not (probs > 0).all():
+                raise FloatingPointError("a zero income weight would make 0 * -inf")
             idx = np.stack([_nearest_index_np(X_np, X_np + y) for y in levels])
             per_state.append((
                 torch.as_tensor(probs, dtype=f64, device=dev),
@@ -221,8 +254,8 @@ def solve_batch(
     Mz = (torch.as_tensor(z_shock_matrix(Z_np, spec.z_return_sd), dtype=f64, device=dev)
           if spec.z_return_sd > 0 else None)
 
-    # Choice index for the tie-break in _first_argmax; broadcasts over (B, ., ., K).
-    ar_choice = torch.arange(nX * nZ, dtype=torch.int32, device=dev)
+    # Tie-break key per choice for _first_argmax; broadcasts over (B, ., ., K).
+    ar_choice = _choice_keys(nX, nZ, spec.tie, dev)
 
     theta_batch, chunk = _plan_batching(nX, nZ, theta_batch, chunk, device)
     n_total = thetas.shape[0]
@@ -276,11 +309,12 @@ def solve_batch(
 
             if t == T - 1:
                 EV = beq[:, :, :, None].expand(B, nX, nZ, nS).clone()
-                EV[:, X < 0.0, :, :] = NEG
+                EV[:, X < 0.0, :, :] = off
 
             allowed = feasible[t + 1] if t < T - 1 else feasible[t]
+            first_allowed = int(torch.nonzero(allowed)[0])
             EV_t = EV.clone()
-            EV_t[:, ~allowed, :, :] = NEG
+            EV_t[:, ~allowed, :, :] = off
 
             Bmat = -dZ + float(zliqpen[t]) * torch.clamp(dZ, max=0.0)
             dividend = (spec.R_gamma - 1.0) * Z
@@ -303,9 +337,12 @@ def solve_batch(
                 C = (A_full[lo:hi, None, :, None] + Bmat[None, :, None, :])
                 total = C + dividend[None, :, None, None]
                 # One log serves the whole theta batch: c**(1-rho) = exp((1-rho) log c)
-                logc = torch.log(torch.clamp(total, min=1e-9) / h)
+                # MATLAB's u(0): log 0 = -inf, so u = -inf for rho >= 1.
+                logc = torch.log(torch.clamp(total, min=0.0 if inf_mode else 1e-9) / h)
                 del total
                 bad = C < 0.0
+                # Their ``- 1e100*ImpossibleC__``, one slab shared by the batch.
+                penalty = bad.to(f64).mul_(1e100) if inf_mode else None
 
                 for s in range(nS):
                     safe5 = _safe_omr(omr5)
@@ -319,34 +356,51 @@ def solve_batch(
                                             logc[None] * safe5,
                                             torch.exp(omr5 * logc[None]) - 1.0)
                     u = h * u_num / safe5
-                    u.masked_fill_(bad[None], NEG)
+                    if inf_mode:
+                        u.sub_(penalty[None])
+                    else:
+                        u.masked_fill_(bad[None], NEG)
                     u_flat = u.reshape(B, hi - lo, nZ, nX * nZ)
 
                     evs = ev_c[:, :, s].view(B, 1, 1, nX * nZ)
                     payoff = u_flat + bd * evs
-                    best = _first_argmax(payoff, ar_choice)
+                    best = _from_key(_first_argmax(payoff, ar_choice), nX, nZ, spec.tie)
                     if margins is not None:
                         evabs = (evs + ev_ref[:, :, s].view(B, 1, 1, 1)).abs()
                         rel = _margin(payoff, best, u_flat, bd * evabs)
                         margins["beh"][t, b0:b1, lo:hi, :, s] = rel
                         margins["val"][t, b0:b1, lo:hi, :, s] = rel
-                    ok = payoff.gather(-1, best[..., None]).squeeze(-1) > NEG / 2
+                    best_pay = payoff.gather(-1, best[..., None]).squeeze(-1)
+                    if inf_mode:
+                        # Every choice -inf: their max returns the first point
+                        # of next age's grid (lowest affordable X', Z' = 0).
+                        # Unaffordable X' are -inf here too and must not win.
+                        best = torch.where(torch.isneginf(best_pay),
+                                           torch.full_like(best, first_allowed * nZ), best)
+                    c_best = (C.reshape(1, hi - lo, nZ, nX * nZ)
+                              .expand(B, -1, -1, -1)
+                              .gather(-1, best[..., None]).squeeze(-1))
+                    # With MATLAB's infinities an impossible choice (-1e100)
+                    # can beat a possible one worth -inf, so affordability is
+                    # checked directly (twoasset._age_step does the same).
+                    ok = ((c_best >= 0.0) & torch.isfinite(best_pay) if inf_mode
+                          else best_pay > NEG / 2)
                     jx, jz = best // nZ, best % nZ
 
                     next_x[t, :, lo:hi, :, s] = jx.to(torch.int32).cpu()
                     next_z[t, :, lo:hi, :, s] = jz.to(torch.int32).cpu()
                     solv_out[t, :, lo:hi, :, s] = ok.cpu()
-                    cons_out[t, :, lo:hi, :, s] = (
-                        C.reshape(1, hi - lo, nZ, nX * nZ)
-                        .expand(B, -1, -1, -1)
-                        .gather(-1, best[..., None]).squeeze(-1).cpu()
-                    )
+                    cons_out[t, :, lo:hi, :, s] = c_best.cpu()
 
                     ev_true = EV_t[:, :, :, s].reshape(B, 1, 1, nX * nZ)
                     if naive.any():
-                        # payoff_hat = payoff + (betahat - beta) * delta * EV
-                        payoff.add_((bhat_d - bd) * evs)
-                        best_h = _first_argmax(payoff, ar_choice)
+                        # payoff_hat = payoff + (betahat - beta) * delta * EV.
+                        # A draw with beta = betahat in a naive batch adds
+                        # 0 * EV, which is NaN where EV = -inf; its v_naive is
+                        # discarded below, but the NaN must not reach argmax.
+                        payoff.add_(torch.nan_to_num((bhat_d - bd) * evs, nan=0.0,
+                                                     posinf=np.inf, neginf=-np.inf))
+                        best_h = _from_key(_first_argmax(payoff, ar_choice), nX, nZ, spec.tie)
                         if margins is not None:
                             rel_h = _margin(payoff, best_h, u_flat, bhat_d * evabs)
                             nv = naive.cpu().numpy()
@@ -357,10 +411,11 @@ def solve_batch(
                         # u_hat = max_hat - betahat*delta*EV, so
                         # V = u_hat + delta*EV = max_hat + (1-betahat)*delta*EV,
                         # with the centring offset added back.
-                        v_naive = (
-                            max_h + bhat_d.squeeze(-1) * ev_ref[:, :, s].view(B, 1, 1)
-                            + (1.0 - spec.betahat) * delta.view(B, 1, 1) * ev_at
-                        )
+                        v_naive = max_h + bhat_d.squeeze(-1) * ev_ref[:, :, s].view(B, 1, 1)
+                        if spec.betahat != 1.0:
+                            # Zero at betahat = 1 (their benchmark), and then
+                            # NaN where EV = -inf, so only added otherwise.
+                            v_naive = v_naive + (1.0 - spec.betahat) * delta.view(B, 1, 1) * ev_at
                     # Exponential branch: V = u + delta*EV at the beta*delta argmax.
                     ev_at0 = ev_true.expand(B, hi - lo, nZ, -1).gather(
                         -1, best[..., None]).squeeze(-1)
@@ -373,14 +428,25 @@ def solve_batch(
                         V = torch.empty((B, nX, nZ, nS), dtype=f64, device=dev)
                     V[:, lo:hi, :, s] = v
                     del u, u_flat, payoff
-                del C, logc, bad
+                del C, logc, bad, penalty
 
             if t > 0:
-                V[:, ~feasible[t], :, :] = NEG
+                V[:, ~feasible[t], :, :] = off
+                if inf_mode and torch.isnan(V).any():
+                    raise FloatingPointError(f"NaN in V at age index {t}")
                 if Mz is not None:
                     # Where the chosen illiquid balance lands after its shock;
                     # Z axis only, so it commutes with the income step below.
-                    V = torch.einsum("ac,bxcs->bxas", Mz, V)
+                    if inf_mode:
+                        # Mz has exact zeros and 0 * -inf is NaN: the finite
+                        # part, then -inf wherever a -inf is reached with weight.
+                        dead = torch.isneginf(V)
+                        reach = torch.einsum("ac,bxcs->bxas", (Mz > 0).to(f64), dead.to(f64))
+                        V = torch.einsum("ac,bxcs->bxas", Mz,
+                                         torch.where(dead, torch.zeros_like(V), V))
+                        V = torch.where(reach > 0, torch.full_like(V, -np.inf), V)
+                    else:
+                        V = torch.einsum("ac,bxcs->bxas", Mz, V)
                 # These contractions are NOT batch-invariant, and cannot cheaply
                 # be made so: cuBLAS picks its summation order from the problem
                 # size, so changing theta_batch perturbs EV in the last bits and

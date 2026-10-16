@@ -56,13 +56,36 @@ def load_octave(path: Path) -> dict:
     return L
 
 
+#: ModelSpec settings every theta-level command solves P under: RESULTS 54's
+#: (the earlier datasets', ``--solver legacy``, the default, so its numbers
+#: reproduce) or RESULTS 55's fixes (``--solver v2``). Set by ``main``.
+SOLVER_FIXES: dict = dict(twoasset.LEGACY_FIXES)
+SUFFIX = ""  # "_v2" under --solver v2, so RESULTS 54's outputs stay as they are
+#: R's options matching P under ``--solver v2``: centred utility, MATLAB's tie
+#: order and income rounded when planning (MATLAB's infinities R always has).
+R_V2 = dict(centred=True, tie="z_first", round_income=True)
+
+
+def port_spec(model: ref.Model, centred: bool, fixes: dict | None = None):
+    """P's ModelSpec on the reference model's grid and calibration."""
+    c = model.cfg
+    spec = twoasset.ModelSpec(xjump=c.xjump, xmax=c.xmax, x_cells_per_step=c.x_cells,
+                              zjump=c.zjump, zmax=c.zmax, z_cells_per_step=c.z_cells,
+                              R_gamma=c.R_gamma, crra_centred=centred,
+                              **(SOLVER_FIXES if fixes is None else fixes))
+    if not c.card:
+        spec = dataclasses.replace(spec, calib=dataclasses.replace(
+            spec.calib, c0_credit=0.0, c1_credit=0.0, c2_credit=0.0))
+    return spec
+
+
 def port_solution(model: ref.Model, prefs, centred: bool) -> ref.Solution:
     """P's CPU solve on the reference model's grid, re-expressed on each
     age's own grid (P keeps one common grid and a feasibility mask)."""
     c = model.cfg
     spec = twoasset.ModelSpec(xjump=c.xjump, xmax=c.xmax, x_cells_per_step=c.x_cells,
                               zjump=c.zjump, zmax=c.zmax, z_cells_per_step=c.z_cells,
-                              R_gamma=c.R_gamma, crra_centred=centred)
+                              R_gamma=c.R_gamma, crra_centred=centred, **SOLVER_FIXES)
     if not c.card:
         spec = dataclasses.replace(spec, calib=dataclasses.replace(
             spec.calib, c0_credit=0.0, c1_credit=0.0, c2_credit=0.0))
@@ -135,7 +158,8 @@ def panel_stats(p: dict, model: ref.Model) -> dict:
         # The median sits near zero, so it moves far more than debt does.
         "share in debt > 2% of mean income": float((liq < -0.02).mean()),
         "mean debt / mean income, all": float(np.where(liq < 0, -liq, 0.0).mean()),
-        "mean debt / mean income, debtors": float(-liq[liq < 0].mean()),
+        "mean debt / mean income, debtors": float(-liq[liq < 0].mean()) if (liq < 0).any()
+        else 0.0,
         "consumption/income": float(np.median(c[:, a] / y[:, a])),
         "sd dlog c (2y)": float(np.std(dlc)),
     }
@@ -229,7 +253,32 @@ DATASETS = {
     "sbc16": (Path("data/processed/optionA2_sbc16_shards"), 1024),
     "sbc16_liqpen050": (Path("data/processed/optionA2_sbc16_liqpen050_shards"), 1024),
     "sbc16_liqpen150": (Path("data/processed/optionA2_sbc16_liqpen150_shards"), 1024),
+    # RESULTS 55: the regeneration with the audit's fixes (run_regen_v2.sh).
+    "main_v2": (Path("data/processed/couples_v2_dataset_shards"), 32768),
+    "strip_v2": (Path("data/processed/couples_v2_strip_dataset_shards"), 3072),
+    "sbc16_v2": (Path("data/processed/optionA2v2_sbc16_shards"), 1024),
+    "sbc16_liqpen050_v2": (Path("data/processed/optionA2v2_sbc16_liqpen050_shards"), 1024),
+    "sbc16_liqpen150_v2": (Path("data/processed/optionA2v2_sbc16_liqpen150_shards"), 1024),
 }
+#: ``--datasets`` groups: v1, what RESULTS 54 audited, is the default.
+GROUPS = {"v1": ("main", "strip", "sbc16", "sbc16_liqpen050", "sbc16_liqpen150"),
+          "v2": ("main_v2", "strip_v2", "sbc16_v2", "sbc16_liqpen050_v2", "sbc16_liqpen150_v2"),
+          "v2_sbc": ("sbc16_v2", "sbc16_liqpen050_v2", "sbc16_liqpen150_v2")}
+
+
+def chosen(args) -> dict:
+    """The datasets ``--datasets`` names (group names or dataset names), under
+    ``--data_root`` when given (the chain's smoke run)."""
+    names = [n for g in args.datasets for n in GROUPS.get(g, (g,))]
+    root = getattr(args, "data_root", None)
+    return {n: ((Path(root) / DATASETS[n][0].name) if root else DATASETS[n][0], DATASETS[n][1])
+            for n in names}
+
+
+def fixes_of(cfg: dict) -> dict:
+    """The ModelSpec settings a run was generated under: its recorded
+    RESULTS 55 keys, or the earlier datasets' settings where it has none."""
+    return {k: cfg.get(k, v) for k, v in twoasset.LEGACY_FIXES.items()}
 POOL = Path("data/processed/seed_pool_couples_income.npz")
 WINDOW = dict(start_age=30, n_waves=7, wave_years=2)
 
@@ -245,7 +294,8 @@ def regenerate_draws(cfg: dict, n: int):
     card = (np.random.default_rng(seed + 1).integers(0, 2, size=n)
             if cfg["card_types"] else None)
     ns = argparse.Namespace(theta_batch=int(cfg["theta_batch"]), block=512, n_samples=n,
-                            rgamma_range=cfg["rgamma_range"], seed=seed)
+                            rgamma_range=cfg["rgamma_range"], seed=seed,
+                            rgamma_permute=bool(cfg.get("rgamma_permute", False)))
     return _per_block_rgamma(theta, card, ns)
 
 
@@ -263,13 +313,18 @@ def cmd_integrity(args) -> None:
     pool, digest = _load_pool(POOL)
     states, P = grids.tauchen(c=cal.COMPHS)
     res = {}
-    for name, (d, n) in DATASETS.items():
+    for name, (d, n) in chosen(args).items():
         cfg = json.loads((d / "solver_config.json").read_text())
         bad: list[str] = []
         if cfg.get("init_pool_sha256") != digest:
             bad.append("seed pool hash differs from the one generation recorded")
         if not cfg.get("crra_centred"):
             bad.append("not generated with the centred (fixed) solver")
+        if name.endswith("_v2"):
+            want = {"round_income": True, "matlab_infinities": True, "tie": "z_first",
+                    "rgamma_permute": True, "flow_lag": 1}
+            bad += [f"{k} is {cfg.get(k)!r}, not {v!r}" for k, v in want.items()
+                    if cfg.get(k) != v]
         theta, card = regenerate_draws(cfg, n)
         expected_lo, n_rows = 0, 0
         for sf in shards(d):
@@ -298,26 +353,33 @@ def cmd_integrity(args) -> None:
             if not (panel["t_age"] == np.arange(71)).all():
                 bad.append(f"{tag}: t_age is not 0..70")
             x, alive = aggregate_waves(panel, age_start_sim=20, features=FEATURES_TWOASSET,
-                                       **WINDOW)
+                                       flow_lag=int(cfg.get("flow_lag", 0)), **WINDOW)
             if not np.array_equal(x, z["x"]) or not np.array_equal(alive, z["alive"]):
                 bad.append(f"{tag}: x is not aggregate_waves(panel)")
             if not z["alive"].all():
                 bad.append(f"{tag}: alive is not all True")
             n_rows += len(z["x"])
-        if expected_lo != n and name in ("main", "strip", "sbc16"):
+        if expected_lo != n and not name.startswith("sbc16_liqpen") and not args.partial:
             bad.append(f"draws end at {expected_lo}, the run had {n}")
         res[name] = {"shards": len(shards(d)), "draws": expected_lo, "rows": n_rows,
                      "problems": bad}
         print(f"{name:16s} {len(shards(d)):3d} shards, {expected_lo:6d} draws, {n_rows:7d} rows: "
               + ("OK" if not bad else f"{len(bad)} problems: " + "; ".join(bad[:5])))
-    res["proposal_weights"] = proposal_check()
-    out = OUT / "integrity.json"
+    pair = [n for n in ("main", "strip") if n in res] or \
+        [n for n in ("main_v2", "strip_v2") if n in res]
+    if len(pair) == 2 and not args.partial:
+        res["proposal_weights"] = proposal_check(pair)
+    res["ok"] = not any(r["problems"] for k, r in res.items() if isinstance(r, dict)
+                        and "problems" in r)
+    out = OUT / f"integrity{args.tag}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(res, indent=1))
-    print(f"wrote {out}")
+    print(f"wrote {out}; {'all OK' if res['ok'] else 'PROBLEMS'}")
+    if args.strict and not res["ok"]:
+        raise SystemExit(1)
 
 
-def proposal_check(n_bins: int = 8) -> dict:
+def proposal_check(names=("main", "strip"), n_bins: int = 8) -> dict:
     """Do the importance weights turn the stored training draws back into the
     uniform prior? Weighted bin masses against the uniform prior's, 1-D per
     parameter and 2-D per pair, for main + strip as the A2n checkpoints
@@ -325,7 +387,7 @@ def proposal_check(n_bins: int = 8) -> dict:
     from hh_npe.npe.prior import _parts_log_weight
 
     th, parts = [], []
-    for name in ("main", "strip"):
+    for name in names:
         d, n = DATASETS[name]
         cfg = json.loads((d / "solver_config.json").read_text())
         th.append(np.concatenate([np.load(f)["theta"] for f in shards(d)]))
@@ -402,7 +464,7 @@ def cmd_invariants(args) -> None:
         tot[k] = tot.get(k, 0) + v
 
     worst_budget = 0.0
-    for d, _n in DATASETS.values():
+    for d, _n in chosen(args).values():
         # The penalty sets of RESULTS 43.11 were generated at 0.5x and 1.5x it.
         cfg = json.loads((d / "solver_config.json").read_text())
         pen = grids.liquidation_penalty(age) * float(cfg.get("liqpen_scale", 1.0))
@@ -423,6 +485,8 @@ def cmd_invariants(args) -> None:
             add("cash off its X grid", int((~on_x).sum()))
             add("illiquid off the Z grid", int((~np.isin(ill, Z)).sum()))
             add("consumption <= 0", int((c <= 0).sum()))
+            # The last age's no-Ponzi rule can force it; nowhere else should.
+            add("consumption <= 0 before age 90", int((c[:, :-1] <= 0).sum()))
             add("cardholder liquid below -credit limit",
                 int(((liq < -xmin[None, :]) & card[:, None]).sum()))
             add("no-card liquid < 0 (phantom debt)", int(((liq < 0) & ~card[:, None]).sum()))
@@ -444,9 +508,24 @@ def cmd_invariants(args) -> None:
         share = "" if k.startswith(("household", "largest", "no-card household")) else \
             f"   ({v / tot['household-years']:.3%})"
         print(f"{k:62s} {v:>14,}{share}" if isinstance(v, int) else f"{k:62s} {v:14.6g}")
-    out = OUT / "invariants.json"
+    # What must be exactly zero; the rest (caps, the forced last-age zeros) is
+    # reported, not failed on (RESULTS 54.4). Phantom debt -- cash snapped
+    # below the household's own choice, no-card below zero or a cardholder
+    # below its limit -- is inherited and must only stay rare (v1: 0.015%).
+    must = ("income <= 0", "income off the $1,000 lattice", "cash != liquid + income",
+            "cash off its X grid", "illiquid off the Z grid", "consumption <= 0 before age 90",
+            "budget: implied x' off the grid or not snapping to next cash")
+    tot["failed"] = [k for k in must if tot.get(k, 0)]
+    phantom = (tot.get("no-card liquid < 0 (phantom debt)", 0)
+               + tot.get("cardholder liquid below -credit limit", 0))
+    if phantom > 1e-3 * tot["household-years"]:
+        tot["failed"].append("phantom debt above 0.1% of household-years")
+    out = OUT / f"invariants{args.tag}.json"
     out.write_text(json.dumps(tot, indent=1))
-    print(f"wrote {out}")
+    verdict = "all invariants hold" if not tot["failed"] else f"FAILED: {tot['failed']}"
+    print(f"wrote {out}; {verdict}")
+    if args.strict and tot["failed"]:
+        raise SystemExit(1)
 
 
 STAT_NAMES = ("illiquid / mean income", "liquid / mean income", "share of years in debt",
@@ -651,7 +730,8 @@ def solve_block(name: str, shard: int, block: int, margins: dict | None = None):
     if margins is None:
         _x, _a, panels = simulate_batch_twoasset_gpu(
             theta, seed_base, 30, 7, 2, cfg["grid"], tb, int(cfg["chunk"]), True, M,
-            None, card, theta[:, 3], pool, float(cfg.get("liqpen_scale", 1.0)))
+            None, card, theta[:, 3], pool, float(cfg.get("liqpen_scale", 1.0)),
+            spec_overrides=fixes_of(cfg))
         return panels, stored, None
     from hh_npe.simulator import laibson_calibration as cal
     from hh_npe.simulator.twoasset import GRIDS
@@ -661,7 +741,8 @@ def solve_block(name: str, shard: int, block: int, margins: dict | None = None):
     calib = cal.COMPHS if card[0] else dataclasses.replace(
         cal.COMPHS, c0_credit=0.0, c1_credit=0.0, c2_credit=0.0)
     spec = dataclasses.replace(GRIDS[cfg["grid"]], calib=calib, R_gamma=float(theta[0, 3]),
-                               liqpen_scale=float(cfg.get("liqpen_scale", 1.0)))
+                               liqpen_scale=float(cfg.get("liqpen_scale", 1.0)),
+                               **fixes_of(cfg))
     sols = solve_batch(theta[:, :3], spec, theta_batch=tb, chunk=int(cfg["chunk"]),
                        margins=margins)
     panels = []
@@ -710,7 +791,8 @@ def spec_for(card: int, R_gamma: float, **grid):
 
     calib = cal.COMPHS if card else dataclasses.replace(
         cal.COMPHS, c0_credit=0.0, c1_credit=0.0, c2_credit=0.0)
-    return dataclasses.replace(GRIDS["full"], calib=calib, R_gamma=float(R_gamma), **grid)
+    return dataclasses.replace(GRIDS["full"], calib=calib, R_gamma=float(R_gamma),
+                               **{**SOLVER_FIXES, **grid})
 
 
 def households(sol, n: int, seed: int) -> dict:
@@ -779,7 +861,7 @@ def cmd_margins(args) -> None:
                   f"{'panels same' if same_p else 'PANELS DIFFER'}", flush=True)
         print(f"  group done in {time.time() - t0:.0f} s", flush=True)
         del mg, sols, alone
-    out = OUT / "margins.json"
+    out = OUT / f"margins{SUFFIX}.json"
     out.write_text(json.dumps(res, indent=1))
     print(f"wrote {out}")
 
@@ -820,7 +902,7 @@ def cmd_parity(args) -> None:
                "max |c| diff where same": float(np.abs(sc.cons - sg.cons)[ok & same].max())}
         res.append(row)
         print(row, flush=True)
-    out = OUT / "parity.json"
+    out = OUT / f"parity{SUFFIX}.json"
     out.write_text(json.dumps(res, indent=1))
     print(f"wrote {out}")
 
@@ -873,7 +955,7 @@ def cmd_refine(args) -> None:
             row[name]["seconds"] = round(time.time() - t0, 1)
             print(card, rg, th, name, {k: round(v, 4) for k, v in row[name].items()}, flush=True)
         res.append(row)
-    out = OUT / "refine.json"
+    out = OUT / f"refine{SUFFIX}.json"
     out.write_text(json.dumps(res, indent=1))
     print(f"wrote {out}")
 
@@ -1324,15 +1406,170 @@ def cmd_h7_levels(args) -> None:
     print(json.dumps(res, indent=1))
 
 
+# ------------------------------------------------------------- RESULTS 55
+
+#: The coarse-grid Octave runs of RESULTS 54.2 (their theta, card, R_gamma).
+COARSE_RUNS = ("test_coarse", "lowbeta", "logu", "rho05", "rho35", "rho46", "delta999",
+               "rg1075", "nocard1021", "nocard_rho5")
+
+
+def _v2_coarse_one(path: Path) -> dict:
+    """One coarse theta: L against R with MATLAB's arithmetic, and R with the
+    v2 options against P's v2 CPU solve, all on L's own uniforms."""
+    L = load_octave(path)
+    th = tuple(float(v) for v in L["prefs"])
+    m = _l_model(L)
+    m2 = ref.Model(dataclasses.replace(m.cfg, **R_V2), m.fs)
+    r_matlab, r_v2 = ref.solve(*th, m), ref.solve(*th, m2)
+    p_v2 = reexpress(twoasset.solve(*th, port_spec(m2, True, {})), m2, th)
+    u = {"u_state": L["randU"], "u_income": L["randY"]}
+    init = ref.initial_indices(m, L["randU"].shape[0])
+    pan = {k: ref.simulate(s_, u, init=init) for k, s_ in
+           (("R matlab", r_matlab), ("R v2", r_v2), ("P v2", p_v2))}
+    # R's forward pass on L's own policies (RESULTS 54.2); R's policies equal
+    # L's only where MATLAB's arithmetic resolves the choice (not rho >= 3.5).
+    lp = panels_equal(ref.simulate(as_solution(L, m), u, init=init), L)
+
+    def differ(a, b):
+        d = (pan[a]["cash"] != pan[b]["cash"]) | (pan[a]["illiquid"] != pan[b]["illiquid"])
+        return float(d.any(1).mean())
+
+    return {"run": path.stem, "theta": th, "R_gamma": m.cfg.R_gamma, "card": m.cfg.card,
+            "L vs R matlab": agree(as_solution(L, m), r_matlab, m),
+            "R's forward pass on L's policies = L's panels": lp,
+            "R v2 vs P v2 (CPU)": agree(r_v2, p_v2, m2),
+            "paths differ, R v2 vs P v2": differ("R v2", "P v2"),
+            "panel stats": {"R matlab": panel_stats(pan["R matlab"], m),
+                            "P v2": panel_stats(pan["P v2"], m2)}}
+
+
+def cmd_v2_coarse(args) -> None:
+    """RESULTS 55, gate 2: at the 10 coarse theta of RESULTS 54.2, R with
+    MATLAB's arithmetic still reproduces L, and the v2 port -- CPU, then the
+    GPU against it -- equals R with the same options (centred, MATLAB's tie
+    order, income rounded when planning, MATLAB's infinities)."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    import torch
+
+    from hh_npe.simulator.twoasset_gpu import solve_batch
+
+    paths = [args.octave_dir / f"{n}.mat" for n in COARSE_RUNS]
+    cache = OUT / "v2_coarse_cpu.json"
+    if args.gpu_only:
+        rows = json.loads(cache.read_text())
+    else:
+        with ProcessPoolExecutor(max_workers=5) as ex:
+            rows = list(ex.map(_v2_coarse_one, paths))
+        # Saved before the GPU part, which needs the card to itself.
+        cache.write_text(json.dumps(rows, indent=1, default=float))
+    if torch.cuda.is_available():
+        for row, path in zip(rows, paths, strict=True):
+            L = load_octave(path)
+            th = tuple(float(v) for v in L["prefs"])
+            m2 = ref.Model(dataclasses.replace(_l_model(L).cfg, **R_V2), ref.first_stage())
+            spec = port_spec(m2, True, {})
+            c, g = twoasset.solve(*th, spec), solve_batch(np.array([th]), spec,
+                                                          theta_batch=1, chunk=16)[0]
+            ok = c.solvable & g.solvable
+            row["GPU v2 vs CPU v2"] = {
+                "solvable equal": float((c.solvable == g.solvable).mean()),
+                "x same": float((c.next_x == g.next_x)[ok].mean()),
+                "z same": float((c.next_z == g.next_z)[ok].mean()),
+                "max |c| diff": float(np.abs(c.cons - g.cons)[ok].max())}
+    def passed(r):
+        lp = r["R's forward pass on L's policies = L's panels"]
+        return (r["paths differ, R v2 vs P v2"] == 0
+                and all(lp[k] for k in ("income", "cash", "illiquid"))
+                and r.get("GPU v2 vs CPU v2", {"x same": 1.0})["x same"] == 1.0)
+
+    res = {"rows": rows, "ok": all(passed(r) for r in rows)}
+    for r in rows:
+        print(f"{r['run']:12s} L=R {r['L vs R matlab']['same_x']:.4f}  "
+              f"R v2=P v2 x {r['R v2 vs P v2 (CPU)']['same_x']:.6f} "
+              f"z {r['R v2 vs P v2 (CPU)']['same_z']:.6f}  paths differ "
+              f"{r['paths differ, R v2 vs P v2']:.4f}  GPU=CPU "
+              f"{r.get('GPU v2 vs CPU v2', {}).get('x same')}", flush=True)
+    (OUT / "v2_coarse.json").write_text(json.dumps(res, indent=1, default=float))
+    print(f"wrote {OUT / 'v2_coarse.json'}; {'OK' if res['ok'] else 'FAILED'}")
+
+
+def cmd_v2_fullgrid(args) -> None:
+    """RESULTS 55, gate 3: on the full grid at Laibson et al.'s theta and in
+    PSID couples' region, R with the v2 options (CPU) against the v2
+    production solver (GPU), on identical shocks; with RESULTS 54.6's R as
+    v1 production solved it, for the fixes' combined effect."""
+    import pickle
+    from concurrent.futures import ProcessPoolExecutor
+
+    from hh_npe.simulator.twoasset_gpu import solve_batch
+
+    jobs = [(n, c, rg, th, dict(R_V2)) for n, c, rg, th in FULLGRID]
+    if not args.reuse:   # --reuse: R's solves are already pickled
+        with ProcessPoolExecutor(max_workers=len(jobs)) as ex:
+            for done in ex.map(_ref_full, jobs):
+                print("solved", done, flush=True)
+    res = {}
+    u = ref.uniforms(args.n, 71, seed=5)
+    for name, card, rg, th in FULLGRID:
+        m = ref.Model(ref.Config(R_gamma=rg, card=bool(card), **R_V2))
+        sols = {}
+        for tag, label in (("centred=True_round_income=True_tie=z_first", "R v2"),
+                           ("centred=True_tie=x_first", "R as v1 production")):
+            with open(OUT / f"fullgrid_R_{name}_{tag}.pkl", "rb") as f:
+                d = pickle.load(f)
+            sols[label] = ref.Solution(d["ix"], d["iz"], d["c"], [None] * m.T, [None] * m.T,
+                                       [None] * m.T, m, th)
+        g = solve_batch(np.array([th]), dataclasses.replace(spec_for(card, rg), **{
+            k: getattr(twoasset.ModelSpec(), k) for k in twoasset.LEGACY_FIXES}),
+            theta_batch=1, chunk=16)[0]
+        sols["P v2 (production)"] = reexpress(g, m, th)
+        init = ref.initial_indices(m, args.n)
+        pan = {k: ref.simulate(s_, u, init=init) for k, s_ in sols.items()}
+        d = ((pan["R v2"]["cash"] != pan["P v2 (production)"]["cash"])
+             | (pan["R v2"]["illiquid"] != pan["P v2 (production)"]["illiquid"]))
+        res[name] = {"theta": th, "R_gamma": rg, "card": card,
+                     "R v2 vs P v2": agree(sols["R v2"], sols["P v2 (production)"], m),
+                     "paths differ: ever, ages 25-59": [float(d.any(1).mean()),
+                                                         float(d[:, 5:40].any(1).mean())],
+                     "panel_stats": {k: panel_stats(p_, m) for k, p_ in pan.items()}}
+        print(name, json.dumps({k: v for k, v in res[name].items() if k != "panel_stats"},
+                               indent=1, default=float))
+        for k, st in res[name]["panel_stats"].items():
+            print(f"   {k:20s}", {a: round(v, 4) for a, v in st.items()})
+    res["ok"] = all(r["paths differ: ever, ages 25-59"][0] == 0 for r in res.values())
+    (OUT / "v2_fullgrid.json").write_text(json.dumps(res, indent=1, default=float))
+    print(f"wrote {OUT / 'v2_fullgrid.json'}; {'OK' if res['ok'] else 'FAILED'}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--solver", choices=("legacy", "v2"), default="legacy",
+                    help="P's settings for the theta-level commands: RESULTS 54's "
+                         "(legacy) or RESULTS 55's fixes (v2). Commands on stored "
+                         "data use each dataset's recorded settings.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     t = sub.add_parser("three_way")
     t.add_argument("--octave", type=Path, required=True)
     t.add_argument("--out", type=Path, default=None)
-    sub.add_parser("integrity")
-    sub.add_parser("invariants")
+    for name in ("integrity", "invariants"):
+        q = sub.add_parser(name)
+        q.add_argument("--datasets", nargs="+", default=["v1"],
+                       help=f"dataset or group names; groups {sorted(GROUPS)}")
+        q.add_argument("--tag", default="", help="suffix of the output JSON")
+        q.add_argument("--strict", action="store_true", help="exit 1 on any problem")
+        q.add_argument("--data_root", type=Path, default=None,
+                       help="look for the shard directories here instead")
+        q.add_argument("--partial", action="store_true",
+                       help="integrity: runs stopped early (--max_draws) are fine")
+    q = sub.add_parser("v2_coarse")
+    q.add_argument("--octave_dir", type=Path, default=OUT / "octave")
+    q.add_argument("--gpu_only", action="store_true",
+                   help="only the GPU part, on the saved CPU results")
+    q = sub.add_parser("v2_fullgrid")
+    q.add_argument("--n", type=int, default=4000)
+    q.add_argument("--reuse", action="store_true", help="reuse R's pickled solves")
     sub.add_parser("statics")
     sub.add_parser("timing")
     sub.add_parser("plot_statics")
@@ -1353,7 +1590,11 @@ def main() -> None:
         sub.add_parser(name).add_argument("--n", type=int, default=2000,
                                           help="households simulated per theta")
     args = ap.parse_args()
-    {"three_way": cmd_three_way, "integrity": cmd_integrity, "invariants": cmd_invariants,
+    global SOLVER_FIXES, SUFFIX
+    if args.solver == "v2":
+        SOLVER_FIXES, SUFFIX = {}, "_v2"
+    {"three_way": cmd_three_way, "v2_coarse": cmd_v2_coarse, "v2_fullgrid": cmd_v2_fullgrid,
+     "integrity": cmd_integrity, "invariants": cmd_invariants,
      "statics": cmd_statics, "timing": cmd_timing, "reproduce": cmd_reproduce,
      "margins": cmd_margins, "parity": cmd_parity, "refine": cmd_refine,
      "plot_statics": cmd_plot_statics, "fullgrid_ref": cmd_fullgrid_ref,

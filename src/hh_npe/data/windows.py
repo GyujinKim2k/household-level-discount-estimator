@@ -98,6 +98,7 @@ def cut_windows(
     wave_years: int,
     features: tuple[str, ...],
     flow_agg: str = "last",
+    flow_lag: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Cut the windows named by ``starts`` (shape ``(n_rows, k)``) out of a panel.
 
@@ -114,7 +115,7 @@ def cut_windows(
             x, alive = aggregate_waves(
                 sub, age_start_sim=AGE_START_SIM, start_age=int(s),
                 n_waves=n_waves, wave_years=wave_years, features=features,
-                flow_agg=flow_agg,
+                flow_agg=flow_agg, flow_lag=flow_lag,
             )
             keep = alive.all(axis=1)
             thetas.append(theta_rows[rows][keep])
@@ -136,6 +137,7 @@ def window_panel(
     with_age: bool = True,
     flow_agg: str = "last",
     features: tuple[str, ...] | None = None,
+    flow_lag: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Random-age windows from an in-memory panel (e.g. fresh SBC simulations)."""
     panel = add_age(panel)
@@ -144,7 +146,7 @@ def window_panel(
     if features is None:
         features = FEATURES_TWOASSET_AGE if with_age else FEATURES_TWOASSET
     th, x, ids = cut_windows(panel, np.asarray(theta), np.arange(n_rows),
-                             starts, n_waves, wave_years, features, flow_agg)
+                             starts, n_waves, wave_years, features, flow_agg, flow_lag)
     return (torch.from_numpy(th).float(), torch.from_numpy(x).float(),
             torch.from_numpy(ids).long())
 
@@ -168,8 +170,13 @@ def build_windowed(
     fixed_start: int | None = None,
     flow_agg: str = "last",
     features: tuple[str, ...] | None = None,
+    flow_lag: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Cut ``k`` windows from every panel in ``shard_files``.
+
+    ``flow_lag`` (``aggregate_waves``) reads flows that many years before the
+    stocks; 1 is PSID's timing (RESULTS 54.6, H1). Callers take it from the
+    shards' ``solver_config.json``, where generation records it.
 
     ``fixed_start`` reproduces the old behaviour -- one window per panel at that
     age -- so the baseline and the random-age variants come from one code path
@@ -236,7 +243,7 @@ def build_windowed(
         th_draw = np.repeat(theta_all[lo:hi], m, axis=0)
         ids_draw = np.repeat(lo + np.arange(n_draws), m)
         th, x, ids_ = cut_windows(panel, th_draw, ids_draw,
-                                  starts, n_waves, wave_years, features, flow_agg)
+                                  starts, n_waves, wave_years, features, flow_agg, flow_lag)
         thetas.append(th)
         xs.append(x)
         ids.append(ids_)
