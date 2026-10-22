@@ -8292,6 +8292,8 @@ Two thirds of liquid choices stay the same, but almost every path changes. As ge
 
 **H8: β and R_gamma are not independent in the generated design (`h8_design`, `h8_impact`).** R_gamma is a 1-D Sobol value per block of 16 draws. The likely mechanism (not proved): within a block, the mixture's concentrated rows put β on [0.4, 1], where its Sobol strata do not line up with cells, and their offsets within the strata are set by the same bits of the block index as R_gamma. Permuting R_gamma across blocks, 400 times, never reproduces the observed imbalance (largest 4×4 cell deviation 0.0081 against at most 0.0022; p < 0.0025). On an 8 × 8 grid the switched part's weighted density over the assumed one runs 0.74–1.22; the uniform pilot is exactly 1. Reweighting PSID couples' A2n draws by its inverse moves posterior means by a median 0.002–0.005 posterior sd (90th percentile ≤ 0.013), medians not at all.
 
+*Corrected 2026-10-22 (§56.4): this understated H8.* The dependence is fine-grained; the cell tests above saw only a trace of it. On v1's main run, a held-out draw's R_gamma is predicted from its β by the 10 nearest training draws with R² 0.43, and from (β, δ) with R² 0.59. A2n's flows learned it: moving the true β by 0.005 lowers held-out log q by 0.69 nats (v2: 0.007). A2n's held-out log q is inflated by it, and its PSID posteriors carry ridges that come from the design. Coverage and SBC are unaffected. v2's permutation removes the dependence.
+
 **Seeds and streams.** Main run draw j uses seed j + 1 (1–32,768), the strip 100,001–103,072, the SBC set 40,000,001 onward; the pool's own stream is separate. No overlap.
 
 ### 54.7 Verdict
@@ -8305,7 +8307,7 @@ Two thirds of liquid choices stay the same, but almost every path changes. As ge
 | u(0) finite in the port | no (port) | ≤ 0.7% of an sd; window paths of 1–13% of indebted cardholders | −∞ as MATLAB | regeneration |
 | tie order | no (port) | none below ρ = 3.5 | MATLAB's order | regeneration |
 | H2 seed-pool scale | no (our seed pool) | illiquid +1–8% at 35–44; other statistics < 1% | none: on reflection the shared age-normalised convention, not a bug (reclassified in §55) | — |
-| H8 β × R_gamma design | no (our generation) | posteriors ≤ 0.013 sd | permute R_gamma across blocks | next generation |
+| H8 β × R_gamma design | no (our generation) | posteriors ≤ 0.013 sd at the coarse scale; *§56.4: a fine-scale dependence the flows learned, inflating held-out log q by about 0.7 nats* | permute R_gamma across blocks | done in v2 |
 | phantom debt, caps | yes | ≤ 0.1% of household-years | — | — |
 
 **Reading.**
@@ -8332,6 +8334,8 @@ Two thirds of liquid choices stay the same, but almost every path changes. As ge
     octave --no-gui --eval "run_lifecycle('cfg.json')"   # in scripts/laibson_octave
 
 ## 55. Regeneration v2: the audit's fixes, launched unattended
+
+*Finished 2026-10-22; results in §56.*
 
 **Decision (user, 2026-10-16).** "let's regenerate the whole dataset. I can't stick to this work for 6days anyway bcs of the vacation. make sure everything is fixed that we found." The user's choices:
 - keep Laibson et al.'s grid;
@@ -8455,3 +8459,193 @@ The posteriors are written up after that review. Figure 67's `.npz` holds PSID-d
     PYTHONPATH=.:src .venv/bin/python scripts/audit_simulation.py --solver v2 v2_fullgrid    # gate 3
     PYTHONPATH=.:src .venv/bin/python scripts/audit_simulation.py --solver v2 margins        # gate 4
     PYTHONPATH=.:src .venv/bin/python scripts/audit_simulation.py reproduce                  # gate 5
+
+## 56. v2 results: calibrated; PSID couples' ρ 0.17 lower and R_gamma 0.005 higher; H8 was larger than §54 measured
+
+**Run.** `scripts/run_regen_v2.sh` (§55), launched 03:26 UTC on 2026-10-16, `DONE` at 01:00 UTC on 2026-10-22. Every stage returned rc = 0; nothing was restarted.
+
+| stage | time |
+|---|---|
+| SBC set, penalty ×0.5, penalty ×1.5 | 3.7 h, 1.7 h, 1.7 h |
+| main run, 32,768 draws | 121.1 h (13.3 s per draw) |
+| strip, 3,072 draws | 10.9 h (12.8 s per draw) |
+| checks, noise calibration | 3 min |
+| five members (47–51 epochs, two at a time) | 2.2 h |
+| PSID, held-out, SBC, figures, comparison | 7 min |
+
+### 56.1 The data
+
+**Gates.** `integrity`: all five sets OK; the proposal's ESS is 25,271 of 35,840. `invariants` over 43.0M household-years:
+- the budget closes everywhere (largest gap 1.2e-10 dollars);
+- no zero-consumption year before age 90 (2 after it);
+- phantom debt 0.006% of household-years (v1 0.007%); 251 cardholder-years below their limit (v1 254).
+
+**v2 against v1, draw by draw** (`regen_v2_diagnostics.py data`; ages 35–44, over the run's mean income at each age, as `audit_simulation.panel_stats`):
+
+| main run, 32,768 draws | v1 | v2 |
+|---|---|---|
+| share in debt | 0.251 | 0.243 |
+| share in debt > 2% of mean income | 0.246 | 0.235 |
+| mean debt / mean income, all / debtors | 0.058 / 0.231 | 0.056 / 0.230 |
+| illiquid / mean income, mean / median | 2.017 / 0.376 | 1.990 / 0.343 |
+| sd Δlog c, 2 years | 0.280 | 0.279 |
+
+- The per-draw debt share falls by 0.008 on average, by 0.007 at ρ < 1 and 0.009 at ρ ≥ 4. The median draw does not move: 47% of draws hold no debt at these ages, in v1 and in v2 alike. Gate 3's −2 points (§55.3) were at two θ where about half of household-years are in debt.
+- The strip (R_gamma 1.021–1.025) moves less: debt share −0.001.
+- The SBC set: −0.003.
+
+**Noise, recalibrated on v2** (`noise_calibration.py`, as A2n): consumption 0–0.15 and income 0, as A2n; liquid 0–0.10 (A2n 0–0.08); illiquid 0.175–0.47 (A2n 0.175–0.455). Rerun on v1, the same script reproduces A2n's ranges exactly (§55.3, gate 6), so the change comes from the data. v2 against A2n therefore includes this small change of noise.
+
+### 56.2 Gates
+
+**Held-out** (§43.6's 1,536 draws, weighted by p / q_held, ESS 758; windows carry v2's noise). A2n in brackets:
+
+| 5-member ensemble | 90% coverage | corr | MAE / prior sd | contraction |
+|---|---|---|---|---|
+| β | 0.910 (0.908) | 0.648 (0.602) | 0.625 (0.665) | 0.401 (0.363) |
+| δ | 0.904 (0.894) | 0.754 (0.722) | 0.511 (0.546) | 0.541 (0.538) |
+| ρ | 0.899 (0.905) | 0.780 (0.773) | 0.499 (0.507) | 0.614 (0.598) |
+| R_gamma | 0.919 (0.896) | 0.716 (0.722) | 0.515 (0.524) | 0.530 (0.529) |
+
+- **Coverage passes** (0.87–0.93): 0.899–0.919. Single members cover 0.885–0.912.
+- **Recovery is equal or better on every parameter,** β most: corr +0.046, contraction +0.038.
+- **The weighted held-out log q is 4.100, against A2n's 4.872.** That is not a loss of information; §56.4 shows A2n's figure was inflated by H8.
+- **By posterior-mean R_gamma,** coverage is 0.740 in [1.021, 1.025) (n = 118; A2n 0.974) and 0.958 in [1.025, 1.030) (A2n 0.854). Split by run (`floor`), the low bin's 113 strip draws cover 0.930. Its 5 main-run draws (true R_gamma about 1.026, just above the seam between the runs) carry 28% of the bin's weight, and 4 of them fall above the 95th percentile. A2n's 0.854 in the next bin is the mirror case: strip draws whose posterior mean sits just above the seam. It is a small-sample effect at the seam in both runs, not a regression.
+
+**SBC** (the v2 SBC set: 1,024 uniform-prior draws, 16 households each, with v2's noise; figure 69). A2n on its own SBC set in brackets:
+
+| | 90% coverage (90% CI) | KS p, one household per draw |
+|---|---|---|
+| β | 0.904 (0.901) | 0.699 (0.795) |
+| δ | 0.898 (0.893) | 0.732 (0.941) |
+| ρ | 0.899 (0.902) | 0.907 (0.625) |
+| R_gamma | 0.895 (0.895) | 0.024 (0.103) |
+
+- **Coverage passes,** and by posterior-mean region it is 0.888–0.951.
+- **R_gamma's KS p of 0.024 is not a failure:**
+  - it is above the Bonferroni threshold for four parameters (0.0125);
+  - R_gamma is shared by the 16 draws of a block, so its 1,024 ranks are not independent, and the test overstates its evidence;
+  - its rank ECDF stays inside the KS band (figure 69).
+- **The liquidation-penalty checks match A2n's.** At ×0.5 and ×1.5, the median shift and its p10 and p90 are within 0.08 prior sd of A2n's on every parameter, and coverage within 0.02. R_gamma moves most (p90 +0.84 prior sd at ×0.5; A2n +0.87).
+
+**Both gates pass.**
+
+### 56.3 PSID
+
+Couples (409), uncorrected arm; A2n in brackets:
+
+| | median of means | p10 / p90 of means | median posterior sd | median 90% width | Laibson's value inside the 90% interval |
+|---|---|---|---|---|---|
+| β | 0.572 (0.600) | 0.425 / 0.763 (0.438 / 0.785) | 0.164 (0.164) | 0.531 (0.524) | 93% (93%) |
+| δ | 0.9837 (0.9847) | 0.9428 / 0.9964 (0.9429 / 0.9971) | 0.0121 (0.0115) | 0.0351 (0.0336) | 74% (71%) |
+| ρ | 2.547 (2.718) | 1.721 / 3.336 (1.955 / 3.519) | 0.896 (0.984) | 2.94 (3.23) | 95% (94%) |
+| R_gamma | 1.0584 (1.0538) | 1.0360 / 1.0699 (1.0308 / 1.0672) | 0.0095 (0.0100) | 0.0306 (0.0326) | 66% (73%) |
+
+- **Corrected arm:** medians β 0.575 (0.594), δ 0.9757 (0.9766), ρ 2.510 (2.663) and R_gamma 1.0593 (1.0564).
+- **All 889:** medians β 0.663 (0.683), δ 0.9834 (0.9840), ρ 2.462 (2.603) and R_gamma 1.0560 (1.0535). ρ's median posterior sd is 0.927 (1.001). Laibson's values are inside the 90% interval for β 87% (86%), δ 78% (77%), ρ 96% (94%) and R_gamma 78% (81%).
+- **Posterior mass inside the box:** median 0.999; median ESS / kept 0.73. No household is unrepresentable.
+- **Paired, household by household** (`compare_regen_v2.py`), v2 − A2n:
+
+  | | median shift | median \|shift\| / A2n's posterior sd | median ratio of posterior sds | correlation of means |
+  |---|---|---|---|---|
+  | couples, β | −0.018 | 0.24 | 0.99 | 0.89 |
+  | δ | −0.0004 | 0.25 | 1.03 | 0.93 |
+  | ρ | −0.182 | 0.29 | 0.90 | 0.81 |
+  | R_gamma | +0.0034 | 0.46 | 0.95 | 0.89 |
+  | all 889, β | −0.014 | 0.25 | 1.00 | 0.91 |
+  | δ | −0.0003 | 0.25 | 1.00 | 0.92 |
+  | ρ | −0.126 | 0.29 | 0.93 | 0.80 |
+  | R_gamma | +0.0017 | 0.36 | 0.96 | 0.87 |
+
+  A2n's own disjoint member pairs agree to β 0.88–0.91, δ 0.89–0.95, ρ 0.79–0.89 and R_gamma 0.92–0.95 (§43.10). So v2 re-ranks couples about as much as a change of seeds would, except in R_gamma.
+- **Fewer couples sit near the floors:**
+
+  | share of households | couples, v2 | couples, A2n | all 889, v2 | all 889, A2n |
+  |---|---|---|---|---|
+  | ρ mean < 1 | 0.005 | 0.007 | 0.006 | 0.007 |
+  | ρ's lower 5% < 0.55 | 0.005 | 0.017 | 0.031 | 0.047 |
+  | R_gamma's lower 5% within 0.0025 of 1.021 | 0.117 | 0.159 | 0.163 | 0.184 |
+  | either | 0.120 | 0.174 | 0.187 | 0.219 |
+  | corr(ρ, R_gamma means) | −0.33 | −0.09 | −0.25 | −0.18 |
+
+- **Figures:**
+  - 66, the held-out simulated household (68/95% contours; every parameter covered);
+  - 67, the typical couple;
+  - 68, couples' and all 889's means, v2 against A2n. A2n's couples' 68% region reaches down to R_gamma 1.03; v2's stops near 1.04.
+
+The fixes come together (H7, the infinities, the tie order, H1's timing, H8, and the recalibrated noise), so these shifts are not attributed to any one of them.
+
+### 56.4 H8 was larger than §54 measured: A2n learned the v1 design's fine structure
+
+v2's lower held-out log q led here. **On v1's design, a held-out draw's R_gamma can be predicted from its (β, δ, ρ) alone** (`design`; mean R_gamma of the 10 nearest training draws, held-out R²):
+
+| | β | δ | (β, δ) | (β, δ, ρ) | β, 20 quantile bins | β, 100 bins |
+|---|---|---|---|---|---|---|
+| main, v1 | 0.43 | 0.07 | 0.59 | 0.31 | 0.21 | 0.45 |
+| main, v2 | −0.15 | −0.11 | −0.08 | −0.09 | 0.00 | 0.00 |
+| strip, v1 | 0.53 | 0.35 | 0.43 | 0.08 | 0.25 | 0.50 |
+| SBC set, v1 | 0.86 | −0.03 | −0.06 | −0.06 | 0.24 | — |
+
+All v2 sets are at or below 0. The structure is fine-grained: β's five quantile bins predict nothing (R² 0.02), so §54.6's 4×4 and 8×8 cell tests caught only a trace of it.
+
+**A2n's flows learned it.** The test (`ripple`) moves the true θ by ±ε in one parameter, the others fixed, and measures the drop in mean held-out log q. A smooth posterior loses about ε²/(2σ²) and grows with ε². A ridge loses most of its density at the smallest ε and then saturates.
+
+| step | main, A2n | main, v2 | strip, A2n | strip, v2 |
+|---|---|---|---|---|
+| β ± 0.005 | 0.69 | 0.007 | 0.11 | 0.006 |
+| β ± 0.02 | 2.05 | 0.11 | 0.73 | 0.11 |
+| β ± 0.05 | 2.46 | 0.63 | 1.10 | 0.64 |
+| R_gamma ± 0.0005 | 0.095 | 0.035 | 0.33 | 0.16 |
+| R_gamma ± 0.002 | 0.89 | 0.51 | 2.27 | 1.45 |
+
+A move of 0.005 in β is 3% of a posterior sd. It costs A2n 0.69 nats at the truth, and v2 0.007. v2's losses grow as ε² (×15 and ×5.9 against 16 and 6.25); A2n's saturate.
+
+**The held-out log q split** (`heldout`; flow space, unweighted). The four one-parameter Gaussian marginals of the network's own q, plus the joint remainder:
+
+| | log q | sum of marginals | joint remainder | of which Gaussian (linear) pairs |
+|---|---|---|---|---|
+| main, A2n | −2.24 | −5.03 | 2.79 | 0.74 |
+| main, v2 | −2.93 | −4.96 | 2.02 | 0.83 |
+| strip, A2n | −4.45 | −6.63 | 2.18 | 0.63 |
+| strip, v2 | −4.26 | −6.17 | 1.91 | 0.71 |
+
+- Every marginal is equal or better in v2, and so is the linear dependence.
+- The whole loss is in the non-linear joint part: 0.77 nats fewer on the main run.
+- Paired row by row, log q falls by 0.74 on the main run's held-out draws and by 0.01 on the strip's. There, better marginals (R_gamma's most, +0.30) offset the lost ridge.
+
+**What it means:**
+- **A2n's held-out log q is inflated by the ridge.** Held-out draws continue the training design, so their truths sit on it. This applies to every run trained on v1 data: A2, A2w, A2m, and §52–53's ablations. Their log q values remain comparable with one another (the same design and the same held-out draws), but not with v2's.
+- **Coverage and SBC are not affected.** Each SBC set has its own scramble and its own fine structure, not the one learned, and A2n's SBC coverage was nominal.
+- **For PSID, A2n's posteriors carry ridges** that come from the design, not the data, at a β scale of 0.005–0.02. Means and intervals average over them, and their effect on PSID is inside §56.3's paired shifts. It is not separable from the fixes here.
+- **§54.6's H8 estimate (posteriors ≤ 0.013 sd) understated the problem:** it reweighted the coarse imbalance only. Corrected there.
+- **v2's permutation removes it.** In v2, R_gamma is unpredictable from the other parameters, and its flows are smooth at fine scale.
+
+### 56.5 Reading
+
+- **The fixed simulation moves PSID couples' estimates by less than their posterior widths.**
+  - ρ 2.72 → 2.55, and 9% narrower;
+  - R_gamma 1.0538 → 1.0584, and 5% narrower;
+  - β 0.600 → 0.572;
+  - δ unchanged.
+
+  Laibson et al.'s β, δ and ρ remain inside most couples' 90% intervals (93%, 74%, 95%). R_gamma = 1.05 is inside 66% (A2n 73%).
+- **Calibration holds,** on held-out (0.899–0.919) and SBC (0.895–0.904), and recovery is equal or better on every parameter.
+- **Fewer households sit at a floor** (couples: 12% against 17%).
+- **H8 mattered more than §54 measured,** in A2n's held-out log q and in the fine structure of its posteriors. v2 has neither.
+- **v2 is the better-founded run:**
+  - Laibson et al.'s rounding (H7);
+  - their payoff at zero and impossible choices;
+  - their tie order;
+  - PSID's flow timing (H1);
+  - an R_gamma independent of the other parameters (H8).
+
+  Recommendation: v2 becomes the reference A2 configuration, with A2n kept as its v1 record. The user decides. §1's headline is still the §29 configuration and needs rewriting in any case.
+
+**Reproduce.**
+
+    nohup setsid ./scripts/run_regen_v2.sh >> logs/regen_v2.log 2>&1 &      # the run, §55
+    PYTHONPATH=.:src .venv/bin/python scripts/regen_v2_diagnostics.py data     # 56.1
+    PYTHONPATH=.:src .venv/bin/python scripts/regen_v2_diagnostics.py floor    # 56.2, the seam
+    PYTHONPATH=.:src .venv/bin/python scripts/regen_v2_diagnostics.py design   # 56.4
+    PYTHONPATH=.:src .venv/bin/python scripts/regen_v2_diagnostics.py ripple
+    PYTHONPATH=.:src .venv/bin/python scripts/regen_v2_diagnostics.py heldout
