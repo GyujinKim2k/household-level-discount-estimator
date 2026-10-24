@@ -1,22 +1,114 @@
 # Phase 4 — PSID empirical results
 
-**Status:** Phase 4 complete, plus the training-side work of §19–§29. The
-headline below is the §29 configuration — wider embedder, `log(1 - δ)` target,
-and anchor + level inputs (dollar features divided by household mean income,
-plus log mean income as one channel) — adopted 2026-09-28. The §20
-configuration it replaces gives essentially the same answers with worse δ
-calibration; its numbers are kept in §20 and §29.
-**Last updated:** 2026-09-28.
+**Status:** the reference configuration is **v2** (§55–56), adopted 2026-10-24
+(user). It is option A2n's model and training (§43.7–43.9) on data regenerated
+with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
+data. The §29 headline that stood here until then is kept at the end of §1.
+**Last updated:** 2026-10-24.
 
-Per-household posteriors over (β, δ, ρ) for 889 PSID households observed in
-seven biennial waves, 2011–2023, against Laibson, Lee, Maxted, Repetto &
-Tobacman's single population MSM estimate.
+Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
+409 of them couples, observed in seven biennial waves, 2011–2023, against
+Laibson, Lee, Maxted, Repetto & Tobacman's single population MSM estimate.
 
 ---
 
 ## 1. Headline
 
-**Current** (§29 configuration: `M=8`, corrected window, wider embedder,
+**Reference: v2** (§55–56; `outputs/optionA2v2/`, `scripts/run_regen_v2.sh`).
+
+The model and training:
+- the two-asset model with card-access types; the network never sees the type and marginalises over it (§26, §35);
+- initial states from a seed pool of PSID couples (§43.1);
+- R_gamma estimated as a fourth parameter (§32), over 1.021–1.075, with a strip of draws below 1.025 (§43.5);
+- logit β and R_gamma targets, and log(1 − δ) (§29, §39, §43.5);
+- anchor + level inputs (§28–29);
+- observation noise per feature, calibrated from PSID couples (§43.9) and recalibrated on v2: consumption 0–0.15, liquid 0–0.10, illiquid 0.175–0.47, income 0;
+- a 5-member ensemble.
+
+The data carry the audit's fixes (§55.1):
+- Laibson et al.'s income rounding (H7);
+- their payoff at zero and at impossible choices, and their tie order;
+- PSID's flow timing (H1);
+- R_gamma independent of the other parameters (H8).
+
+**PSID couples (409),** uncorrected arm (`compare_regen_v2.py`, `outputs/optionA2v2/comparison.json`):
+
+| | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| median of means | 0.5720 | 0.9837 | 2.5473 | 1.0584 |
+| mean of means | 0.5858 | 0.9764 | 2.5324 | 1.0556 |
+| sd across households | 0.1266 | 0.0224 | 0.6351 | 0.0125 |
+| median posterior sd | 0.1638 | 0.0121 | 0.8956 | 0.0095 |
+| Laibson et al. MSM | 0.5305 | 0.9891 | 1.9355 | 1.05, calibrated |
+| their std error | 0.1140 | 0.0051 | 0.4350 | |
+| share whose 90% interval covers their value | 0.929 | 0.743 | 0.951 | 0.660 |
+
+**All 889:**
+
+| | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| median of means | 0.6633 | 0.9834 | 2.4618 | 1.0560 |
+| mean of means | 0.6559 | 0.9749 | 2.4572 | 1.0540 |
+| sd across households | 0.1395 | 0.0231 | 0.6793 | 0.0116 |
+| median posterior sd | 0.1650 | 0.0149 | 0.9272 | 0.0107 |
+| share whose 90% interval covers Laibson et al.'s value | 0.866 | 0.782 | 0.958 | 0.777 |
+
+**Calibrated on simulated households:** held-out 90% coverage 0.899–0.919 and SBC 0.895–0.904, per parameter (§56.2).
+
+**Reading:**
+- **Household by household, Laibson et al.'s estimate is not excluded.** Their β, δ and ρ are inside 93%, 74% and 95% of couples' 90% intervals. R_gamma = 1.05 is inside 66%: couples' R_gamma reads higher, 1.058.
+- **Couples' β is close to theirs:** 0.572 against 0.5305. 89% of couples' means are inside their 95% interval, [0.307, 0.754].
+  - **This reverses the old headline.** There, β at 0.852 matched the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14).
+  - Under v2, 28% of couples' means are inside that band, and 50% of all 889's.
+- **β is weakly identified per couple:** held-out contraction 0.40 (§56.2).
+  - PSID couples' β population piles at the box floor of 0.3 (§47.3).
+  - Near that floor, uniform-prior intervals undercovered on simulated populations shaped like PSID's (§47.3).
+- **ρ reads 2.55,** above their 1.94 and far below §29's 4.50.
+  - 65% of couples' means are inside their 95% interval, [1.08, 2.79].
+  - ρ's posteriors are wide (median sd 0.90).
+  - It is the parameter v2 moved most: −0.17 from A2n (§56.3).
+- **δ is 0.984,** against their 0.989.
+- **Between §29 and v2 the model changed in several steps:** card-access types (§36), R_gamma estimated (§32), the couples' seed pool (§43.1–43.4), observation noise (§43.7–43.8) and the audit's fixes (§56). Each step's effect is recorded in its own section and is not re-attributed here.
+
+**Heterogeneity** (`Var(true θ) = Var(means) − E[posterior var]`, `heterogeneity_test.decompose`, as below; `P` is the bootstrap share at or below zero):
+
+| couples | Var(true) | 95% CI | P ≤ 0 | implied between-household sd |
+|---|---|---|---|---|
+| β | −0.00933 | [−0.01178, −0.00688] | 1.000 | none detectable |
+| δ | +0.000136 | [+0.000054, +0.000219] | 0.000 | 0.0117 |
+| ρ | −0.390 | [−0.454, −0.326] | 1.000 | none detectable |
+| R_gamma | +0.000062 | [+0.000038, +0.000086] | 0.000 | 0.0079 |
+
+For all 889, β and ρ are negative at P = 1.000. δ is +0.000050 (P = 0.034, sd 0.0071) and R_gamma +0.000014 (P = 0.028, sd 0.0038).
+
+- **As under §29,** this test finds no β heterogeneity, and small, real δ heterogeneity.
+- **R_gamma, the new parameter, is positive** among couples: about 0.008 between couples.
+- **ρ shows none:** clearly negative, as the population layer also found (§47.2: ρ cannot be told from one common value). §29 had left ρ's unidentified.
+- §20.2's caution stands: the decomposition is not a stable summary.
+  - §45–47's population layer found couples' spreads in β, δ and R_gamma larger than a shared-θ null would produce.
+  - It did not estimate their size (§47.2).
+
+**Figures:**
+- 67, the typical PSID couple, 68/95% contours;
+- 68, couples' and all 889's posterior means, v2 against A2n;
+- 66, a held-out simulated household;
+- 69, SBC.
+
+**Reproduce.**
+
+    nohup setsid ./scripts/run_regen_v2.sh >> logs/regen_v2.log 2>&1 &     # data, members, PSID, gates, figures (§55)
+    PYTHONPATH=.:src .venv/bin/python scripts/compare_regen_v2.py \
+        --pair couples outputs/psid_optionA2n_couples outputs/psid_optionA2v2_couples \
+        --pair all outputs/psid_optionA2n_all outputs/psid_optionA2v2_all \
+        --out outputs/optionA2v2/comparison.json                         # the tables above
+
+### The previous headline: §29's configuration (superseded 2026-10-24)
+
+Kept as it stood on 2026-09-28. Its model had three parameters (R_gamma fixed
+at 1.05) and no card-access types. Its data came from before the simulation
+audit (§54).
+
+**Headline as of 2026-09-28** (§29 configuration: `M=8`, corrected window, wider embedder,
 `log(1 - δ)` target, anchor + level inputs, 5-member ensemble, 889 comphs
 households).
 
@@ -47,7 +139,7 @@ The between/within ratio this table used to carry has been removed on purpose �
 §20.2 shows it is not a stable summary of heterogeneity. See "Is the
 heterogeneity real?" below.
 
-### β agrees with the experimental literature; their estimate is the outlier
+#### β agrees with the experimental literature; their estimate is the outlier
 
 Laibson et al.'s number is a **representative-agent fit to population moments**,
 which is a different object from a distribution over households. Benchmarked
@@ -75,7 +167,7 @@ consumption-Euler consensus of roughly 1 and only inside the band because
 finance-context estimates reach 7. §7.1's account — high ρ as the only channel
 this model has for precautionary saving — remains the live hypothesis.
 
-### Is the heterogeneity real?
+#### Is the heterogeneity real?
 
 Answered by decomposing `Var(posterior means) = Var(true θ) + E[posterior
 variance]`, so `Var(true θ) = Var(means) - E[posterior var]`. A **negative**
@@ -8640,6 +8732,8 @@ A move of 0.005 in β is 3% of a posterior sd. It costs A2n 0.69 nats at the tru
   - an R_gamma independent of the other parameters (H8).
 
   Recommendation: v2 becomes the reference A2 configuration, with A2n kept as its v1 record. The user decides. §1's headline is still the §29 configuration and needs rewriting in any case.
+
+  *Decided 2026-10-24 (user): v2 is the reference. §1 is rewritten for it, with the §29 headline kept there as superseded.*
 
 **Reproduce.**
 
