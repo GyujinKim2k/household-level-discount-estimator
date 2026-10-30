@@ -8965,3 +8965,183 @@ Figure 71:
 *Correction to the chat answer that prompted this:* before the conversion, illiquid's and liquid's network-scale error was stated as 0.18–0.22 and 0.04–0.05 and compared with the training's σ. Those were τ, not σ, and are not comparable with the training's σ.
 
 **Reproduce:** as §57.2. `psid_iid_error.py` also writes `sigma_range_network` (typical, with gross errors), the holding sizes of PSID and the model, and figure 71.
+
+v2 retrained with both ranges: §58.
+
+## 58. v2 retrained with PSID's own error ranges: every arm calibrated; PSID couples' medians move by at most half a posterior sd; too little training noise is what fails
+
+**Question (user, 2026-10-30).** "retrain with the typical errors range and with gross errors range. compare the current result, typical err, and gross err version."
+
+**Run.** `scripts/run_v2_noise_arms.sh`, launched 16:09 UTC on 2026-10-30, `DONE` at 19:36 UTC. Every stage returned rc = 0. Everything is v2's (§55–56): data, logit β and R_gamma, seeds 0–4, the evaluation. Only the training noise differs (σ ranges, `sigma_range_network` of §57.4):
+
+| | income | consumption | liquid | illiquid |
+|---|---|---|---|---|
+| v2 (§56.1) | 0 | 0–0.15 | 0–0.10 | 0.175–0.47 |
+| typical | 0.070–0.079 | 0.145–0.163 | 0.347–0.437 | 0.323–0.334 |
+| gross | 0.189–0.194 | 0.201 | 0–0.631 | 0.487–0.591 |
+
+- Ten members, two at a time, 3.2 h; typical 36–40 epochs, gross 35–37 (v2 47–51). PSID, held-out, SBC and figures, 15 min.
+- The seed baseline (§58.3) and the cross-noise check (§58.2) were added after the run, by hand. The script now runs both, with the same commands.
+
+### 58.1 Gates, each arm on its own noise
+
+**Held-out** (§56.2's 1,536 draws, ESS 758), v2 / typical / gross:
+
+| | 90% coverage | corr | MAE / prior sd | contraction |
+|---|---|---|---|---|
+| β | 0.910 / 0.908 / 0.894 | 0.648 / 0.574 / 0.549 | 0.625 / 0.678 / 0.691 | 0.401 / 0.308 / 0.290 |
+| δ | 0.904 / 0.897 / 0.906 | 0.754 / 0.702 / 0.692 | 0.511 / 0.567 / 0.577 | 0.541 / 0.482 / 0.461 |
+| ρ | 0.899 / 0.898 / 0.894 | 0.780 / 0.732 / 0.716 | 0.499 / 0.545 / 0.559 | 0.614 / 0.556 / 0.545 |
+| R_gamma | 0.919 / 0.909 / 0.911 | 0.716 / 0.674 / 0.660 | 0.515 / 0.559 / 0.571 | 0.530 / 0.476 / 0.448 |
+| weighted log q | 4.100 / 3.159 / 2.930 | | | |
+
+- **Coverage passes in every arm** (0.894–0.919). Single members cover 0.877–0.912.
+- **Recovery falls as the noise grows.** Each arm is scored on windows carrying its own noise, so this table does not rank the networks; §58.2 does. β loses most: contraction 0.40 → 0.31 → 0.29.
+- **By posterior-mean R_gamma,** the bin [1.021, 1.025) covers 0.963 (n = 80) and 0.968 (n = 79). v2's 0.740 at the seam (§56.2) does not recur.
+- **By posterior-mean ρ,** the bin [0.75, 1.0) covers 0.799 (n = 35) and 0.739 (n = 26); v2's covers 0.909 (n = 34). SBC's larger bin [0.5, 1.0) covers 0.899 and 0.917 (about 130 draws of 16 households each), so this is a small-bin effect.
+
+**SBC** (v2's SBC set; figures 74 and 77), v2 / typical / gross:
+
+| | 90% coverage | KS p, one household per draw |
+|---|---|---|
+| β | 0.904 / 0.905 / 0.904 | 0.699 / 0.235 / 0.959 |
+| δ | 0.898 / 0.890 / 0.896 | 0.732 / 0.752 / 0.877 |
+| ρ | 0.899 / 0.903 / 0.900 | 0.907 / 0.922 / 0.431 |
+| R_gamma | 0.895 / 0.896 / 0.899 | 0.024 / 0.099 / 0.121 |
+
+- **By posterior-mean region** (bins of 30 draws or more): typical 0.887–0.970, the highest being R_gamma's lowest bin (67 draws); gross 0.892–0.950.
+- **Every rank ECDF stays inside the KS band.**
+
+**The liquidation penalty.** The noisier networks are less sensitive to a misspecified penalty. Median shifts are at most 0.033 prior sd in every arm.
+
+| | v2 | typical | gross |
+|---|---|---|---|
+| ×0.5: β shift p10 / prior sd | −0.53 | −0.41 | −0.37 |
+| ×0.5: R_gamma shift p90 | +0.84 | +0.77 | +0.78 |
+| ×0.5: R_gamma 90% coverage | 0.832 | 0.883 | 0.893 |
+| ×1.5: R_gamma shift p10 | −0.49 | −0.45 | −0.45 |
+| ×1.5: R_gamma 90% coverage | 0.803 | 0.843 | 0.846 |
+
+**All gates pass.**
+
+### 58.2 Every network on every arm's noise
+
+`cross_noise_heldout.py` scores each ensemble on held-out windows carrying each arm's noise. The draws, households and noise draws (z and the per-household u) are the same in every cell. Only the range differs: σ = lo + (hi − lo)·u. Each column is one candidate truth for PSID's error. The diagonal reproduces §58.1 exactly.
+
+**90% coverage**, β / δ / ρ / R_gamma:
+
+| network ↓, windows' noise → | v2's | typical | gross |
+|---|---|---|---|
+| v2 | 0.910 0.904 0.899 0.919 | 0.874 0.858 0.873 0.836 | 0.864 0.847 0.852 0.850 |
+| typical | 0.907 0.908 0.899 0.932 | 0.908 0.897 0.898 0.909 | 0.900 0.882 0.878 0.905 |
+| gross | 0.908 0.919 0.900 0.930 | 0.902 0.916 0.901 0.910 | 0.894 0.906 0.894 0.911 |
+
+**Weighted log q** (the same windows down a column, so a proper score) **and β's contraction:**
+
+| network ↓, windows' noise → | v2's | typical | gross |
+|---|---|---|---|
+| v2 | 4.100 · 0.401 | 2.418 · 0.345 | 2.007 · 0.345 |
+| typical | 3.434 · 0.313 | 3.159 · 0.308 | 2.805 · 0.308 |
+| gross | 3.327 · 0.299 | 3.044 · 0.287 | 2.930 · 0.290 |
+
+- **A network trained with too little noise is overconfident.**
+  - On typical windows, v2 covers 0.836–0.874. R_gamma is worst: 11.3% of truths lie above its 95th percentile, so its posterior sits too low. δ's sits too high (9.4% of truths below its 5th percentile).
+  - On gross windows, v2 covers 0.847–0.864.
+  - Its contraction stays the highest in every column (β 0.345 against 0.308): it is narrower than the data allow.
+- **A network trained with too much noise stays calibrated, slightly conservative.**
+  - On typical windows, the gross network covers 0.901–0.916; on v2's, 0.900–0.930.
+  - Between the two new arms the mismatch is mild either way. Typical on gross windows covers 0.878–0.905, with ρ and δ slightly under.
+- **The matching network has the best log q in every column.** The losses from a mismatch are about symmetric in log q: v2's network on typical windows loses 0.74 nats, and the typical network on v2's windows 0.67. Gross on typical loses 0.115, and typical on gross 0.125. The asymmetry is in calibration: too much noise errs wide, too little errs narrow.
+
+### 58.3 PSID
+
+**Couples (409),** uncorrected arm, v2 / typical / gross:
+
+| | median of means | median posterior sd | Laibson's value inside the 90% interval |
+|---|---|---|---|
+| β | 0.572 / 0.560 / 0.596 | 0.164 / 0.164 / 0.172 | 93% / 95% / 97% |
+| δ | 0.9837 / 0.9826 / 0.9779 | 0.0121 / 0.0125 / 0.0164 | 74% / 70% / 74% |
+| ρ | 2.547 / 2.591 / 2.556 | 0.896 / 0.941 / 0.965 | 95% / 97% / 98% |
+| R_gamma | 1.0584 / 1.0571 / 1.0596 | 0.0095 / 0.0099 / 0.0105 | 66% / 79% / 83% |
+
+- **Corrected arm:** medians β 0.575 / 0.563 / 0.596, δ 0.9757 / 0.9748 / 0.9700, ρ 2.510 / 2.542 / 2.511 and R_gamma 1.0593 / 1.0581 / 1.0600.
+- **All 889:**
+  - medians β 0.663 / 0.654 / 0.680, δ 0.9834 / 0.9824 / 0.9777, ρ 2.462 / 2.527 / 2.512 and R_gamma 1.0560 / 1.0553 / 1.0583;
+  - ρ's median posterior sd 0.927 / 0.982 / 1.005;
+  - Laibson's values inside the 90% interval: β 87% / 89% / 88%, δ 78% / 76% / 79%, ρ 96% / 97% / 98%, R_gamma 78% / 86% / 89%.
+- **In every arm,** the median posterior mass inside the box is at least 0.998, the median ESS / kept is 0.73–0.76, and no household is unrepresentable.
+
+**Paired, household by household, against v2** (`compare_noise_arms.py`), couples:
+
+| | median shift | median \|shift\| / v2's posterior sd | median ratio of posterior sds | correlation of means |
+|---|---|---|---|---|
+| typical, β | −0.003 | 0.22 | 1.00 | 0.90 |
+| δ | −0.0013 | 0.29 | 1.05 | 0.94 |
+| ρ | +0.025 | 0.22 | 1.06 | 0.90 |
+| R_gamma | −0.0007 | 0.28 | 1.03 | 0.89 |
+| gross, β | +0.026 | 0.29 | 1.05 | 0.85 |
+| δ | −0.0042 | 0.45 | 1.27 | 0.90 |
+| ρ | +0.023 | 0.26 | 1.08 | 0.84 |
+| R_gamma | +0.0008 | 0.35 | 1.08 | 0.84 |
+
+- **All 889:** typical, correlation 0.89–0.95 and \|shift\| 0.20–0.23 sd; gross, 0.83–0.90 and 0.28–0.40 sd. The sd ratios are 1.01–1.05 and 1.03–1.18.
+- **The seed baseline.** Two disjoint member pairs of one arm (s0 + s1 against s2 + s3, couples) agree as follows:
+
+  | | v2 | typical | gross |
+  |---|---|---|---|
+  | correlation of means, β δ ρ R_gamma | 0.92 0.94 0.91 0.93 | 0.94 0.96 0.93 0.96 | 0.96 0.97 0.94 0.96 |
+  | median \|shift\| / sd | 0.21 0.24 0.23 0.31 | 0.16 0.19 0.17 0.19 | 0.11 0.16 0.13 0.17 |
+
+  Five-member ensembles agree more closely than these two-member ones, so the true baseline is tighter still.
+  - The typical arm re-ranks couples a little more than a change of seeds (β, ρ and R_gamma correlations 0.89–0.90, against at least 0.91–0.93).
+  - The gross arm re-ranks them more (0.84–0.90).
+  - The noisier networks are themselves more stable across seeds.
+- **Fewer households sit near a floor:**
+
+  | share of households | couples: v2 / typical / gross | all 889: v2 / typical / gross |
+  |---|---|---|
+  | ρ's lower 5% < 0.55 | 0.005 / 0.012 / 0.015 | 0.031 / 0.027 / 0.029 |
+  | R_gamma's lower 5% within 0.0025 of 1.021 | 0.117 / 0.083 / 0.066 | 0.163 / 0.135 / 0.110 |
+  | either | 0.120 / 0.095 / 0.081 | 0.187 / 0.161 / 0.139 |
+
+- **Figures:**
+  - 72 and 75, a held-out simulated household per arm (68/95% contours; each figure picks its own household);
+  - 73 and 76, the typical couple (#295) per arm;
+  - 78, couples' posterior means in the three arms. The three 68% regions overlap almost entirely. The gross arm's stops higher in R_gamma (about 1.045, against v2's 1.04), and its 95% region stops near 1.025–1.03 where v2's reaches the floor.
+
+### 58.4 Reading
+
+- **The noise does not change PSID couples' answers.**
+  - The medians move by at most β 0.024, δ 0.006, ρ 0.04 and R_gamma 0.0013: 0.15, 0.48, 0.05 and 0.14 of v2's median posterior sd. δ's largest move is the gross arm's (0.9779 against 0.9837); the typical arm's are 0.14 sd or less.
+  - Posterior sds widen by up to 6% (typical) and 8% (gross); δ's widens 27% in gross.
+  - Laibson et al.'s β, δ and ρ stay inside most couples' 90% intervals in every arm. R_gamma = 1.05 rises from 66% to 79% and 83%.
+- **v2's training noise is below PSID's measured error, and that matters for calibration more than for the estimates.**
+  - If PSID's error is at least §57.4's typical range, v2 covers simulated households only 0.84–0.87, with R_gamma the worst; v2 trained on no income noise, against PSID's measured 0.07.
+  - v2's PSID intervals are therefore probably somewhat too narrow, R_gamma's most.
+- **Too much training noise is the safe error (§58.2).**
+  - The gross arm is calibrated under all three candidate truths (0.894–0.930).
+  - When the truth is the typical range, that costs it 0.115 nats and 0.02 of β's contraction.
+- **Caveats on both new arms:**
+  - **For wealth, the typical range is a low reading** (the IQR does not add up across holding sizes, §57.4), so the truth lies above it.
+  - **For liquid, both arms over-noise the model's windows.** The σ is applied to the model's larger balances, which overstates the noise as the network sees it (§57.4). That errs conservative.
+  - **For income and consumption,** part of PSID's measured error is transitory movement the model already simulates (§57.4). That also errs conservative.
+  - **Neither arm models gross errors as they are,** a few records with large errors. Both spread one Gaussian σ over every record. Windows with a mixture of typical and gross errors were not tested.
+- **Recommendation: the gross arm as the reference.**
+  - It is calibrated whichever candidate is true.
+  - It is the most robust to the liquidation penalty.
+  - Its estimates differ from v2's by a median 0.26–0.35 posterior sd, household by household (δ 0.45). Its population medians move by 0.15 sd or less, except δ's (0.48 sd lower).
+  - The typical arm is the alternative if the tighter, central reading of PSID's error is preferred. It is nearly calibrated under gross noise (0.878–0.905).
+  - The user decides. §1 stays v2 until then.
+
+**Reproduce.**
+
+    nohup setsid ./scripts/run_v2_noise_arms.sh >> logs/v2_noise_arms.log 2>&1 &   # the run; ranges from §57.4
+    # its last stages, by hand (outputs/v2_noise_arms/):
+    PYTHONPATH=. .venv/bin/python scripts/optionA.py psid --run_dirs outputs/optionA2v2/s0 outputs/optionA2v2/s1 \
+        --x data/processed/psid_x_comphs_couples.pt --out outputs/v2_noise_arms/seed_pairs/v2_s01   # and s2 s3, each arm
+    PYTHONPATH=. .venv/bin/python scripts/compare_noise_arms.py --arm v2 ... --seed_pair v2 ... \
+        --out outputs/v2_noise_arms/comparison.json                                               # 58.1, 58.3
+    PYTHONPATH=. .venv/bin/python scripts/cross_noise_heldout.py --arm v2 outputs/optionA2v2 \
+        --arm typical outputs/optionA2v2_noise_typical --arm gross outputs/optionA2v2_noise_gross \
+        --shards data/processed/couples_v2_dataset_shards data/processed/couples_v2_strip_dataset_shards \
+        --out outputs/v2_noise_arms/cross_noise_heldout.json                                      # 58.2
