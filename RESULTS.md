@@ -8743,3 +8743,156 @@ A move of 0.005 in β is 3% of a posterior sd. It costs A2n 0.69 nats at the tru
     PYTHONPATH=.:src .venv/bin/python scripts/regen_v2_diagnostics.py design   # 56.4
     PYTHONPATH=.:src .venv/bin/python scripts/regen_v2_diagnostics.py ripple
     PYTHONPATH=.:src .venv/bin/python scripts/regen_v2_diagnostics.py heldout
+
+## 57. PSID's illiquid wealth reverses and the model's does not; PSID's iid error measured on PSID alone
+
+**Questions (user, 2026-10-30).** First: "what is the main reason that a value of illiquid between two data is very different?", meaning the noise signature a of §43.9 (§56.1 recalibrated it). Then: "yes record it as RESULTS 57. and re calculate the real psid's measure iid error range. give up the un predictable correlation with current model."
+
+### 57.1 Why illiquid's signature is +0.063 in PSID and −0.03 in the model
+
+`illiquid_reversals.py` compares the two series' changes:
+- the model is v2, with no noise, in couples' region (§43.9's region; every second shard, 172,640 windows);
+- a and V₁ are on the network's input scale, IQR-based, as in §43.9;
+- the correlation of consecutive one-wave changes is taken where illiquid wealth is held in all three waves, with changes winsorised at 1/99;
+- the shares are of changes between two held waves.
+
+| illiquid | PSID couples (409) | model, v2 |
+|---|---|---|
+| a = 2V₁ − V₂ | +0.063 | −0.031 |
+| V₁ | 0.175 | 0.012 |
+| correlation of consecutive changes | **−0.39** | **+0.61** |
+| held changes falling by > 0.1 × mean income | 0.35 | 0.09 |
+| rising by > 0.1 × mean income | 0.54 | 0.50 |
+| within ±0.1 × mean income | 0.12 | 0.41 |
+| exactly zero | 0.00 | 0.39 |
+
+How to read the correlation: iid noise around a level gives −0.5, a random walk 0, and steady saving a positive value (`tests/test_psid_iid_error.py`). PSID's "exactly zero" is 0 partly by construction, since each wave is deflated by its own year's prices.
+
+**The model: its changes are zero or a deposit, and deposits come in runs.**
+- The illiquid balance moves only by deposits and withdrawals (§44). Its return is paid out as a dividend, and withdrawals pay the liquidation penalty.
+- Nothing in it can make a value rise and then fall back.
+- That is why no cell of the model reaches PSID's a without noise. It is also why §43.9's rule needs illiquid noise of at least 0.175 at every θ.
+
+**PSID: every component reverses** (correlation of its own consecutive changes, held in all three waves; `psid_illiquid_decomposition.components`):
+
+| home equity | DC pensions | IRAs | stocks | vehicles | other real estate | other assets | unsecured debt |
+|---|---|---|---|---|---|---|---|
+| −0.27 (1,250 pairs) | −0.17 (325) | −0.19 (112) | −0.44 (32) | −0.42 (1,647) | −0.30 (55) | −0.90 (38) | −0.24 (430) |
+
+**Which component carries the movement:** each component frozen at the couple's own mean over the window (its level kept, its changes removed), then a and V₁ recomputed. 90% intervals are from 200 bootstrap resamples of couples.
+
+| frozen | share of V₁ removed | share of a removed |
+|---|---|---|
+| home equity | **0.62** (0.56–0.67) | 0.55 (−0.30 to 0.80) |
+| vehicles | 0.31 (0.21–0.39) | 0.82 (0.23–1.71) |
+| DC pensions | 0.30 (0.21–0.36) | 0.71 (0.06–1.13) |
+| IRAs | 0.21 (0.12–0.25) | 0.41 (−0.23 to 0.80) |
+| other assets | 0.17 (0.10–0.22) | 0.39 (−0.25 to 0.89) |
+| other real estate, unsecured debt, stocks | 0.03–0.08 | −0.11 to 0.16 |
+| home equity and vehicles | **0.86** (0.82–0.89) | 0.76 (0.36–0.89) |
+
+The shares do not add up: the freezes interact through the floor at zero and the asinh scale.
+
+**Moves are not the main source.** Changes spanning a change of tenure (a purchase or a sale) are 9.5% of changes and carry 21% of the squared changes. Without them V₁ is 0.148, against 0.175.
+
+**Reading:**
+- **The size of the movement is mostly home equity:** 62% of V₁, and 86% together with vehicles.
+- **The reversal is spread across components.** No single freeze removes a with any precision.
+- **Likely sources** (the extract has no house value or mortgage balance to separate them):
+  - owners' own estimates of what their house, car and accounts are worth, made afresh each wave. Home equity is value minus mortgage, so a small error in the value is a large one in equity;
+  - imputation (§49.2);
+  - true reversals the model lacks: a car bought and then depreciating, refinancing.
+
+### 57.2 PSID's iid error, measured on PSID alone
+
+**Decision (user, 2026-10-30):** the range no longer depends on what the model's own cells produce.
+
+**Method** (`psid_iid_error.py`):
+- **Scale.** The training noise multiplies a value by exp(σz). On log|value| it is additive, and it never moves a zero or flips a sign.
+- **Changes.** A k-wave change is used only inside a run, where the value is non-zero and of one sign in every wave it spans. Selecting on zeros and signs selects on the true values, so every change used carries the noise's full 2σ².
+- **Separating noise from dynamics.** Noise adds the same 2σ² to V_k at every gap k; persistent dynamics add more the longer the gap. Four specifications of the true process:
+  - `signature`: a random walk, gaps 1–2 only, σ² = (2V₁ − V₂)/2 (§43.9's statistic on this scale);
+  - `rw`: a random walk, gaps 1–6, V_k = 2σ² + k s_η² (the variance of k-period differences regressed on k, Carroll and Samwick 1997);
+  - `rw+drift`: adds a household drift, + k² s_g²;
+  - `rw+drift+ar`: adds a mean-reverting AR(1) component, + 2s²(1 − φ^k), φ on a grid 0.05–0.95. A short-lived true component is nearly iid itself, so this spec reads σ lowest.
+- **Fitting.** Non-negative least squares on V_k relative to V_k.
+- **Variance.** IQR-based, as in §43.9, which reads a typical record's error; or winsorised at 1/99, which also counts the occasional gross error.
+- **Calendar effects.** Each calendar pair of waves is centred on its median first, so a common year effect is not read as dispersion.
+- **Uncertainty.** 200 bootstrap resamples of couples.
+- **Imputation.** Also run with PSID's imputed feature-waves treated as missing (`psid_accuracy_codes.masks`, any part imputed). Income has no codes.
+- **By size.** Groups of couples by their median |value| over mean income, with at least 50 couples per group.
+- **The model's own iid component.** The same estimator on v2's noise-free windows, as context only; it sets nothing.
+
+**What σ holds:** anything iid in levels, which means reporting error, imputation, and true short-lived movements. It is an upper bound on reporting error.
+
+**Tests** (`tests/test_psid_iid_error.py`, 13):
+- noise added by `add_obs_noise` is recovered within 0.02 under a random walk with household drift;
+- no noise reads as none, and a common year effect is not read as noise;
+- zeros and sign changes do not bias it, and the bootstrap interval covers the truth;
+- **the range brackets the truth:** 0.149–0.149 around 0.15 for a random walk with drift, and 0.126–0.224 around 0.15 for a mean-reverting true process, where `rw+drift` alone reads 0.225;
+- with gross errors (10% of records at sd 0.6), the IQR reads near the typical record's error and the winsorised variance near the overall sd;
+- the statistics of §57.1.
+
+**PSID couples (409)**, σ per wave, 90% intervals:
+
+| | income | consumption | liquid | illiquid |
+|---|---|---|---|---|
+| household-waves non-zero | 0.998 | 1.000 | 0.866 | 0.859 |
+| IQR, signature | 0.075 (0.035–0.099) | 0.154 (0.135–0.175) | 0.597 (0.462–0.691) | 0.405 (0.310–0.463) |
+| IQR, rw+drift | 0.078 (0.062–0.114) | 0.161 (0.145–0.179) | 0.685 (0.628–0.794) | 0.431 (0.395–0.513) |
+| IQR, rw+drift+ar (best φ) | 0.069 (0–0.090; 0.95) | 0.143 (0–0.167; 0.75) | 0.189 (0–0.615; 0.30) | 0.393 (0–0.451; 0.90) |
+| winsorised, rw+drift | 0.187 (0.175–0.212) | 0.194 (0.186–0.215) | 0.899 (0.836–0.967) | 0.728 (0.665–0.787) |
+| winsorised, rw+drift+ar | 0.182 | 0.194 | 0.000 | 0.641 |
+| unimputed, IQR, rw+drift | no codes | rw 0.181 (only 3 gaps have ≥ 100 changes) | 0.709 | 0.402 |
+| **range, PSID only** | **0.069–0.187** | **0.143–0.194** | **0.189–0.899** | **0.393–0.728** |
+| training now (§56.1) | 0 | 0–0.15 | 0–0.10 | 0.175–0.47 |
+| model v2's own iid component, IQR, rw+drift / rw+drift+ar (context) | 0.244 / 0.126 | 0 / 0 | 0.322 / 0.197 | 0 / 0 |
+
+`rw` and `rw+drift` agree to within 0.002 everywhere, so no household drift is detected.
+
+**The range** (`sigma_range` in the output, in `noise_calibration.py`'s format) spans what PSID alone allows:
+- **low:** `rw+drift+ar` on the IQR, which gives true dynamics the most room and counts only a typical record's error;
+- **high:** `rw+drift` winsorised, which counts every reversal and every gross error.
+
+**By size** (`rw+drift`, IQR / winsorised, couples in brackets):
+
+| median \|value\| / mean income | < 0.1 | 0.1–0.5 | 0.5–1 | 1–2 | ≥ 2 |
+|---|---|---|---|---|---|
+| income | | | 0.094 / 0.194 (223) | 0.081 / 0.202 (186) | |
+| consumption | | (30) | 0.154 / 0.193 (321) | 0.192 / 0.221 (57) | |
+| liquid | 0.807 / 0.983 (297) | 0.586 / 0.693 (100) | (11) | (0) | (1) |
+| illiquid | (64: too few changes inside runs) | 0.648 / 1.011 (64) | 0.551 / 0.768 (68) | 0.360 / 0.636 (112) | 0.344 / 0.501 (101) |
+
+Figure 70: V_k against k for each feature, with the fits. The intercept at k = 0 is 2σ².
+
+**Reading, feature by feature:**
+- **Illiquid: 0.39–0.73, above the current 0.175–0.47.**
+  - The specifications agree (0.39–0.43 on the IQR).
+  - Imputation is a small part of it: unimputed 0.402, 13% of σ². §49.2's larger share was for the asinh-scale signature.
+  - The error falls with size: 0.65 for holdings of 0.1–0.5 × income, 0.34 at ≥ 2 × income. One multiplicative σ overstates large holdings' error and understates small ones'.
+- **Liquid: not identified, 0.19–0.90.**
+  - PSID's V_k flattens after two gaps (figure 70). A true component that mostly vanishes within a wave (φ 0.3) fits as well as noise does.
+  - It rests on small balances: 297 of 409 couples have a median |liquid| below 0.1 × mean income, where σ reads 0.81.
+  - Nothing is measured above half a year's income (12 couples).
+- **Consumption: 0.14–0.19; zero is no longer in the range.** §43.9 kept zero on purpose: low ρ alone reproduces PSID's consumption signature, so "no noise, low ρ" stayed open. PSID alone cannot separate true transitory consumption movement from reporting error, and this range counts all of it as error.
+- **Income: 0.07–0.19, against 0 now.**
+  - The IQR end fits Bound et al.'s "fairly accurate" (§49.2). The winsorised end is the heavy tail (kurtosis 36, §43.7).
+  - The model's own income already has an iid component of 0.24 (0.13 under `rw+drift+ar`), more than PSID's.
+
+**What giving up the model costs.** For income, liquid and (at ρ < 1) consumption, PSID's iid component includes true transitory movement that the model already simulates. As noise on top, it is counted twice. Illiquid has no iid component in the model, so nothing there is counted twice.
+
+### 57.3 Reading
+
+- **The main reason the signatures differ:**
+  - PSID's illiquid wealth jitters around its trend: consecutive changes correlate at −0.39, and 35% of held changes fall by more than a tenth of income;
+  - the model's moves in runs: +0.61, and 9% fall;
+  - the movement is mostly home equity; the reversal is spread across components.
+- **PSID's own iid error** is larger than the training's current range for illiquid (0.39–0.73), not identified for liquid (0.19–0.90), and above zero for consumption (0.14–0.19) and income (0.07–0.19).
+- **Not applied.** Training keeps §56.1's range until the user decides. Retraining v2's five members with the PSID-only range needs no new data and takes about 2.2 GPU-hours; PSID, the held-out check and SBC take minutes more. Expect wider posteriors: consumption noise was the largest single cost to width (§53).
+- **PSID's error falls with size** for illiquid wealth. A σ that depends on a value's size relative to income would be a change of the noise model, not of its range. It is not built.
+
+**Reproduce.**
+
+    PYTHONPATH=.:src .venv/bin/python scripts/illiquid_reversals.py     # 57.1 -> outputs/illiquid_reversals/
+    PYTHONPATH=.:src .venv/bin/python scripts/psid_iid_error.py         # 57.2 -> outputs/psid_iid_error/, figure 70
+    PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_psid_iid_error.py
