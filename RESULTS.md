@@ -8850,7 +8850,7 @@ The shares do not add up: the freezes interact through the floor at zero and the
 
 `rw` and `rw+drift` agree to within 0.002 everywhere, so no household drift is detected.
 
-**The range** (`sigma_range` in the output, in `noise_calibration.py`'s format) spans what PSID alone allows:
+**The range** (`sigma_range_log` in the output, in `noise_calibration.py`'s format) spans what PSID alone allows:
 - **low:** `rw+drift+ar` on the IQR, which gives true dynamics the most room and counts only a typical record's error;
 - **high:** `rw+drift` winsorised, which counts every reversal and every gross error.
 
@@ -8870,6 +8870,7 @@ Figure 70: V_k against k for each feature, with the fits. The intercept at k = 0
   - The specifications agree (0.39–0.43 on the IQR).
   - Imputation is a small part of it: unimputed 0.402, 13% of σ². §49.2's larger share was for the asinh-scale signature.
   - The error falls with size: 0.65 for holdings of 0.1–0.5 × income, 0.34 at ≥ 2 × income. One multiplicative σ overstates large holdings' error and understates small ones'.
+  - *Corrected 2026-10-30 (§57.4):* "above the current range" holds only with gross errors counted. log|value| weighs small holdings' large relative errors in full, though the network barely sees them. On the network's own scale, illiquid's typical error is 0.32–0.33, inside the current range.
 - **Liquid: not identified, 0.19–0.90.**
   - PSID's V_k flattens after two gaps (figure 70). A true component that mostly vanishes within a wave (φ 0.3) fits as well as noise does.
   - It rests on small balances: 297 of 409 couples have a median |liquid| below 0.1 × mean income, where σ reads 0.81.
@@ -8888,6 +8889,7 @@ Figure 70: V_k against k for each feature, with the fits. The intercept at k = 0
   - the model's moves in runs: +0.61, and 9% fall;
   - the movement is mostly home equity; the reversal is spread across components.
 - **PSID's own iid error** is larger than the training's current range for illiquid (0.39–0.73), not identified for liquid (0.19–0.90), and above zero for consumption (0.14–0.19) and income (0.07–0.19).
+  *Corrected 2026-10-30:* these ranges are on log|value|. On the network's own scale (§57.4), illiquid is 0.32–0.33 for typical errors and 0.49–0.59 with gross errors; liquid is 0.35–0.44 and 0–0.63.
 - **Not applied.** Training keeps §56.1's range until the user decides. Retraining v2's five members with the PSID-only range needs no new data and takes about 2.2 GPU-hours; PSID, the held-out check and SBC take minutes more. Expect wider posteriors: consumption noise was the largest single cost to width (§53).
 - **PSID's error falls with size** for illiquid wealth. A σ that depends on a value's size relative to income would be a change of the noise model, not of its range. It is not built.
 
@@ -8896,3 +8898,70 @@ Figure 70: V_k against k for each feature, with the fits. The intercept at k = 0
     PYTHONPATH=.:src .venv/bin/python scripts/illiquid_reversals.py     # 57.1 -> outputs/illiquid_reversals/
     PYTHONPATH=.:src .venv/bin/python scripts/psid_iid_error.py         # 57.2 -> outputs/psid_iid_error/, figure 70
     PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_psid_iid_error.py
+
+### 57.4 The range on the network's own scale
+
+**Questions (user, 2026-10-30).** "why did it get increased even we ignored the several effects? just because we have to cover all noises?" Then: "let's re estimate the range on the network's scale. show me the range whether include the gross errors or not".
+
+**Why §57.2's range was higher than §43.9's.** Not because more kinds of noise are covered. Three choices raised it:
+- **The scale.** log|value| weighs every holding's relative error alike. The network sees wealth as asinh(value / mean income), on which a small holding's error nearly vanishes. PSID's relative error is largest for small holdings (§57.2, by size).
+- **The upper end counts gross errors** (the winsorised variance). §43.9's upper end was a typical cell's need on the IQR.
+- **The lower ends no longer subtract the model** (income, consumption, liquid). This is the intended effect of the user's decision.
+
+**Method** (`psid_iid_error.py`, added to §57.2's):
+- **The fits on the network's scale.** The same V_k fits, inside runs, on the network's own input scale (`network_scale`, as `noise_calibration.input_scale`): log of income and consumption over the household's mean income, and asinh of wealth over it. Their intercept is 2τ², with τ the iid sd as the network sees it.
+- **Converting τ to the training's σ.** At PSID's own values, `noise_curve` records the variance the training's noise alone has on the network's scale, for each σ (common random numbers, averaged over the gaps). `to_sigma` reads the σ whose noise has 2τ² there.
+  - For income and consumption the network's scale is a log scale, so σ = τ.
+  - For wealth, small holdings carry little of the noise, so σ > τ.
+- **Why the noise alone.** It is not added to PSID's values: PSID's changes are peaked (many households report the same amount twice), so added noise widens their IQR faster than 2σ². An earlier pass that added it turned income's τ of 0.078 into σ 0.057, an effect of PSID's shape, not of the scale.
+- **Two ranges,** each [`rw+drift+ar`, `rw+drift`]:
+  - *typical errors:* the IQR-based variance, a typical record's error;
+  - *with gross errors:* the winsorised variance.
+- **Tests** (17 in all): `to_sigma` reads the curve, and a single multiplicative σ is recovered for holdings spread over two orders of magnitude. Income and consumption read the same on both scales. With error 0.6 on holdings below half of income and 0.2 above, the winsorised network-scale σ reads closer to 0.2 than log|value| does.
+
+**PSID couples (409)**, σ in the training's units (90% intervals; τ, the network-scale sd, in brackets):
+
+| | income | consumption | liquid | illiquid |
+|---|---|---|---|---|
+| typical, rw+drift+ar | 0.070 (0–0.091) [τ 0.069] | 0.145 (0–0.169) [0.143] | 0.347 (0–0.533) [0.031] | 0.323 (0–0.406) [0.213] |
+| typical, rw+drift | 0.079 (0.063–0.116) [0.078] | 0.163 (0.147–0.182) [0.161] | 0.437 (0.363–0.589) [0.039] | 0.334 (0.295–0.437) [0.220] |
+| **range, typical errors** | **0.070–0.079** | **0.145–0.163** | **0.347–0.437** | **0.323–0.334** |
+| with gross errors, rw+drift+ar | 0.189 (0.101–0.212) [0.182] | 0.201 (0.062–0.218) [0.194] | 0 (0–0.747) [0] | 0.487 (0.256–0.554) [0.349] |
+| with gross errors, rw+drift | 0.194 (0.181–0.220) [0.187] | 0.201 (0.193–0.223) [0.194] | 0.631 (0.494–0.788) [0.140] | 0.591 (0.531–0.650) [0.421] |
+| **range, with gross errors** | **0.189–0.194** | **0.201** | **0–0.631** | **0.487–0.591** |
+| unimputed, rw+drift, typical / with gross errors | no codes | signature 0.144 / 0.218 | 0.452 / 0.502 | 0.313 / 0.517 |
+| on log\|value\| (§57.2) | 0.069–0.187 | 0.143–0.194 | 0.189–0.899 | 0.393–0.728 |
+| training now (§56.1) | 0 | 0–0.15 | 0–0.10 | 0.175–0.47 |
+
+**By size** (network scale, `rw+drift` σ, typical / with gross errors; each group converted at its own values):
+
+| median \|value\| / mean income | < 0.1 | 0.1–0.5 | 0.5–1 | 1–2 | ≥ 2 |
+|---|---|---|---|---|---|
+| income | | | 0.096 / 0.200 | 0.085 / 0.216 | |
+| consumption | | | 0.157 / 0.200 | 0.204 / 0.239 | |
+| liquid | 0.628 / 0.626 | 0.487 / 0.633 | | | |
+| illiquid | | 0.522 / 0.995 | 0.526 / 0.746 | 0.430 / 0.564 | 0.381 / 0.516 |
+
+Figure 71:
+- top: V_k on the network's scale, with the fits;
+- bottom: the noise's network-scale variance against σ, and the σ each fit reads off.
+
+**Reading:**
+- **Income and consumption are unchanged from §57.2,** since their network scale is a log scale.
+  - Typical errors: income 0.07–0.08 and consumption 0.15–0.16.
+  - With gross errors: about 0.19 and 0.20.
+- **Illiquid: typical errors 0.32–0.33,** inside the current 0.175–0.47. With gross errors it is 0.49–0.59, above it. On log|value| it read 0.39–0.43 (typical) because small holdings weighed in full.
+- **Liquid: typical errors 0.35–0.44,** above the current 0–0.10.
+  - PSID's liquid balances are tiny (297 of 409 couples have a median below 0.1 × mean income). On the network's scale their iid sd is only 0.03–0.04, but it takes multiplicative noise of 0.35–0.44 to produce that much on such small balances.
+  - Training would apply that σ to the model's own balances, which are larger: the median couple's median |liquid| is 0.20 × mean income in v2's couples' region, against PSID's 0.054. 22% of the model's couples hold at least 0.5 × income, against PSID's 3%.
+  - So the simulated windows would carry more noise, as the network sees it, than PSID's do. Illiquid holdings are closer: medians 1.59 against 1.08 × mean income.
+  - With gross errors the low end is 0 and not identified (§57.2).
+- **The IQR does not add up across holdings of different sizes.**
+  - The pooled typical σ for illiquid (0.33) and liquid (0.44) is below every size group's own (illiquid 0.38–0.53, liquid 0.49–0.63).
+  - The winsorised pooled σ lies within its groups' range, weighted toward large holdings.
+  - So the typical range for wealth is a low reading.
+- **The error still falls with size** on the network's scale (illiquid 0.52 → 0.38, typical). One σ for every household cannot reproduce that.
+
+*Correction to the chat answer that prompted this:* before the conversion, illiquid's and liquid's network-scale error was stated as 0.18–0.22 and 0.04–0.05 and compared with the training's σ. Those were τ, not σ, and are not comparable with the training's σ.
+
+**Reproduce:** as §57.2. `psid_iid_error.py` also writes `sigma_range_network` (typical, with gross errors), the holding sizes of PSID and the model, and figure 71.

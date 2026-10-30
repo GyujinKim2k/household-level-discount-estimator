@@ -148,3 +148,63 @@ def test_iqr_reads_the_typical_error_and_winsorising_counts_gross_ones():
     e = pe.estimate(x[..., ILL] * np.exp(z))
     assert e["iqr"]["rw+drift"]["sigma"] < 0.14
     assert e["winsorised"]["rw+drift"]["sigma"] == pytest.approx(0.21, abs=0.03)
+
+
+# --- the network's scale (RESULTS 57.4) ---------------------------------------------
+
+def _sized_panel(n=4000, waves=7, seed=6, median=0.5, spread=1.5, eta=0.1):
+    """Illiquid holdings in units of mean income (income 1), spread over two
+    orders of magnitude, each a log random walk."""
+    rng = np.random.default_rng(seed)
+    lvl = np.log(median) + rng.normal(0, spread, (n, 1))
+    x = np.ones((n, waves, len(FEATS)))
+    x[..., ILL] = np.exp(lvl + np.cumsum(rng.normal(0, eta, (n, waves)), 1))
+    return x
+
+
+def test_to_sigma_reads_the_curve():
+    c = 2 * pe.SIGMA_GRID ** 2
+    assert pe.to_sigma(2 * 0.3 ** 2, c) == pytest.approx(0.3, abs=0.002)
+    assert pe.to_sigma(0.0, c) == 0.0
+    assert pe.to_sigma(100.0, c) == float("inf")
+    assert np.isnan(pe.to_sigma(float("nan"), c))
+
+
+def test_one_multiplicative_sigma_is_recovered_at_every_size():
+    """If the error really is exp(sigma z) for every holding, the network's
+    scale reads the same sigma as log|value|, small holdings included."""
+    x = _noisy(_sized_panel(), 0.2)
+    v, ybar = x[..., ILL], np.ones((len(x), 1))
+    w = pe.network(v, ybar, "illiquid_assets", None, n_boot=0)
+    assert w["iqr"]["rw+drift"]["sigma"] == pytest.approx(0.2, abs=0.03)
+    assert w["winsorised"]["rw+drift"]["sigma"] == pytest.approx(0.2, abs=0.03)
+
+
+def test_the_network_scale_weighs_holdings_as_the_network_sees_them():
+    """Error 0.6 on holdings below half of income and 0.2 above. On the
+    winsorised variance, which adds up, log|value| weighs both alike and
+    the network's scale reads closer to the large holdings', whose error the
+    network sees in full. On the IQR a single sigma cannot match both groups,
+    and the network's scale reads no lower than log|value| (RESULTS 57.4)."""
+    rng = np.random.default_rng(8)
+    x = _sized_panel()
+    v = x[..., ILL]
+    small = np.median(v, 1, keepdims=True) < 0.5
+    v_obs = v * np.exp(np.where(small, 0.6, 0.2) * rng.standard_normal(v.shape))
+    log = pe.estimate(v_obs)
+    net = pe.network(v_obs, np.ones((len(v), 1)), "illiquid_assets", None, n_boot=0)
+    w_log, w_net = log["winsorised"]["rw+drift"]["sigma"], net["winsorised"]["rw+drift"]["sigma"]
+    assert 0.2 < w_net < w_log
+    assert abs(w_net - 0.2) < abs(w_log - 0.2)
+    assert net["iqr"]["rw+drift"]["sigma"] >= log["iqr"]["rw+drift"]["sigma"] - 0.02
+
+
+def test_income_and_consumption_scales_agree_with_log():
+    x = _panel()
+    x[..., FEATS.index("consumption")] = x[..., ILL] / 50_000 * 0.8
+    x[..., FEATS.index("income")] = 1.0
+    y = oa.add_obs_noise(torch.from_numpy(x), {"consumption": 0.15}, seed=3).numpy()
+    v = y[..., FEATS.index("consumption")]
+    w = pe.network(v, np.ones((len(v), 1)), "consumption", None, n_boot=0)
+    assert w["iqr"]["rw+drift"]["sigma"] == pytest.approx(
+        pe.estimate(v)["iqr"]["rw+drift"]["sigma"], abs=0.01)

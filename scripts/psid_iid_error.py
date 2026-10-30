@@ -1,4 +1,4 @@
-"""PSID's iid error per feature, measured on PSID alone (RESULTS 57.2).
+"""PSID's iid error per feature, measured on PSID alone (RESULTS 57.2, 57.4).
 
 RESULTS 43.9 set the training noise relative to the model: the smallest sigma
 at which some cell of the model's own windows reaches PSID's signature. That
@@ -61,8 +61,32 @@ also includes transitory movements the model already simulates.
 - **Model reference** (context only; it sets nothing): the same estimator on
   v2's noise-free windows in couples' region (RESULTS 43.9's region).
 
-**Range** (``sigma_range``, in ``noise_calibration.py``'s format), per
-feature, over every value:
+**On the network's scale** (RESULTS 57.4). log|value| weighs every holding's
+relative error alike, but the network sees wealth as asinh(value / mean
+income), on which a small holding's error nearly vanishes, and PSID's relative
+error is largest for small holdings. So the same fits are also made on the
+network's own input scale (``network_scale``: log of income and consumption
+over the household's mean income, floored at 1%, and asinh of wealth over
+it, as ``noise_calibration.input_scale``), still inside runs.
+
+The fitted iid variance there, tau^2, is turned into the training's
+multiplicative sigma at PSID's own values:
+- ``noise_curve`` records, for each sigma (common random numbers), the
+  variance the noise alone has on the network's scale: its k-wave changes,
+  averaged over the gaps. On a log scale this is 2 sigma^2;
+- ``to_sigma`` reads the sigma whose noise has 2 tau^2 there.
+
+The noise alone is used, not the noise added to PSID's values. PSID's
+changes are peaked (many households report the same amount twice), so added
+noise widens their IQR faster than 2 sigma^2. That would make the conversion
+depend on PSID's shape rather than on the scale.
+Two ranges, each [``rw+drift+ar``, ``rw+drift``]:
+
+- ``typical``: IQR-based, a typical record's error only;
+- ``with_gross_errors``: winsorised, which also counts gross errors.
+
+**Range on log|value|** (``sigma_range_log``, RESULTS 57.2), per feature,
+over every value:
 - **low:** ``rw+drift+ar`` on the IQR-based variance. True dynamics get the
   most room, and only a typical record's error is counted.
 - **high:** ``rw+drift`` on the winsorised variance. Every reversal is
@@ -110,6 +134,9 @@ V2 = (Path("data/processed/couples_v2_dataset_shards"),
       Path("data/processed/couples_v2_strip_dataset_shards"))
 OUT = Path("outputs/psid_iid_error/psid_iid_error.json")
 FIG = Path("figures/70_psid_iid_error.png")
+FIG_NETWORK = Path("figures/71_psid_iid_error_network.png")
+#: The training's multiplicative sigma, for ``noise_curve``.
+SIGMA_GRID = np.round(np.arange(0.0, 2.0001, 0.01), 2)
 
 
 def in_run(v: np.ndarray, k: int, clean: np.ndarray | None = None) -> np.ndarray:
@@ -133,10 +160,13 @@ def variance(d: np.ndarray, kind: str) -> float:
 
 
 def lag_variances(v: np.ndarray, kind: str, clean: np.ndarray | None = None,
-                  max_lag: int = MAX_LAG) -> tuple[np.ndarray, np.ndarray]:
-    """V_k for k = 1..max_lag on log|v|, within runs, each calendar pair of
-    waves centred on its median; and the number of changes behind each."""
-    y = np.log(np.abs(np.where(v != 0, v, 1.0)))
+                  max_lag: int = MAX_LAG, y: np.ndarray | None = None
+                  ) -> tuple[np.ndarray, np.ndarray]:
+    """V_k for k = 1..max_lag of ``y`` (default log|v|), within ``v``'s runs,
+    each calendar pair of waves centred on its median; and the number of
+    changes behind each."""
+    if y is None:
+        y = np.log(np.abs(np.where(v != 0, v, 1.0)))
     V, n = [], []
     for k in range(1, max_lag + 1):
         d, ok = y[:, k:] - y[:, :-k], in_run(v, k, clean)
@@ -180,29 +210,99 @@ def fit(V: np.ndarray, spec: str, n: np.ndarray | None = None) -> dict:
     return out
 
 
-def estimate(v: np.ndarray, clean: np.ndarray | None = None) -> dict:
+def estimate(v: np.ndarray, clean: np.ndarray | None = None,
+             y: np.ndarray | None = None) -> dict:
     out = {}
     for kind in VARIANCES:
-        V, n = lag_variances(v, kind, clean)
+        V, n = lag_variances(v, kind, clean, y=y)
         out[kind] = {"V": V.tolist(), "n": n.tolist(), **{s: fit(V, s, n) for s in SPECS}}
     return out
 
 
-def bootstrap(v: np.ndarray, clean: np.ndarray | None, n_boot: int, seed: int = 0) -> dict:
-    """90% intervals for sigma, per variance and spec, over resamples of couples."""
+def bootstrap(v: np.ndarray, clean: np.ndarray | None, n_boot: int, seed: int = 0,
+              y: np.ndarray | None = None, convert=None) -> dict:
+    """90% intervals for sigma, per variance and spec, over resamples of
+    couples; ``convert(kind, sigma2)`` maps a fitted variance to sigma
+    (default its square root)."""
+    if n_boot == 0:
+        return {k: {s: [float("nan")] * 2 for s in SPECS} for k in VARIANCES}
     rng = np.random.default_rng(seed)
     draws = {(k, s): [] for k in VARIANCES for s in SPECS}
     for _ in range(n_boot):
         i = rng.integers(0, len(v), len(v))
-        e = estimate(v[i], None if clean is None else clean[i])
+        e = estimate(v[i], None if clean is None else clean[i], None if y is None else y[i])
         for k in VARIANCES:
             for s in SPECS:
-                draws[k, s].append(e[k][s]["sigma"])
+                r = e[k][s]
+                draws[k, s].append(convert(k, r["sigma2"]) if convert else r["sigma"])
     return {k: {s: np.nanpercentile(draws[k, s], [5, 95]).tolist() for s in SPECS}
             for k in VARIANCES}
 
 
-def by_size(v: np.ndarray, ybar: np.ndarray, n_boot: int) -> list[dict]:
+def network_scale(v: np.ndarray, ybar: np.ndarray, f: str) -> np.ndarray:
+    """One feature on the network's input scale (``noise_calibration.input_scale``)."""
+    r = v / ybar
+    return np.log(np.maximum(r, 0.01)) if f in ("income", "consumption") else np.arcsinh(r)
+
+
+def noise_curve(v: np.ndarray, ybar: np.ndarray, f: str, kind: str,
+                clean: np.ndarray | None = None, seed: int = 7) -> np.ndarray:
+    """On ``SIGMA_GRID``: the variance (``kind``) the training's noise alone
+    has on the network's scale at these values: the k-wave change of
+    network_scale(v exp(sigma z)) - network_scale(v) inside runs, averaged
+    over the gaps with at least ``MIN_LAG`` changes. For income and
+    consumption (a log scale) it is 2 sigma^2; for wealth, asinh shrinks a
+    small holding's share of it. The same z at every sigma."""
+    z = np.random.default_rng(seed).standard_normal(v.shape)
+    y0 = network_scale(v, ybar, f)
+    oks = [(k, in_run(v, k, clean)) for k in range(1, MAX_LAG + 1)]
+    oks = [(k, ok) for k, ok in oks if ok.sum() >= MIN_LAG]
+    if not oks:
+        return np.full(len(SIGMA_GRID), np.nan)
+    out = [0.0]
+    for s in SIGMA_GRID[1:]:
+        e = network_scale(v * np.exp(s * z), ybar, f) - y0
+        out.append(float(np.mean([variance((e[:, k:] - e[:, :-k])[ok], kind) for k, ok in oks])))
+    return np.array(out)
+
+
+def to_sigma(target2: float, curve: np.ndarray) -> float:
+    """The smallest sigma whose noise adds ``target2`` (2 tau^2) on the
+    network's scale, by linear interpolation on ``curve``; inf beyond the grid."""
+    if not np.isfinite(target2) or not np.isfinite(curve).all():
+        return float("nan")
+    if target2 <= 0:
+        return 0.0
+    m = np.maximum.accumulate(curve)
+    j = int(np.searchsorted(m, target2))
+    if j >= len(m):
+        return float("inf")
+    if j == 0 or m[j] == m[j - 1]:
+        return float(SIGMA_GRID[j])
+    s0, s1 = SIGMA_GRID[j - 1], SIGMA_GRID[j]
+    return float(s0 + (s1 - s0) * (target2 - m[j - 1]) / (m[j] - m[j - 1]))
+
+
+def network(v: np.ndarray, ybar: np.ndarray, f: str, clean: np.ndarray | None,
+            n_boot: int) -> dict:
+    """The fits on the network's scale; each spec's tau (its iid sd there) and
+    sigma (the training's multiplicative sigma that adds 2 tau^2), with 90%
+    bootstrap intervals for sigma (the curve held at the full sample's)."""
+    y = network_scale(v, ybar, f)
+    e = estimate(v, clean, y)
+    curves = {k: noise_curve(v, ybar, f, k, clean) for k in VARIANCES}
+    def conv(k, s2):
+        return to_sigma(2 * s2, curves[k])
+    for k in VARIANCES:
+        for s in SPECS:
+            r = e[k][s]
+            r["tau"], r["sigma"] = r["sigma"], conv(k, r["sigma2"])
+    e["boot90"] = bootstrap(v, clean, n_boot, y=y, convert=conv)
+    e["curve"] = {k: c.tolist() for k, c in curves.items()}
+    return e
+
+
+def by_size(v: np.ndarray, ybar: np.ndarray, n_boot: int, f: str = "") -> list[dict]:
     """``rw+drift`` sigma within groups of couples by median |v| / mean income."""
     med = np.median(np.abs(v) / ybar, axis=1)
     out = []
@@ -213,6 +313,11 @@ def by_size(v: np.ndarray, ybar: np.ndarray, n_boot: int) -> list[dict]:
             e, b = estimate(v[m]), bootstrap(v[m], None, n_boot)
             row |= {k: {"sigma": e[k]["rw+drift"]["sigma"], "lags": e[k]["rw+drift"]["lags"],
                         "boot90": b[k]["rw+drift"]} for k in VARIANCES}
+            if f:
+                w = network(v[m], ybar[m], f, None, n_boot)
+                row["network"] = {k: {"sigma": w[k]["rw+drift"]["sigma"],
+                                      "tau": w[k]["rw+drift"]["tau"],
+                                      "boot90": w["boot90"][k]["rw+drift"]} for k in VARIANCES}
         out.append(row)
     return out
 
@@ -229,11 +334,13 @@ def psid(n_boot: int, psid_dir: Path) -> dict:
         v = x[..., FEATURES_TWOASSET_AGE.index(f)]
         res[f] = {"all": estimate(v) | {"boot90": bootstrap(v, None, n_boot)},
                   "share_waves_nonzero": float(in_run(v, 0).mean()),
-                  "by_size": by_size(v, ybar, n_boot)}
+                  "by_size": by_size(v, ybar, n_boot, f), "size": sizes(v, ybar),
+                  "network": {"all": network(v, ybar, f, None, n_boot)}}
         if f in MASK_KEY:
             clean = ~m[MASK_KEY[f]]
             res[f]["unimputed"] = (estimate(v, clean)
                                    | {"boot90": bootstrap(v, clean, n_boot)})
+            res[f]["network"]["unimputed"] = network(v, ybar, f, clean, n_boot)
             res[f]["share_waves_imputed"] = float(m[MASK_KEY[f]].mean())
     return res
 
@@ -248,8 +355,18 @@ def model(shards, every: int) -> dict:
     th, x = th.numpy(), x.numpy().astype(np.float64)
     cd = np.asarray(card)[pid.numpy()]
     x = x[cells(th, cd, box, region("couples", box)) >= 0]
+    ybar = x[..., FEATURES_TWOASSET_AGE.index("income")].mean(1, keepdims=True)
     return {"n_windows": int(len(x))} | {
-        f: estimate(x[..., FEATURES_TWOASSET_AGE.index(f)]) for f in FEATURES}
+        f: estimate(x[..., FEATURES_TWOASSET_AGE.index(f)])
+        | {"size": sizes(x[..., FEATURES_TWOASSET_AGE.index(f)], ybar)} for f in FEATURES}
+
+
+def sizes(v: np.ndarray, ybar: np.ndarray) -> dict:
+    """How large the values are: each household's median |v| / mean income,
+    its median over households, and the shares below 0.1 and at or above 0.5."""
+    med = np.median(np.abs(v) / ybar, axis=1)
+    return {"median": float(np.median(med)), "share_below_0.1": float((med < 0.1).mean()),
+            "share_at_least_0.5": float((med >= 0.5).mean())}
 
 
 def report(res: dict, current: dict | None) -> None:
@@ -276,8 +393,27 @@ def report(res: dict, current: dict | None) -> None:
             f"{r['median_over_income'][0]}-{r['median_over_income'][1] or 'inf'} "
             f"({r['couples']}): {r['iqr']['sigma']:.3f} / {r['winsorised']['sigma']:.3f}"
             for r in rows))
-    print("\nrange, PSID only [rw+drift+ar iqr, rw+drift winsorised]: " + ", ".join(
-        f"{f} {lo:.3f}-{hi:.3f}" for f, (lo, hi) in res["sigma_range"].items()))
+    print("\nrange on log|value| [rw+drift+ar iqr, rw+drift winsorised] (57.2): " + ", ".join(
+        f"{f} {lo:.3f}-{hi:.3f}" for f, (lo, hi) in res["sigma_range_log"].items()))
+    print("\nON THE NETWORK'S SCALE: tau (iid sd there) -> the training's sigma (90%)")
+    for f in FEATURES:
+        for var in [v for v in ("all", "unimputed") if v in p[f]["network"]]:
+            w = p[f]["network"][var]
+            for kind in VARIANCES:
+                print(f"  {f:16s} {var:9s} {kind:10s} " + "   ".join(
+                    f"{s} {w[kind][s]['tau']:.3f}->{w[kind][s]['sigma']:.3f} "
+                    f"({w['boot90'][kind][s][0]:.3f}-{w['boot90'][kind][s][1]:.3f})"
+                    for s in ("signature", "rw+drift", "rw+drift+ar")))
+    print("by size, network scale, rw+drift sigma iqr / winsorised")
+    for f in FEATURES:
+        rows = [r for r in p[f]["by_size"] if "network" in r]
+        print(f"  {f:16s} " + "   ".join(
+            f"{r['median_over_income'][0]}-{r['median_over_income'][1] or 'inf'} "
+            f"({r['couples']}): {r['network']['iqr']['sigma']:.3f} / "
+            f"{r['network']['winsorised']['sigma']:.3f}" for r in rows))
+    for name, rng in res["sigma_range_network"].items():
+        print(f"range on the network's scale, {name}: " + ", ".join(
+            f"{f} {lo:.3f}-{hi:.3f}" for f, (lo, hi) in rng.items()))
     if "model_v2" in res:
         mo = res["model_v2"]
         print(f"\nmodel v2, noise-free, couples' region ({mo['n_windows']} windows), iqr: "
@@ -286,6 +422,13 @@ def report(res: dict, current: dict | None) -> None:
             e = mo[f]["iqr"]
             print(f"  {f:16s} V_k " + " ".join(f"{u:.4f}" for u in e["V"]) + "   "
                   + "  ".join(f"{s} {e[s]['sigma']:.3f}" for s in SPECS))
+        print("household median |value| / mean income: median over households; shares "
+              "< 0.1 and >= 0.5 (PSID | model)")
+        for f in FEATURES:
+            a, b = p[f]["size"], mo[f]["size"]
+            print(f"  {f:16s} " + " | ".join(
+                f"{s['median']:.3f}, {s['share_below_0.1']:.2f}, {s['share_at_least_0.5']:.2f}"
+                for s in (a, b)))
 
 
 def plot(res: dict, path: Path) -> None:
@@ -327,6 +470,59 @@ def plot(res: dict, path: Path) -> None:
     plt.close(fig)
 
 
+def plot_network(res: dict, path: Path) -> None:
+    """Top: V_k on the network's scale with the fits. Bottom: the variance the
+    noise alone has there at PSID's own values, against sigma, and the sigma
+    each fit's 2 tau^2 reads off."""
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 4, figsize=(18, 8.4))
+    k = np.arange(1, MAX_LAG + 1)
+    colors = {"iqr": "tab:blue", "winsorised": "tab:red"}
+    for j, f in enumerate(FEATURES):
+        w = res["psid"][f]["network"]["all"]
+        top, bot = axes[0, j], axes[1, j]
+        for kind in VARIANCES:
+            e = w[kind]
+            V = np.where(np.array(e["n"]) >= MIN_LAG, np.array(e["V"]), np.nan)
+            top.plot(k, V, "o", color=colors[kind], label=f"PSID couples, {kind}")
+            curve = np.array(w["curve"][kind])
+            bot.plot(SIGMA_GRID, curve, color=colors[kind],
+                     label=f"noise alone at PSID's values, {kind}")
+            for spec, ls in (("rw+drift", "-"), ("rw+drift+ar", "--")):
+                c = e[spec]
+                if not np.isfinite(c["sigma2"]):
+                    continue
+                fitted = 2 * c["sigma2"] + k * c["s_eta2"] + k ** 2 * c["s_g2"]
+                if "phi" in c:
+                    fitted = fitted + 2 * c["s2"] * (1 - c["phi"] ** k)
+                top.plot(np.r_[0, k], np.r_[2 * c["sigma2"], fitted], ls, color=colors[kind],
+                         lw=1, label=f"{spec}: tau {c['tau']:.3f}")
+                bot.axhline(2 * c["sigma2"], ls=ls, color=colors[kind], lw=0.8)
+                if np.isfinite(c["sigma"]):
+                    bot.axvline(c["sigma"], ls=ls, color=colors[kind], lw=0.8,
+                                label=f"{spec}: sigma {c['sigma']:.3f}")
+        top.set(title=f.replace("_", " "), xlabel="gap k (waves of 2 years)",
+                ylabel="V_k on the network's input scale", xlim=(0, MAX_LAG + 0.3))
+        top.set_ylim(bottom=0)
+        top.legend(fontsize=6.5)
+        hi = max(np.nanmax([w[kd][s]["sigma"] for kd in VARIANCES
+                            for s in ("rw+drift", "rw+drift+ar")
+                            if np.isfinite(w[kd][s]["sigma"])] + [0.1]) * 1.5, 0.2)
+        bot.set(xlabel="multiplicative sigma added",
+                ylabel="the noise's variance on the network's scale", xlim=(0, min(hi, 2.0)))
+        top_curve = [np.interp(min(hi, 2.0), SIGMA_GRID, np.array(w["curve"][kd]))
+                     for kd in VARIANCES]
+        bot.set_ylim(0, max(top_curve) * 1.1 if max(top_curve) > 0 else 1)
+        bot.legend(fontsize=6.5)
+    fig.suptitle("PSID couples on the network's input scale: the iid component (intercept "
+                 "2 tau^2, top) and the training's multiplicative sigma that adds it (bottom)")
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=130)
+    plt.close(fig)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -340,14 +536,20 @@ def main() -> None:
                     help="The training's current ranges, printed alongside.")
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--fig", type=Path, default=FIG)
+    ap.add_argument("--fig_network", type=Path, default=FIG_NETWORK)
     args = ap.parse_args()
     res = {"specs": list(SPECS), "variances": list(VARIANCES), "max_lag": MAX_LAG,
            "psid": psid(args.n_boot, args.psid_dir)}
     if args.every:
         res["model_v2"] = model(args.shards, args.every)
-    res["sigma_range"] = {f: [round(res["psid"][f]["all"]["iqr"]["rw+drift+ar"]["sigma"], 3),
-                              round(res["psid"][f]["all"]["winsorised"]["rw+drift"]["sigma"], 3)]
-                          for f in FEATURES}
+    res["sigma_range_log"] = {
+        f: [round(res["psid"][f]["all"]["iqr"]["rw+drift+ar"]["sigma"], 3),
+            round(res["psid"][f]["all"]["winsorised"]["rw+drift"]["sigma"], 3)]
+        for f in FEATURES}
+    res["sigma_range_network"] = {
+        name: {f: sorted(round(res["psid"][f]["network"]["all"][kind][s]["sigma"], 3)
+                         for s in ("rw+drift+ar", "rw+drift")) for f in FEATURES}
+        for name, kind in (("typical", "iqr"), ("with_gross_errors", "winsorised"))}
     current = (json.loads(args.current.read_text())["sigma_range"]
                if args.current.exists() else None)
     res["training_now"] = current
@@ -355,7 +557,8 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(res, indent=2))
     plot(res, args.fig)
-    print(f"\nwrote {args.out} and {args.fig}")
+    plot_network(res, args.fig_network)
+    print(f"\nwrote {args.out}, {args.fig} and {args.fig_network}")
 
 
 if __name__ == "__main__":
