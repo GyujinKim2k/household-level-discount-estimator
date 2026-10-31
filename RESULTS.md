@@ -9145,3 +9145,93 @@ v2 retrained with both ranges: §58.
         --arm typical outputs/optionA2v2_noise_typical --arm gross outputs/optionA2v2_noise_gross \
         --shards data/processed/couples_v2_dataset_shards data/processed/couples_v2_strip_dataset_shards \
         --out outputs/v2_noise_arms/cross_noise_heldout.json                                      # 58.2
+
+## 59. PSID's reversals leave no trace in the rest of the budget; real ones do, in v2's households
+
+**Questions (user, 2026-10-31).** "how can we make sure that the PSID's variance is error not the real variance and simulation cannot follow it?" Then: "let's run it."
+
+On one series, a reporting error and a real one-wave movement look the same (§57.2: σ is an upper bound on reporting error). They differ in what else moves. A real spending spike is paid for: by income, or by wealth that is lower at the next interview. A real windfall is spent or saved. A misreported amount moves nothing else.
+
+### 59.1 Method
+
+`psid_budget_reversals.py`, in units of the household's mean income. Flows (income y, consumption c, saving S = y − c) refer to the calendar year before the interview; the stock W is measured at the interview.
+- Each series is persistent + T + e, with T real and iid across waves and e reporting error. The errors are iid, independent across variables and independent of everything real.
+- **The cross-covariances of k-wave changes, C_k(c, y), C_k(y, W), C_k(S, W) and C_k(c, W), carry no reporting error.** Independent errors add nothing to them. Their intercept in k is the shared reversing part; persistent dynamics add terms in k and k².
+- **Intercepts:** least squares on 1, k and k², weighted by the number of changes. Each calendar pair is centred on its median; covariances are winsorised at 1/99.
+- **The absolute split.** If real transitory saving stayed in W, the intercepts would give the real variance, Var T_c = a(c,y)/2 − a(c,W) and Var T_y = a(y,W) + a(c,y)/2. The real share is that variance over the reversing variance a(x,x)/2.
+- **Stores of wealth (PSID).** Cash and card balances come from the family file, the rest from `psid_illiquid_decomposition.components`:
+  - *net cash:* checking and savings, minus the card balance;
+  - *financial net worth:* net cash, pensions, IRAs, stocks, other assets, minus unsecured debt;
+  - *net worth:* all of it.
+
+  The tensor's liquid column (gross definition) drops cash when there is card debt, so it is not used.
+- **v2's households,** couples' region, 88,880 noise-free windows from every fourth shard. Every movement in them is real. Their liquid wealth (cash net of card debt) is the analog of net cash.
+- **Variants:**
+  - consumption without owners' rental value (rebuilt from the family file; it matches the tensor exactly except for 43 fallback cells);
+  - imputed consumption waves dropped;
+  - a linear fit in k;
+  - v2 with noise 0.15 added to income and consumption.
+
+  200 bootstrap resamples of households (20 for v2).
+- **Tests** (`tests/test_psid_budget_reversals.py`, 7). Synthetic households live year by year, observed as PSID is: one year's flows per wave, wealth at the interview.
+  - Pure error reads a real share of 0.00, and pure real 0.99–1.01.
+  - A 50/50 mixture reads 0.50 for consumption, and 0.34 for income against a truth of 0.36.
+  - Capital gains and valuation errors in W add noise, not bias.
+  - A wandering consumption level reads 0.02.
+  - The documented failure: a windfall saved and then spent before the next measured year reads 2.0.
+
+### 59.2 The absolute split fails on v2's households
+
+| real share (truth 1 in v2) | income | consumption | saving |
+|---|---|---|---|
+| v2, W = net worth | 0.77 | 8.3 | 1.30 |
+| v2, W = liquid | 0.29 | 4.0 | 0.27 |
+
+- **Every movement in v2 is real, yet the split does not read 1.** Buffer-stock households break its assumption that saved money stays put: they run a windfall down within a few years, and their consumption follows their wealth. Both put constants into the cross-covariances.
+- **PSID's absolute shares are therefore not interpretable.**
+  - With net worth and financial net worth, their 90% intervals are 0.7 to 5 wide, because house and portfolio revaluations swamp the change in wealth.
+  - Consumption reads below zero (all 889, net worth: −1.15, −1.91 to −0.32), which the assumptions forbid.
+  - Removing owners' rental value only weakens that negative reading (−0.69, −1.45 to +0.08).
+- **What does hold: error added on top is read as error.** Noise of 0.15 added to v2's income and consumption raises their measured error variance by 0.023 and 0.024 (σ² = 0.0225 times the level's mean square). The real variances stay put: income 0.049 → 0.049, consumption 0.031 → 0.031.
+
+### 59.3 The cross intercepts: real reversals move the budget, PSID's do not
+
+**W = net cash** (PSID) or liquid (v2), in units of mean income², with 90% intervals:
+
+| | a(c, y): consumption and income reversing together | a(y, cash): income reversals in cash | a(S, cash): saving reversals in cash | a(c, cash) |
+|---|---|---|---|---|
+| v2, every reversal real | **+0.0220** (+0.0216 to +0.0226) | **+0.0080** (+0.0071 to +0.0088) | **+0.0120** (+0.0112 to +0.0128) | −0.0039 (−0.0043 to −0.0036) |
+| v2, noise 0.15 added | +0.0225 | +0.0080 | +0.0116 | −0.0036 |
+| PSID couples | +0.0024 (−0.0062 to +0.0100) | −0.0021 (−0.0099 to +0.0047) | −0.0046 (−0.0167 to +0.0026) | +0.0015 (−0.0038 to +0.0088) |
+| PSID all 889 | +0.0129 (+0.0003 to +0.0271) | −0.0034 (−0.0115 to +0.0026) | −0.0088 (−0.0173 to −0.0014) | +0.0042 (−0.0016 to +0.0102) |
+
+- **Added noise leaves v2's intercepts unchanged,** as the method requires.
+- **Saving reversals leave nothing in cash in PSID.** Both samples exclude v2's +0.012. No extrapolation is needed: at the shortest gap, C_1(S, cash) is +0.0018 and −0.0012, against v2's +0.0194.
+- **Income reversals leave nothing in cash** either; both samples exclude v2's +0.008.
+- **Consumption does not reverse with income.**
+  - The correlation of the two reversing parts is 0.04 for couples and 0.09 for all 889, against v2's 0.71.
+  - Couples' a(c, y) excludes v2's value.
+  - All 889's +0.013 comes from imputed consumption: with imputed waves dropped it is −0.003 (−0.020 to +0.019). PSID imputes missing expenditure items, so those values share income's errors. Couples, unimputed: +0.007 (−0.006 to +0.015).
+- **Scale.** Couples' total reversing income variance (0.027) is less than half of v2's real transitory variance (0.065). Scaled down to it, v2's intercepts would be a(c, y) 0.009 and a(S, cash) 0.005. Couples' a(c, y) interval just includes 0.009 (it reaches 0.010); their a(S, cash) interval excludes 0.005 (it reaches 0.003).
+
+Figure 79: C_k of consumption with income and of saving with cash, PSID against v2; and the 68/95% bootstrap contours of the two intercepts. v2's sits at (+0.022, +0.012); PSID couples' at (+0.002, −0.005) and all 889's at (+0.013, −0.009).
+
+### 59.4 Reading
+
+- **PSID's reversals behave like reporting error, not like the model's real movements.** v2's real reversals tie consumption to income and leave saving in cash. PSID's leave nothing in cash in either sample, and their tie to consumption is absent once imputed values are dropped. Independent reporting errors cannot hide such ties. For couples, the consumption–income tie is not distinguishable from a scaled-down version of v2's.
+- **What the test cannot exclude:** real one-wave movements that are unrelated to income and financed outside cash and cards.
+  - Examples: home-equity borrowing, retirement withdrawals, family help, or durables that stay an asset.
+  - The broad wealth stores are too noisy to test these.
+  - Errors shared across questions would create cross-covariance, not hide it.
+- **The absolute real/error split is not identified this way** (§59.2).
+- **For the training noise:**
+  - **Consumption:** PSID's reversals are not the income-tied kind that low ρ produces in the model. Treating them as noise is supported, which agrees with §53: without consumption noise, couples fall to the ρ floor.
+  - **Income:** PSID's reversals leave no trace in consumption or cash, so income noise is supported too. This revises the chat suggestion, made before the test, to return income noise to 0; that suggestion rested on variances alone.
+  - **Illiquid:** nothing changes; the model has no reversals there (§57.1).
+  - **Typical against gross:** this test does not choose between them.
+- **The income process.** v2's real transitory income variance (0.065) is more than twice PSID couples' whole reversing variance (0.027), and PSID's reversals look mostly like error. So the model gives couples far more transitory income risk than PSID shows. That bears on the parked plan for the couples' income process (§43.6 (c)).
+
+**Reproduce.**
+
+    PYTHONPATH=.:src .venv/bin/python scripts/psid_budget_reversals.py   # -> outputs/psid_budget_reversals/, figure 79
+    PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_psid_budget_reversals.py
