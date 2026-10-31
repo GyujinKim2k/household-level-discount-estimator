@@ -55,19 +55,28 @@ The data carry the audit's fixes (§55.1):
 
 **Calibrated on simulated households:** held-out 90% coverage 0.899–0.919 and SBC 0.895–0.904, per parameter (§56.2).
 
-**Reading:**
-- **Household by household, Laibson et al.'s estimate is not excluded.** Their β, δ and ρ are inside 93%, 74% and 95% of couples' 90% intervals. R_gamma = 1.05 is inside 66%: couples' R_gamma reads higher, 1.058.
-- **Couples' β is close to theirs:** 0.572 against 0.5305. 89% of couples' means are inside their 95% interval, [0.307, 0.754].
-  - **This reverses the old headline.** There, β at 0.852 matched the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14).
-  - Under v2, 28% of couples' means are inside that band, and 50% of all 889's.
+**Reading** (location corrected 2026-10-31, §61):
+- **Household by household, Laibson et al.'s estimate is not excluded.** Their β, δ and ρ are inside 93%, 74% and 95% of couples' 90% intervals; R_gamma = 1.05 is inside 66%.
+- **The medians above are not population values and cannot be set against their point.**
+  - Posterior means are pulled toward the prior box's centre and carry other biases.
+  - Simulated households that truly have their θ come out at β 0.591, δ 0.975, ρ 2.80 and R_gamma 1.058 under v2 (§61.3).
+- **The like-for-like comparison is a representative θ** (§61.4): the single θ whose simulated households the network estimates as it estimates PSID couples.
+
+  | | β | δ | ρ | R_gamma |
+  |---|---|---|---|---|
+  | Laibson et al. (reported se; sampling-only se) | 0.5305 (0.114; 0.050) | 0.9891 (0.0051; 0.0020) | 1.94 (0.435; 0.204) | 1.05, calibrated |
+  | PSID couples, v2 (bootstrap se) | **0.531** (0.022) | **0.9901** (0.0009) | **1.44** (0.098) | **1.043** (0.0016) |
+  | PSID couples, gross | 0.335 (0.031; 18% of the bootstrap below the floor) | 0.9957 (0.0007) | 1.42 (0.20) | 1.038 (0.0023) |
+
+  - **Under v2, couples' representative β and δ are theirs,** to within 0.001.
+  - **ρ is lower than theirs in every arm** (1.42–1.65), not higher as the medians suggested.
+  - **R_gamma is lower than their calibrated 1.05** in every arm (1.038–1.043), not higher.
+  - **The noise assumption moves β by 0.2.** That is 6–9 of our standard errors: the error model, not sampling, is the main uncertainty. Under the typical arm, no θ in the box fits, because β would have to fall below 0.3.
+- **The old headline is reversed.** There, β was 0.852, inside the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14). Under v2, 28% of couples' means are inside that band, and 50% of all 889's.
 - **β is weakly identified per couple:** held-out contraction 0.40 (§56.2).
   - PSID couples' β population piles at the box floor of 0.3 (§47.3).
   - Near that floor, uniform-prior intervals undercovered on simulated populations shaped like PSID's (§47.3).
-- **ρ reads 2.55,** above their 1.94 and far below §29's 4.50.
-  - 65% of couples' means are inside their 95% interval, [1.08, 2.79].
-  - ρ's posteriors are wide (median sd 0.90).
-  - It is the parameter v2 moved most: −0.17 from A2n (§56.3).
-- **δ is 0.984,** against their 0.989.
+- **ρ's posteriors are wide** (median sd 0.90). It is the parameter v2 moved most: −0.17 from A2n (§56.3).
 - **Between §29 and v2 the model changed in several steps:** card-access types (§36), R_gamma estimated (§32), the couples' seed pool (§43.1–43.4), observation noise (§43.7–43.8) and the audit's fixes (§56). Each step's effect is recorded in its own section and is not re-attributed here.
 
 **Heterogeneity and resolution** (§60, `household_resolution.py`; corrected 2026-10-31).
@@ -102,7 +111,8 @@ In its place, couples' posterior means are compared with those of simulated hous
 - 68, couples' and all 889's posterior means, v2 against A2n;
 - 66, a held-out simulated household;
 - 69, SBC;
-- 80, household resolution: one couple's posterior against the spread of couples' means and of households sharing θ (§60).
+- 80, household resolution: one couple's posterior against the spread of couples' means and of households sharing θ (§60);
+- 81, Laibson et al.'s point and covariance against PSID couples' representative θ per arm, 68/95% (§61).
 
 **Reproduce.**
 
@@ -112,6 +122,7 @@ In its place, couples' posterior means are compared with those of simulated hous
         --pair all outputs/psid_optionA2n_all outputs/psid_optionA2v2_all \
         --out outputs/optionA2v2/comparison.json                         # the estimate tables above
     PYTHONPATH=. .venv/bin/python scripts/household_resolution.py          # heterogeneity and resolution, figure 80 (§60)
+    PYTHONPATH=. .venv/bin/python scripts/laibson_comparison.py            # against Laibson et al., figure 81 (§61; GPU, ~35 min uncached)
 
 ### The previous headline: §29's configuration (superseded 2026-10-24)
 
@@ -9407,3 +9418,142 @@ Figure 80 has four panels:
 
     PYTHONPATH=. .venv/bin/python scripts/household_resolution.py   # -> outputs/household_resolution/, figure 80
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_household_resolution.py
+
+## 61. Against Laibson et al.: under v2, PSID couples' representative θ has their β and δ with 2–6 times smaller standard errors; ρ and R_gamma are lower; the error model moves β by 0.2
+
+**Questions (user, 2026-10-31).** "ok let's compare with the Laibson's result. of course it is hard to compare because the features and targets are different. but let's try and find out whether our research is worth it or not. It looks like that our model has about 2x sd value. is it right?" Then: "yes run the simulation and record it as RESULTS 61".
+
+`laibson_comparison.py`. The replication package is local and git-ignored; the script reads it. Three parts:
+- their standard errors, recomputed from their own matrices;
+- what our networks estimate for households that truly have their θ;
+- a representative θ from PSID couples, the same kind of object as their estimate, with standard errors.
+
+### 61.1 Their estimate, recomputed
+
+| table 3, comphs | β | δ | ρ |
+|---|---|---|---|
+| estimate | 0.5305 | 0.9891 | 1.9355 |
+| se, moment sampling only | 0.0503 | 0.00204 | 0.2045 |
+| se, + simulation | 0.0536 | 0.00217 | 0.2188 |
+| se, + first stage | 0.1128 | 0.00506 | 0.4280 |
+| se, reported (all three) | 0.1143 | 0.00511 | 0.4350 |
+
+- **All four variants reproduce to 1e-4.** They follow `MSMfunction.m`'s formula, with their saved moment and first-stage Jacobians, first-stage covariances, moment covariance and a simulated population of 10,000.
+- **The first stage is more than half of the reported error.** That stage is the income process, demographics and credit limits; our posteriors hold all of it fixed. The like-for-like row is sampling only.
+- **Their β and δ errors correlate −0.95.** Their table does not show this.
+- **The data:** 16 moments, four age groups × four statistics (share borrowing on cards, mean card debt over income, and wealth over income for borrowers and for non-borrowers), from 5,710 SCF households. R_gamma is calibrated at 1.05.
+- **Their model fails its own overidentification test:** J = 96.8 on 13 degrees of freedom, p = 7×10⁻¹⁵.
+
+### 61.2 One couple against their whole estimate
+
+| | β | δ | ρ |
+|---|---|---|---|
+| one couple's posterior sd (median over couples), v2 | 0.164 | 0.0121 | 0.896 |
+| ÷ their reported / ÷ their sampling-only se: v2 | 1.43 / 3.26 | 2.37 / 5.92 | 2.06 / 4.38 |
+| gross | 1.51 / 3.42 | 3.20 / 8.02 | 2.22 / 4.72 |
+| couples with as much information as their whole estimate, reported / sampling only: v2 | 6.0 / 31 | 6.1 / 38 | 8.2 / 37 |
+| typical | 6.0 / 31 | 6.6 / 41 | 10 / 45 |
+| gross | 8.4 / 44 | 12 / 75 | 11 / 50 |
+
+- **"About 2×" holds against their reported errors** (1.4–3.2). Against their sampling-only errors it is 3.3–8.
+- **The objects differ.** Theirs is the error of one population θ from 5,710 households' moments. Ours is the uncertainty for one couple from its own seven waves.
+- **The information count** takes a couple's data precision as its posterior precision less the uniform prior's. It assumes information adds across couples, as §23's pooling found, and their one-θ assumption. On it, their whole estimate carries as much as 6–12 couples' panels against their reported errors, or 31–75 against sampling only.
+
+### 61.3 What the networks report for households that truly have their θ
+
+**Simulation.** v2's generation is used throughout: solver, settings, seed pool and flow lag (`simulate_batch_twoasset_gpu` defaults are v2's fixes, checked against its `solver_config.json`).
+- 2,048 households per card type, at their (β, δ, ρ) with R_gamma 1.05.
+- One window each, starting where a PSID couple's first wave does.
+- Each arm's ensemble scores them with its own training noise, seeded the same everywhere.
+- **The statistic:** the mean of posterior means, cardholders weighted at 85%. 325 of 409 couples are seen borrowing (§45.4).
+
+| mean of posterior means | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| their θ | 0.5305 | 0.9891 | 1.94 | 1.05 |
+| v2's estimate for households at their θ | 0.591 | 0.975 | 2.80 | 1.058 |
+| typical | 0.626 | 0.969 | 2.82 | 1.059 |
+| gross | 0.641 | 0.967 | 2.80 | 1.060 |
+| PSID couples, v2 / typical / gross | 0.586 / 0.581 / 0.613 | 0.976 / 0.975 / 0.971 | 2.53 / 2.55 / 2.55 | 1.056 / 1.055 / 1.057 |
+| se of PSID's mean | 0.006 | 0.0011 | 0.031 | 0.0006 |
+
+- **ρ:** households at their ρ of 1.94 come out at 2.8 in every arm. PSID couples' 2.53–2.55 is 8–9 standard errors lower, so §1's "ρ reads 2.55, above their 1.94" had the direction wrong.
+- **R_gamma:** households at 1.05 come out at 1.058–1.060, above PSID couples' 1.055–1.057. §1's "couples' R_gamma reads higher" was the network's own upward pull.
+- **β and δ:** under v2, PSID couples are where their θ puts them (0.586 against 0.591, 0.976 against 0.975). Under typical and gross, couples' β is 5–8 standard errors below.
+- **Card type:** under v2, cardholders at their θ come out at β 0.588 and ρ 2.84; households without a card at 0.604 and 2.56.
+- **Spread:** v2's posterior means at their θ have sd 0.094, 0.0175, 0.556 and 0.0064. PSID couples' are 0.127, 0.0224, 0.636 and 0.0126: couples differ more than households sharing their θ (§60).
+- **Reading the medians as θ moves further from PSID.** Households at v2's median estimate, (0.572, 0.984, 2.55, 1.058), come out at (0.619, 0.969, 3.08, 1.062).
+- A provisional local fit on the SBC set (β 0.62, ρ 2.4–2.6), given in chat before this run, is superseded. The SBC set differs in start ages and card mix.
+
+### 61.4 A representative θ from PSID couples
+
+**Method: indirect inference.**
+- The statistic is the one above. Its Jacobian in (β, log(1 − δ), ρ, R_gamma) comes from central differences at their θ, with half-steps 0.03, 0.15, 0.25 and 0.005.
+- Every point simulates the same households (common random numbers): seed-pool draws, shocks, start ages and noise.
+- Up to three Newton steps follow, each checked by a simulation at the new point; the estimate is one further, unsimulated step. The bootstrap (1,000) resamples PSID couples and simulated households, which also resamples the Jacobian.
+- **Why shrinkage does not matter here:** the same network scores PSID and the simulations, so its bias cancels. What the method needs is a correct simulator, noise included.
+
+| | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| Laibson et al. | 0.5305 | 0.9891 | 1.94 | 1.05, calibrated |
+| PSID couples, v2 (90% bootstrap) | **0.531** (0.495–0.566) | **0.9901** (0.9885–0.9915) | **1.44** (1.29–1.60) | **1.043** (1.040–1.046) |
+| gross | 0.335 (0.301–0.395) | 0.9957 (0.9945–0.9967) | 1.42 (1.09–1.75) | 1.038 (1.034–1.041) |
+| typical | ≤ 0.30: at the floor (0.246 extrapolated) | 0.9972 | 1.65 | 1.039 |
+
+| standard error | β | δ | ρ |
+|---|---|---|---|
+| theirs, reported / sampling only | 0.114 / 0.050 | 0.0051 / 0.0020 | 0.435 / 0.204 |
+| PSID couples, v2 | 0.022 | 0.0009 | 0.098 |
+| their reported ÷ ours / their sampling-only ÷ ours | 5.2 / 2.3 | 5.9 / 2.3 | 4.4 / 2.1 |
+| PSID couples, gross | 0.031 | 0.0007 | 0.20 |
+| their reported ÷ ours / their sampling-only ÷ ours | 3.7 / 1.6 | 7.8 / 3.1 | 2.1 / 1.0 |
+
+**How well each fit converged** (the last simulated point's misfit, in PSID standard errors):
+- **v2:** within 0.85 (β −0.27, δ +0.34, ρ +0.85, R_gamma −0.07).
+- **gross:** within 1.8 (−1.81, −0.71, −1.15, −0.03).
+- **typical:** stops at β's floor with misfits −5.4, −4.0, −2.7 and +0.9. No θ inside the box reproduces PSID couples under typical noise, and 94% of its bootstrap lies below the floor. Its standard errors are not reported.
+
+**Against theirs:**
+- **v2:** β +0.001 and δ +0.001. ρ is 0.50 lower: z −1.1 against both errors combined, −2.2 against their sampling-only error combined with ours.
+- **gross:** β −0.20 (z −1.7 / −3.3), δ +0.007 (z 1.3 / 3.1), ρ −0.52 (z −1.1 / −1.8).
+- **R_gamma:** 1.038–1.043 in every arm, 4.4–5.3 of our standard errors below their calibrated 1.05.
+- **Ridges:** in v2's bootstrap β and δ correlate −0.86, β and ρ −0.83, δ and ρ +0.71. Theirs: β and δ −0.95. The arms move along the shared ridge, lower β with higher δ.
+
+**What the estimate rests on:**
+- **One θ for everyone,** as theirs does. Couples differ (§60), so for both it is the best single-θ summary, not the population's mean.
+- **The first stage, held fixed,** like their sampling-only error. Theirs doubles when it is added; ours was not computed.
+- **The error model.** v2 against gross moves β by 0.2, 6–9 of our standard errors: the dominant uncertainty. §59 supports income noise, which v2 does not have.
+- **85% cardholders.** At 50% (linearised), ρ rises by 0.24–0.26 and β falls by 0.02–0.03.
+- **Both models are misspecified:** theirs fails its J test; ours misses parts of PSID (§22, §47, §57).
+
+### 61.5 Reading
+
+- **Is it about 2×?** Per couple, yes against their reported errors (1.4–3.2). But that compares one couple's seven waves with 5,710 households' moments. Their whole estimate carries the information of 6–12 couples, or 31–75 against their sampling-only errors.
+- **At the population level, the 409 couples' representative θ is tighter than theirs:**
+  - 2.1–2.3 times smaller standard errors than their sampling-only ones under v2, and 4–6 times smaller than their reported ones;
+  - 1.0–3.1 and 2.1–7.8 times smaller under gross.
+- **Under v2 the panel data replicate their β and δ to within 0.001,** with a different estimator and different information. ρ (1.44) and R_gamma (1.043) come out lower.
+- **Corrections to §1:**
+  - ρ is lower than theirs, not higher;
+  - R_gamma is lower than 1.05, not higher;
+  - the medians of posterior means cannot be compared with their point at all.
+- **The error model now decides the population β.**
+  - v2 gives their 0.53. Gross gives 0.335, at the floor's edge, and typical has no fit above 0.3.
+  - That spread is far larger than any standard error.
+  - The β floor (§47.3) and PSID's noise level (§57–59) are the open questions it rests on. The choice of reference arm is the user's.
+- **So the research is worth it on information:** at the population level it is several times as precise as their estimate, and it shows heterogeneity their single θ cannot (§60). Its population β is only as good as the error model, and v2's lacks the income noise §59 supports.
+
+Figure 81 has four panels:
+- (a–c) their point with its 68/95% region, from the reported covariance (solid/dashed) and the sampling-only one (dotted); each arm's representative θ with its 68/95% bootstrap region; PSID couples' mean estimates (×); and arrows from their θ to what each network reports for it;
+- (d) standard errors over their reported ones: theirs, the representative θ's, and one couple's.
+
+**Tests** (`tests/test_laibson_comparison.py`, 5):
+- the (β, log(1 − δ), ρ, R_gamma) map round-trips;
+- their standard errors reproduce from their matrices (skipped without the package);
+- card mixing;
+- central differences and a Newton step recover a linear map exactly;
+- the bootstrap matches the delta method within 15%.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/laibson_comparison.py   # -> outputs/laibson_comparison/, figure 81; GPU, ~35 min uncached
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_laibson_comparison.py
