@@ -4,7 +4,7 @@
 (user). It is option A2n's model and training (§43.7–43.9) on data regenerated
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
-**Last updated:** 2026-10-24.
+**Last updated:** 2026-10-31 (§1's heterogeneity paragraph corrected, §60).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -70,29 +70,39 @@ The data carry the audit's fixes (§55.1):
 - **δ is 0.984,** against their 0.989.
 - **Between §29 and v2 the model changed in several steps:** card-access types (§36), R_gamma estimated (§32), the couples' seed pool (§43.1–43.4), observation noise (§43.7–43.8) and the audit's fixes (§56). Each step's effect is recorded in its own section and is not re-attributed here.
 
-**Heterogeneity** (`Var(true θ) = Var(means) − E[posterior var]`, `heterogeneity_test.decompose`, as below; `P` is the bootstrap share at or below zero):
+**Heterogeneity and resolution** (§60, `household_resolution.py`; corrected 2026-10-31).
 
-| couples | Var(true) | 95% CI | P ≤ 0 | implied between-household sd |
+The test that stood here, `Var(true θ) = Var(means) − E[posterior var]` (§11.3), is withdrawn (§60.4). Posterior means are pulled toward the prior, so it subtracts what should be added. On simulated households whose true β spans the whole prior box, it reads β −0.009: "none detectable", although the true variance is 0.041.
+
+In its place, couples' posterior means are compared with those of simulated households. One null shares θ; the other shares one parameter and lets the other three vary over the box.
+
+| v2, PSID couples | β | δ | ρ | R_gamma |
 |---|---|---|---|---|
-| β | −0.00933 | [−0.01178, −0.00688] | 1.000 | none detectable |
-| δ | +0.000136 | [+0.000054, +0.000219] | 0.000 | 0.0117 |
-| ρ | −0.390 | [−0.454, −0.326] | 1.000 | none detectable |
-| R_gamma | +0.000062 | [+0.000038, +0.000086] | 0.000 | 0.0079 |
+| sd of posterior means | 0.127 | 0.0224 | 0.636 | 0.0126 |
+| simulated households sharing θ | 0.073 | 0.0149 | 0.410 | 0.0064 |
+| sharing only that parameter, the other three over the box | 0.104 | 0.0207 | 0.731 | 0.0088 |
+| share of couples' spread that is real, between the two nulls | 0.32–0.67 | 0.14–0.55 | none–0.58 | 0.51–0.74 |
+| one couple's 90% interval ÷ the 5–95% range of couples' means | 1.31 | 0.47 | 1.38 | 0.75 |
+| couple pairs ordered with posterior probability ≥ 0.9 | 0.13 | 0.23 | 0.10 | 0.31 |
 
-For all 889, β and ρ are negative at P = 1.000. δ is +0.000050 (P = 0.034, sd 0.0071) and R_gamma +0.000014 (P = 0.028, sd 0.0038).
-
-- **As under §29,** this test finds no β heterogeneity, and small, real δ heterogeneity.
-- **R_gamma, the new parameter, is positive** among couples: about 0.008 between couples.
-- **ρ shows none:** clearly negative, as the population layer also found (§47.2: ρ cannot be told from one common value). §29 had left ρ's unidentified.
-- §20.2's caution stands: the decomposition is not a stable summary.
-  - §45–47's population layer found couples' spreads in β, δ and R_gamma larger than a shared-θ null would produce.
-  - It did not estimate their size (§47.2).
+- **Couples are not alike.**
+  - Their means spread 1.5–2 times as much as those of households sharing θ, in every parameter.
+  - **β's spread exceeds both nulls,** for couples and for all 889 (90% bootstrap of the lower bound 0.24–0.39 and 0.38–0.47). So does R_gamma's.
+  - δ's exceeds the second null for all 889 only (0.13–0.31); couples' interval includes 0.
+  - ρ's spread can come from the other three parameters alone. The population layer also found ρ indistinguishable from one common value (§47.2).
+- **One couple cannot be placed against another in β or ρ.**
+  - Its 90% interval is wider than the spread of all couples' means.
+  - Only 10–13% of couple pairs can be ordered; simulated households sharing θ are falsely ordered 1% of the time.
+  - δ and R_gamma do better.
+- **The β and ρ estimates are confounded.** On simulated households, a β estimate correlates 0.64 with the true β and 0.43 with the true ρ. The data mostly fix a combination of the two: both raise saving.
+- **Withdrawn:** "β heterogeneity is not demonstrated" (§11.3, §20.2, and the superseded §29 headline below) and the table that stood here. Each rested on the invalid test. ρ's verdict is unchanged, now on the null comparison.
 
 **Figures:**
 - 67, the typical PSID couple, 68/95% contours;
 - 68, couples' and all 889's posterior means, v2 against A2n;
 - 66, a held-out simulated household;
-- 69, SBC.
+- 69, SBC;
+- 80, household resolution: one couple's posterior against the spread of couples' means and of households sharing θ (§60).
 
 **Reproduce.**
 
@@ -100,7 +110,8 @@ For all 889, β and ρ are negative at P = 1.000. δ is +0.000050 (P = 0.034, sd
     PYTHONPATH=.:src .venv/bin/python scripts/compare_regen_v2.py \
         --pair couples outputs/psid_optionA2n_couples outputs/psid_optionA2v2_couples \
         --pair all outputs/psid_optionA2n_all outputs/psid_optionA2v2_all \
-        --out outputs/optionA2v2/comparison.json                         # the tables above
+        --out outputs/optionA2v2/comparison.json                         # the estimate tables above
+    PYTHONPATH=. .venv/bin/python scripts/household_resolution.py          # heterogeneity and resolution, figure 80 (§60)
 
 ### The previous headline: §29's configuration (superseded 2026-10-24)
 
@@ -168,6 +179,8 @@ finance-context estimates reach 7. §7.1's account — high ρ as the only chann
 this model has for precautionary saving — remains the live hypothesis.
 
 #### Is the heterogeneity real?
+
+> **§60 (2026-10-31):** the decomposition below is invalid for these posteriors and is withdrawn. A Bayesian posterior mean is pulled toward the prior, so the identity that holds is `Var(θ) = Var(means) + E[posterior var]`, not the difference. The difference reads "none detectable" for β even when households span the whole prior box.
 
 Answered by decomposing `Var(posterior means) = Var(true θ) + E[posterior
 variance]`, so `Var(true θ) = Var(means) - E[posterior var]`. A **negative**
@@ -1394,6 +1407,8 @@ Removing it generously (treating all the over-coverage as spurious width, a
 Still far below 1.0. The conclusion does not depend on it.
 
 ### 11.3 The variance decomposition, which is sharper than any ratio
+
+> **§60 (2026-10-31): withdrawn.** The identity below treats a posterior mean as the truth plus independent noise whose variance is the posterior variance. A Bayesian posterior mean is pulled toward the prior instead. The identity that holds, when the population is the prior, is `Var(θ) = Var(means) + E[posterior var]`; it is checked on v2's SBC set to within 1.5%. On those simulated households, whose true β spans the whole box, the difference reads −0.009 to −0.017. So "β heterogeneity is not detectable" was never evidence of homogeneity. §60 replaces the test with a comparison against simulated households that share θ.
 
 `Var(posterior means) = Var(true θ) + Var(estimation error)`. With calibrated
 posteriors the second term is the mean posterior variance, so
@@ -3024,6 +3039,8 @@ p95 0.999937 across all 889), in-box mass restored, and the affected households
 move by ~+0.0015 rather than to 1.
 
 ### 20.2 ρ heterogeneity is not identified
+
+> **§60 (2026-10-31):** the decomposition used here is invalid (§11.3's note). The numbers below are as computed, but they do not measure heterogeneity.
 
 This is the substantive result, and it retracts part of §1.
 
@@ -9235,3 +9252,158 @@ Figure 79: C_k of consumption with income and of saving with cash, PSID against 
 
     PYTHONPATH=.:src .venv/bin/python scripts/psid_budget_reversals.py   # -> outputs/psid_budget_reversals/, figure 79
     PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_psid_budget_reversals.py
+
+## 60. Household resolution: one couple's β or ρ interval is wider than the spread across couples; couples still differ, in β at least; §1's heterogeneity test was invalid
+
+**Questions (user, 2026-10-31).** "does the gross version has the value that can distinguish households with 3 parameters? does this model have enough resolution that we can say it predicts the parameters?" Then: "yes record it as RESULTS 60 and correct §1."
+
+Two questions, kept apart:
+1. Can one household be placed against another?
+2. Do households differ by more than estimation noise alone would make them?
+
+A calibrated posterior can fail the first and pass the second: a posterior equal to the prior is calibrated and tells nothing.
+
+### 60.1 Method
+
+`household_resolution.py` works on saved outputs only, with no new inference. It uses two inputs per arm:
+- **The SBC set** (§55; scored per arm in §58.1): 1,024 draws, uniform on the box, with 16 households each. A draw's households share θ and card type; each has its own start age, seed-pool start, shocks and training noise.
+- **The PSID posteriors,** uncorrected arm.
+
+**Placing households:**
+- one household's 90% interval over the 5–95% range of households' posterior means;
+- the share of household pairs whose 90% intervals do not overlap;
+- the share of pairs whose order has posterior probability ≥ 0.9 (normal approximation);
+- the households at the 10th and 90th percentile of the posterior means.
+
+On SBC households the same scores are taken against the truth.
+
+**Null 1, households sharing θ.**
+- The spread of posterior means among a draw's 16 households is the spread that estimation noise alone produces.
+- Draws are weighted toward PSID. Each draw gets the density of PSID's posterior means (a Gaussian KDE in standardised β, log(1 − δ), ρ, R_gamma) at its average posterior mean. That leaves 470–640 effective draws.
+- **Card types.** PSID households differ in card access, which the null holds fixed. Card shifts a draw's average posterior mean by 0.004–0.015 in β and 0.015–0.044 in ρ (a quadratic in the truth plus card terms). A 50/50 mix, the largest it can add, changes the null's sd by under 0.001.
+
+**Null 2, households sharing one parameter.**
+- A household's estimate of one parameter also moves with the other three. Null 2 shares parameter k and lets the other three vary as independent draws over the box do.
+- **Estimation.** Draws are sorted by k's truth and taken two by two; the two share k to within 1/500 of its range. Half the squared difference of their average posterior means, less those averages' own noise, is the variance the other three add.
+- **No model of the map from θ to the posterior mean is assumed.** A cubic in the truth left 4–9 times the averages' noise variance unexplained, and understated this variance by half or more.
+- **Null 2 is conservative** to the extent couples vary less in the other three than the whole box does. Their posterior means suggest they do in δ and ρ: under gross, sd 0.023 and 0.62, against 0.029 and 0.95 for SBC households over the box.
+
+**Reading the nulls.**
+- PSID's spread beyond null 1 means households differ. Beyond null 2, it means they differ in k itself.
+- The real share of PSID's spread lies between the two readings.
+- The bootstrap (1,000 replicates) resamples PSID households, SBC draws and neighbour pairs.
+
+**Tests** (`tests/test_household_resolution.py`, 6), on synthetic SBC-like sets. Posterior means are shrunk functions of θ plus noise:
+- the neighbour-pair estimate recovers what ρ adds to β's mean (within 20%) and finds nothing for a parameter that depends on itself only;
+- a card shift of 0.03 is recovered;
+- in a conjugate normal population, Var(means) + E[posterior var] equals Var(truth), and the difference is negative;
+- households sharing θ read a share within ±0.3 of 0;
+- households differing in β only read real under both nulls; households differing in ρ only read real in β under null 1 and not under null 2.
+
+### 60.2 One couple cannot be placed against another in β or ρ
+
+| PSID couples | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| one couple's 90% interval ÷ 5–95% range of couples' means: gross | **1.54** | 0.66 | **1.63** | 1.04 |
+| typical | 1.31 | 0.53 | 1.59 | 0.92 |
+| v2 | 1.31 | 0.47 | 1.38 | 0.75 |
+| pairs with 90% intervals apart: gross | 0.000 | 0.069 | 0.000 | 0.031 |
+| v2 | 0.007 | 0.102 | 0.006 | 0.108 |
+| pairs ordered at p ≥ 0.9: gross | 0.074 | 0.215 | 0.065 | 0.164 |
+| v2 | 0.133 | 0.233 | 0.097 | 0.307 |
+| simulated households sharing θ, falsely ordered: gross | 0.001 | 0.017 | 0.006 | 0.033 |
+| 10th against 90th percentile couple, P(order): gross | 0.91 | 0.97 | 0.88 | 0.94 |
+
+All 889 under gross: interval ratios 1.39, 0.72, 1.61 and 1.20, with 12%, 19%, 6% and 13% of pairs ordered.
+
+**With the truth known** (SBC over the box):
+
+| | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| corr(posterior mean, truth): gross | 0.55 | 0.68 | 0.74 | 0.68 |
+| v2 | 0.64 | 0.74 | 0.79 | 0.72 |
+| R²: gross | 0.31 | 0.46 | 0.55 | 0.46 |
+| v2 | 0.42 | 0.55 | 0.62 | 0.52 |
+| held-out contraction (§58.1): gross | 0.29 | 0.46 | 0.55 | 0.45 |
+| corr, draws reweighted toward PSID: gross | 0.51 | 0.67 | 0.58 | 0.49 |
+| pairs ordered at p ≥ 0.9, and right: gross | 0.07, 92% | 0.24, 96% | 0.29, 95% | 0.21, 95% |
+
+- **For β and ρ, one couple's 90% interval is wider than the spread of all couples' means.**
+  - No two couples have non-overlapping intervals.
+  - 7% of pairs (gross) or 10–13% (v2) are ordered with probability 0.9.
+  - Even the 10th and 90th percentile couples are ordered only at 0.91 and 0.88.
+- **δ is the best resolved:** its interval is two-thirds of the couples' range, and 7–10% of pairs have intervals apart. R_gamma is in between.
+- **The β and ρ estimates are confounded.**
+  - Under gross, a β estimate correlates 0.55 with the true β and 0.53 with the true ρ; a ρ estimate correlates 0.38 with the true β. Under v2 the figures are 0.64, 0.43 and 0.34.
+  - In the typical couple's posterior (figure 76's), β and ρ correlate −0.42, and β and log(1 − δ) +0.71. The data mostly fix a combination, how much the household saves, which both β and ρ raise; the parameters trade off along it.
+- **Gross resolves least, by design:** it assumes the noisiest data. If PSID's errors are that large, v2's extra resolution is not real; networks trained with too little noise under-cover (§58.2).
+
+### 60.3 Couples still differ by more than households sharing θ
+
+| sd of posterior means, PSID couples | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| PSID couples, gross | 0.112 | 0.0232 | 0.620 | 0.0096 |
+| null 1, sharing θ | 0.060 | 0.0152 | 0.412 | 0.0062 |
+| null 2, sharing only that parameter | 0.101 | 0.0223 | 0.718 | 0.0088 |
+
+**The share of PSID's spread that is real,** from null 2 (low) to null 1 (high). In brackets: the 5th percentile of the low end and the 95th of the high end (bootstrap):
+
+| | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| gross, couples | 0.19–0.72 (0.09; 0.75) | 0.07–0.57 (−0.09; 0.62) | none–0.56 (−0.51; 0.60) | 0.17–0.59 (0.03; 0.64) |
+| gross, all 889 | 0.36–0.78 (0.31; 0.80) | 0.14–0.64 (0.04; 0.67) | none–0.59 (−0.37; 0.62) | 0.09–0.56 (−0.00; 0.59) |
+| typical, couples | 0.31–0.76 (0.22; 0.79) | 0.12–0.62 (−0.04; 0.67) | none–0.55 (−0.66; 0.60) | 0.34–0.68 (0.25; 0.71) |
+| v2, couples | 0.32–0.67 (0.24; 0.70) | 0.14–0.55 (−0.03; 0.62) | none–0.58 (−0.50; 0.63) | 0.51–0.74 (0.44; 0.77) |
+| v2, all 889 | 0.43–0.73 (0.38; 0.75) | 0.23–0.62 (0.13; 0.66) | none–0.64 (−0.25; 0.67) | 0.45–0.71 (0.40; 0.74) |
+
+- **Couples are not alike.** In every arm, sample and parameter, PSID's posterior means spread 1.5–2.3 times as much as those of households sharing θ.
+- **β differs between couples:** its spread exceeds both nulls in every arm and sample.
+- **R_gamma's spread exceeds both nulls** except gross's all 889, whose lower bound touches 0.
+- **δ's exceeds null 2 for all 889 only;** couples' lower bound includes 0 in every arm.
+- **ρ's spread never exceeds null 2.** Variation in the other three parameters alone produces more spread in ρ's estimates than couples show. This agrees with the population layer (§47.2: ρ cannot be told from one common value).
+- **Not all of the spread need be preferences.**
+  - Null 1 carries the training noise. Errors heavier than training's, or behaviour the model lacks, would spread PSID's posterior means too and read as real here.
+  - Card access is the one omitted difference that was measured, and it adds almost nothing.
+
+### 60.4 §1's heterogeneity test was invalid
+
+§11.3's test, Var(true θ) = Var(means) − E[posterior var], treats a posterior mean as the truth plus independent noise whose variance is the posterior variance. A Bayesian posterior mean is shrunk toward the prior instead. When the population is the prior, the identity that holds is the law of total variance: Var(θ) = Var(means) + E[posterior var].
+
+**On the SBC set, where the population is the prior:**
+
+| | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| Var(truth) | 0.0408 | 0.00187 | 1.688 | 0.00024 |
+| Var(means) + E[posterior var], v2 / gross | 0.0408 / 0.0412 | 0.00186 / 0.00186 | 1.674 / 1.658 | 0.00024 / 0.00025 |
+| Var(means) − E[posterior var] (§1's test), v2 / gross | **−0.0085 / −0.0170** | +0.00011 / −0.00017 | +0.391 / +0.144 | +0.00001 / −0.00002 |
+
+- **The sum matches the truth within 2.5%** in every arm. The difference reads β as "none detectable" for households whose true β spans the whole box.
+- **On the draws reweighted toward PSID** (true β sd 0.19–0.20), the difference is −0.012 to −0.022 in every arm and sample, against a true variance of 0.035–0.040.
+- **So the test cannot detect β heterogeneity of any size inside the box.** Its sign for δ and R_gamma changes between arms even when the population is fixed.
+- **Withdrawn as evidence:** "β heterogeneity is not demonstrated" (§11.3, §20.2, the superseded §29 headline) and §1's v2 heterogeneity table. §1 is corrected; §11.3, §20.2 and the superseded block carry notes.
+- **Neither the sum nor the difference measures PSID's spread.** The sum needs the population to be the prior, and PSID's is narrower. The null comparison of §60.3 needs neither.
+- `heterogeneity_test.py` and `compare_regen_v2.py` still compute the difference; the former's docstring now says it is invalid here.
+
+### 60.5 Reading
+
+- **"Can the gross version distinguish households in β, δ and ρ?"**
+  - **Individual couples:** not in β or ρ. A couple's 90% interval covers the whole spread of couples' means, and fewer than 1 pair in 13 can be ordered.
+  - **δ:** partly, the best of the three.
+  - **Couples as a population:** they do differ, by more than estimation noise, and in β at least.
+- **"Does it predict the parameters?"**
+  - Its intervals are honest: calibrated in held-out and SBC checks (§58.1).
+  - But for one household it removes only 29% (β), 46% (δ) and 55% (ρ) of the prior's variance. Its estimate captures 31–55% of the true variance over the box, and less within PSID's range.
+  - A β estimate carries as much of the household's ρ as of its β.
+  - So it predicts populations and coarse groups (the 10th against the 90th percentile), not an individual couple's β or ρ.
+- **The limit is the data,** seven noisy waves per household. Households sharing θ tighten around the truth as they are pooled (§23).
+- **For the choice of reference arm,** gross costs resolution: 7% of couple pairs ordered in β against v2's 13%. That cost is real only if PSID's errors are as small as v2 assumes, which §57–58 argue against.
+
+Figure 80 has four panels:
+- (a, b) gross arm: the typical couple's posterior (figure 76's) against couples' posterior means, and against the posterior means of households sharing θ, placed at couples' median, in (β, ρ) and (β, δ), 68/95%;
+- (c) the bounds of §60.3 per arm;
+- (d) §60.4's identity per arm.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/household_resolution.py   # -> outputs/household_resolution/, figure 80
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_household_resolution.py

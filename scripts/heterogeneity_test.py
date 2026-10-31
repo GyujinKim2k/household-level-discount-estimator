@@ -1,5 +1,14 @@
 """Is there any true between-household heterogeneity, and does it survive?
 
+**Invalid for this project's posteriors (RESULTS 60.4); kept to reproduce the
+sections that used it.** The identity below treats a posterior mean as the
+truth plus noise whose variance is the posterior variance. A Bayesian posterior
+mean is shrunk toward the prior, and when the population is the prior the
+identity that holds is ``Var(theta) = Var(means) + E[posterior var]``. On v2's
+SBC households, whose true beta spans the whole box, the difference reads
+beta < 0. Use ``household_resolution.py``'s comparison with simulated
+households sharing theta instead.
+
 The project's headline claim is a posterior *per household* rather than one
 population point estimate, so the question that decides whether that buys
 anything is whether the households actually differ. Spread in posterior means
