@@ -66,6 +66,11 @@ MAX_NEWTON = 3
 N_BOOT = 1000
 BOX_LO = np.array([0.301, 0.851, 0.51, 1.0215])
 BOX_HI = np.array([0.999, 0.99999, 4.99, 1.0745])
+#: RESULTS 61's arms, and v2 trained with no observation noise (RESULTS 62)
+ARMS = {**hr.ARMS, "none": ("outputs/optionA2v2_noise_none",
+                            "outputs/psid_optionA2v2_noise_none_couples",
+                            "outputs/psid_optionA2v2_noise_none_all")}
+ARM_COLOR = {**hr.ARM_COLOR, "none": "#4A9A5B", "unknown": "#D08A1E"}
 
 
 def to_u(theta: np.ndarray) -> np.ndarray:
@@ -189,7 +194,7 @@ class Arm:
         from scripts.sbc_optionA2 import Members
 
         self.name = name
-        run = Path(hr.ARMS[name][0])
+        run = Path(ARMS[name][0])
         self.members = Members(sorted(run.glob("s[0-9]*")), device)
         self.spec = oa.spec_of(self.members.cfg)
         lag = self.members.cfg.get("window", {}).get("flow_lag", 0)
@@ -204,6 +209,38 @@ class Arm:
         x, _f = oa.transform(x, masked=self.spec.masked)
         r = posterior(self.members, x, None, self.spec, N_DRAWS)
         return {"mean": r["mean"], "sd": r["sd"]}
+
+    def ranks(self, sim: dict) -> np.ndarray:
+        """Each simulated household's weighted rank of the theta it was
+        simulated at (the same windows and noise as :meth:`score`)."""
+        from scripts import optionA as oa
+        from scripts.sbc_optionA2 import posterior
+
+        x = oa.add_obs_noise(torch.from_numpy(sim["x"]), self.spec.obs_noise, seed=SEED + 77)
+        x, _f = oa.transform(x, masked=self.spec.masked)
+        truth = np.tile(sim["theta"], (len(x), 1))
+        return posterior(self.members, x, truth, self.spec, N_DRAWS)["u"]
+
+
+def coverage_at(arm: Arm, name: str, sim: dict) -> dict:
+    """How often households simulated at one theta have it inside their 90%
+    interval, and on which side the misses fall (overall and by card type).
+    Calibration is a prior average, so one theta need not give 0.90; a
+    one-sided miss rate shows where the posterior leans there."""
+    f = OUT / f"ranks_{arm.name}_{name}.npz"
+    if f.exists():
+        u = np.load(f)["u"]
+    else:
+        u = arm.ranks(sim)
+        np.savez(f, u=u)
+    ok = np.isfinite(u).all(1)
+    inside = (u >= 0.05) & (u <= 0.95)
+    card = sim["card"]
+    return {"coverage_90": inside[ok].mean(0).tolist(),
+            "truth_below_5th": (u[ok] < 0.05).mean(0).tolist(),
+            "truth_above_95th": (u[ok] > 0.95).mean(0).tolist(),
+            "coverage_90_by_card": {c: inside[ok & (card == i)].mean(0).tolist()
+                                    for i, c in ((0, "no card"), (1, "card"))}}
 
 
 def cached_post(arm: Arm, name: str, sim: dict) -> dict:
@@ -280,7 +317,7 @@ def run(args) -> dict:
     for k in range(4):
         for sign, tag in ((1, "plus"), (-1, "minus")):
             sims[f"{tag}{k}"] = cached_sim(f"{tag}{k}", from_u(u_l + sign * STEP[k] * np.eye(4)[k]))
-    v2_med = np.median(hr.psid(hr.ARMS["v2"][1])["mean"], 0)
+    v2_med = np.median(hr.psid(ARMS["v2"][1])["mean"], 0)
     sims["v2_median"] = cached_sim("v2_median", v2_med)
 
     res = {"laibson": {k: (v.tolist() if isinstance(v, np.ndarray) else v)
@@ -296,7 +333,7 @@ def run(args) -> dict:
         for p in posts.values():
             if not np.array_equal(p["card"], card):
                 raise SystemExit("simulated households are not aligned across points")
-        psid = hr.psid(hr.ARMS[name][1])
+        psid = hr.psid(ARMS[name][1])
         pm = psid["mean"]
         target = pm.mean(0)
         se_target = pm.std(0, ddof=1) / np.sqrt(len(pm))
@@ -349,6 +386,7 @@ def run(args) -> dict:
                 "median_of_means": np.median(pl, 0).tolist(),
                 "sd_of_means": pl.std(0, ddof=1).tolist(),
                 "median_posterior_sd": np.median(posts["laibson"]["sd"], 0).tolist(),
+                **coverage_at(arm, "laibson", sims["laibson"]),
             },
             "at_v2_median": {"theta": v2_med.tolist(),
                              "mean_of_means": stat(posts["v2_median"]["mean"], card,
@@ -394,6 +432,9 @@ def report(res: dict) -> None:
                 ("  median of means", a["at_laibson"]["median_of_means"]),
                 ("  sd of means (PSID's below)", a["at_laibson"]["sd_of_means"]),
                 ("  PSID sd of means", a["psid_sd_of_means"]),
+                ("  90% intervals containing their theta", a["at_laibson"]["coverage_90"]),
+                ("  their theta below the 5th percentile", a["at_laibson"]["truth_below_5th"]),
+                ("  their theta above the 95th percentile", a["at_laibson"]["truth_above_95th"]),
                 ("simulated at v2's median estimate", a["at_v2_median"]["theta"]),
                 ("  mean of means", a["at_v2_median"]["mean_of_means"]),
                 ("last simulated Newton point", a["last_simulated_theta"]),
@@ -444,7 +485,7 @@ def plot(res: dict, path: Path) -> None:
             a.plot([], [], color="k", ls=ls, label=f"Laibson et al., {lab} covariance")
         a.plot(*th[[i, j]], "k*", ms=12)
         for name, arm in res["arms"].items():
-            color = hr.ARM_COLOR[name]
+            color = ARM_COLOR[name]
             b = np.array(arm["boot"])
             lo, hi = (lim[i][0], lim[j][0]), (lim[i][1], lim[j][1])
             X, Y, Z = _kde_grid(b[:, i], b[:, j], lo, hi)
@@ -474,10 +515,10 @@ def plot(res: dict, path: Path) -> None:
         edge = any(arm["at_box_edge"])
         v = [np.nan] * 4 if edge else arm["representative_se"]
         groups.append((f"{name}: representative θ" + (" (stopped at a box edge: no bars)"
-                                                      if edge else ""), v, hr.ARM_COLOR[name]))
+                                                      if edge else ""), v, ARM_COLOR[name]))
     for name, arm in res["arms"].items():
         groups.append((f"{name}: one couple (median sd)", arm["psid_median_posterior_sd"],
-                       hr.ARM_COLOR[name]))
+                       ARM_COLOR[name]))
     xs = np.arange(3)
     width = 0.8 / len(groups)
     for g, (lab, v, color) in enumerate(groups):
@@ -502,15 +543,16 @@ def plot(res: dict, path: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--arms", nargs="+", default=list(hr.ARMS), choices=list(hr.ARMS))
+    ap.add_argument("--arms", nargs="+", default=list(hr.ARMS), choices=list(ARMS))
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else None)
     ap.add_argument("--figure", type=Path, default=FIG)
+    ap.add_argument("--out", type=Path, default=OUT / "laibson_comparison.json")
     args = ap.parse_args()
     res = run(args)
     report(res)
-    (OUT / "laibson_comparison.json").write_text(json.dumps(res, indent=2))
+    args.out.write_text(json.dumps(res, indent=2))
     plot(res, args.figure)
-    print(f"\nwrote {OUT / 'laibson_comparison.json'} and {args.figure}")
+    print(f"\nwrote {args.out} and {args.figure}")
 
 
 if __name__ == "__main__":
