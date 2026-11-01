@@ -68,3 +68,15 @@ def test_bootstrap_matches_the_delta_method():
     Jinv = np.linalg.inv(B)
     want = np.sqrt(np.diag(Jinv @ np.diag((1.5 * noise) ** 2 / n + noise ** 2 / m) @ Jinv.T))
     assert boot.std(0) == pytest.approx(want, rel=0.15)
+
+
+def test_a_fit_that_misses_psid_is_not_drawn_as_one():
+    """RESULTS 62: a last simulated point beyond FIT_TOL PSID standard errors
+    gets no region or bars; an edge alone is flagged; a close fit is plain."""
+    edge = [False] * 4
+    assert lc.fit_note({"last_simulated_misfit_over_psid_se": [0.3, -0.8, 0.85, 0],
+                        "at_box_edge": edge}) == ""
+    assert lc.fit_note({"last_simulated_misfit_over_psid_se": [-1.8, 0, 0, 0],
+                        "at_box_edge": [True] + edge[1:]}) == "β at the box floor"
+    assert lc.fit_note({"last_simulated_misfit_over_psid_se": [-13.6, 0.5, -7.8, -8.8],
+                        "at_box_edge": edge}).startswith("no fit (misses PSID by 14 se")

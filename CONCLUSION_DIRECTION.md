@@ -21,14 +21,16 @@
 | couples differ | their estimates spread 1.5–2 times as much as households that share θ; clearest in β | RESULTS 60 |
 | population, under v2's noise model | representative θ: β 0.531 (se 0.022), δ 0.9901 (0.0009), ρ 1.44 (0.098), R_γ 1.043 (0.0016). Standard errors 2.1–2.3 times smaller than their sampling-only ones, 4.4–5.9 times smaller than their reported ones | RESULTS 61.4 |
 | more waves were already sharper in an earlier model | three-parameter model (before card types and R_γ): 10 waves gave held-out log q 5.446 against 7 waves' 5.007, both calibrated | `PSID_DATA.md` §3 |
-| households simulated at their θ | individual 90% intervals contain their θ for 99% (β), 91% (δ), 96% (ρ) and 86% (R_γ). The average posterior mean does not land on it (shrinkage, ρ's long upper tail) | to be recorded in RESULTS 62 |
+| households simulated at their θ | under v2, individual 90% intervals contain their θ for 99% (β), 91% (δ), 96% (ρ) and 86% (R_γ). The average posterior mean lands further away the noisier the data; without noise it is within 0.013 of their β (ρ stays 0.5 high: its long upper tail) | RESULTS 62.6 |
+| what noise PSID couples have | a network that estimates each household's noise reads couples, on average, as noisy as the gross arm or noisier, far above v2's training noise; one couple at a time, a third or fewer exclude v2's range; income reads noisier than the box allows (likely the couples' income process) | RESULTS 62.3 |
+| the population β under PSID-level noise | every arm whose noise matches PSID's readings puts β at or near the 0.3 floor (gross 0.335; typical and noise-unknown at the floor, no fit). v2's 0.531 holds only under its light noise | RESULTS 62.4 |
 
 ## Still to do, in order
 
-1. **RESULTS 62 (running).**
-   - The noise-free arm.
-   - The noise-unknown arm, in which the network estimates each household's measurement-error level alongside θ.
-   - It decides which noise model the final population estimate uses. That choice is open: the population β is 0.53 under v2, 0.335 under gross, and below the 0.3 floor under typical (RESULTS 61).
+1. **RESULTS 62 (done, 2026-11-01).**
+   - The noise-free arm fails on noisy data and reads PSID couples' ρ at the floor.
+   - The noise-unknown arm is calibrated on all eight targets; it reads PSID couples as noisy as gross or more, and under that noise the population β goes to the floor (no fit inside the box).
+   - **Open, the user's decision:** the reference noise model, and with it whether to extend the β floor (below), which needs regeneration.
 2. **The waves experiment (simulated households).**
    - **Models.** Train with 7 (existing), 10, 14 and about 20 waves, under the noise model chosen after RESULTS 62, with everything else as v2.
    - **No regeneration needed.** The stored panels cover ages 20–90 for every household, so longer windows can be cut from the existing shards. `optionA.py train --n_waves` exists. The window start range must leave room: start + 2 × (waves − 1) ≤ 90.

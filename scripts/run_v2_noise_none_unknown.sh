@@ -80,9 +80,12 @@ run "none: household figures" v2_noise_none_household_figures \
     --sim_name 82_simulated_household_optionA2v2_noise_none.png \
     --psid_name 83_psid_household_optionA2v2_noise_none.png
 
-# --- 3. unknown: SBC and PSID ---------------------------------------------------------
-run "unknown: SBC" v2_noise_unknown_sbc $PY scripts/noise_unknown.py sbc
-run "unknown: PSID" v2_noise_unknown_psid $PY scripts/noise_unknown.py psid
+# --- 3. unknown: SBC and PSID (skipped when an earlier run wrote them) -----------------
+if [ -f "$UNK/sbc/sbc16.json" ]; then status "skip unknown: SBC (done)"; else
+    run "unknown: SBC" v2_noise_unknown_sbc $PY scripts/noise_unknown.py sbc; fi
+if [ -f outputs/psid_optionA2v2_noise_unknown_couples/summary.json ]; then
+    status "skip unknown: PSID (done)"; else
+    run "unknown: PSID" v2_noise_unknown_psid $PY scripts/noise_unknown.py psid; fi
 
 # --- 4. every 4-parameter network on every arm's noise --------------------------------
 run "cross-noise held-out" v2_noise_none_cross_heldout $PY scripts/cross_noise_heldout.py \

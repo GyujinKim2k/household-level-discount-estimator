@@ -9557,3 +9557,203 @@ Figure 81 has four panels:
 
     PYTHONPATH=. .venv/bin/python scripts/laibson_comparison.py   # -> outputs/laibson_comparison/, figure 81; GPU, ~35 min uncached
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_laibson_comparison.py
+
+## 62. The noise-free and noise-unknown arms: the noise-free network fails on noisy data; the network that estimates the noise reads PSID couples as noisy as gross or more, and at that noise no population θ in the box fits, with β at the floor
+
+**Questions (user, 2026-11-01).** "ok how about the non-error applied version? does it estimate the population's parameters well, too? … I think it means that model is currently not able to distinguish the noise and real signal. because in population's data the iid noise should have been eliminated." Then: "ok try both model and show me the result." And on figure 81: "the arrows are far from the black star even if it's the simulated household which is generated from black star's 3 parameters … the model is currently not able to estimate the simulated household's parameter properly?"
+
+Two new arms. Everything else is v2's (§56): data, windows, logit β and R_gamma, architecture, five members.
+- **none:** no observation noise in training. 82–124 epochs.
+- **unknown:** each training household gets its own noise level per feature, uniform on [0, 1.3 × the gross arm's upper ends] = [0.252, 0.261, 0.820, 0.768] for income, consumption, liquid and illiquid wealth. The network estimates those four levels alongside θ: eight targets, the noise levels as logit(σ / upper end). 42–46 epochs. `scripts/noise_unknown.py`.
+
+The chain is `scripts/run_v2_noise_none_unknown.sh`. The unknown arm's SBC and PSID steps ran by hand, with the chain's commands, while the none arm trained; the chain skips steps whose outputs exist. The population step's figure first failed on a bootstrap clipped flat at the β floor; `laibson_comparison.plot` now skips such a region, and the step was rerun from its caches.
+
+### 62.1 The noise-free arm
+
+| | β | δ | ρ | R_gamma |
+|---|---|---|---|---|
+| held-out 90% coverage (1,536 draws, ESS 758) | 0.910 | 0.907 | 0.907 | 0.908 |
+| SBC 90% coverage (16,384 households) | 0.914 | 0.901 | 0.902 | 0.902 |
+| share of prior variance removed, held-out: none / v2 | 0.676 / 0.401 | 0.730 / 0.541 | 0.798 / 0.614 | 0.611 / 0.530 |
+| held-out 90% coverage on noisy windows (v2's, typical's, gross's noise) | 0.67–0.70 | 0.60–0.64 | 0.46–0.59 | 0.60–0.66 |
+| PSID couples: median of posterior means, none / v2 | 0.669 / 0.572 | 0.9855 / 0.9837 | 0.85 / 2.55 | 1.037 / 1.058 |
+| one couple's posterior sd (median), none / v2 | 0.152 / 0.164 | 0.0077 / 0.0121 | 0.41 / 0.90 | 0.0100 / 0.0095 |
+
+- **Calibrated on noise-free households, and much sharper there.** Held-out log q is 6.82, against v2's 4.10 on its own noise.
+- **It breaks on any noisy data, even v2's light noise:** coverage falls to 0.46–0.70 and log q to between −3.3 and −8.1. v2's network on noise-free windows stays calibrated (0.909–0.927). This repeats §49.
+- **On PSID couples, ρ falls to the floor.** 59% of couples' posterior means are below 1, and 74% of their 5th percentiles are below 0.55. 56% have R_gamma's 5th percentile within 0.0025 of its floor. Their narrower intervals are the overconfidence the row above measures.
+- **Couple by couple** it agrees with v2 at r = 0.54 (β), 0.58 (δ), 0.29 (ρ) and 0.54 (R_gamma). All 889: β 0.721, ρ 0.99.
+
+### 62.2 The noise-unknown arm on simulated households
+
+SBC on v2's set: 16,384 households from 1,024 uniform-prior draws, each household with its own noise levels drawn from the training range (figure 85).
+
+| | 90% coverage (90% CI) | KS p, one per draw | corr(mean, truth) | share of prior variance removed |
+|---|---|---|---|---|
+| β | 0.903 (0.899–0.908) | 0.87 | 0.58 | 0.325 |
+| δ | 0.894 (0.886–0.901) | 0.62 | 0.70 | 0.486 |
+| ρ | 0.904 (0.897–0.912) | 0.65 | 0.76 | 0.563 |
+| R_gamma | 0.894 (0.861–0.923) | 0.004 | 0.69 | 0.489 |
+| σ income | 0.902 (0.898–0.907) | 0.039 | 0.54 | 0.273 |
+| σ consumption | 0.907 (0.903–0.910) | 0.62 | 0.80 | 0.630 |
+| σ liquid wealth | 0.903 (0.900–0.906) | 0.35 | 0.63 | 0.379 |
+| σ illiquid wealth | 0.901 (0.897–0.904) | 0.75 | 0.60 | 0.352 |
+
+- **All eight targets are calibrated in coverage.** Two rank tests are weak:
+  - R_gamma (p 0.004): it varies only by block of 16 draws, and v2's own was 0.024;
+  - income noise (p 0.039): intervals slightly narrow mid-range.
+- **How well it tells low from high noise.** The mean posterior mean by true-noise quintile:
+
+  | | lowest quintile | highest quintile | true range |
+  |---|---|---|---|
+  | consumption | 0.060 | 0.190 | 0–0.26 |
+  | liquid wealth | 0.28 | 0.53 | 0–0.82 |
+  | illiquid wealth | 0.26 | 0.48 | 0–0.77 |
+  | income | 0.099 | 0.154 | 0–0.25 |
+
+  Income noise is the hardest to read.
+- **Estimating the noise does not distort θ.**
+  - Within a posterior, θ and the noise levels correlate at |r| ≤ 0.017.
+  - θ's coverage is 0.885–0.909 in every tercile of the estimated noise.
+- **The cost is precision.** It removes less of the prior variance than v2 on v2's noise (0.401, 0.541, 0.614, 0.530) and more than gross on gross's (0.290, 0.461, 0.545, 0.448). Its own SBC noise spans zero to 1.3 × gross.
+
+### 62.3 PSID couples under the noise-unknown arm
+
+| noise sd | couples' median / mean of posterior means (se) | median 90% interval | v2's training range | gross's range |
+|---|---|---|---|---|
+| income | 0.177 / 0.173 (0.002) | 0.05–0.25 | 0 | 0.189–0.194 |
+| consumption | 0.204 / 0.194 (0.002) | 0.13–0.26 | 0–0.15 | 0.201 |
+| liquid wealth | 0.444 / 0.476 (0.006) | 0.06–0.78 | 0–0.10 | 0–0.631 |
+| illiquid wealth | 0.566 / 0.541 (0.007) | 0.34–0.75 | 0.175–0.47 | 0.487–0.591 |
+
+- **On average, couples read as noisy as gross or noisier** (figure 86).
+  - For income, consumption and illiquid wealth, the couples' average posterior mean is at or above what the noisiest fifth of SBC households give (0.154, 0.190, 0.476).
+  - Gross's ranges overlap 87–99% of couples' 90% intervals.
+- **One couple at a time the evidence is weaker.** 37% (consumption), 35% (liquid) and 26% (illiquid) of couples' 90% intervals lie entirely above v2's range, and 31% have income noise above 0.10 at their 5th percentile.
+- **The box binds for a few:** 3–14% of couples' noise means, by feature, are within 10% of its upper end.
+- **θ barely moves from v2.**
+  - Median of means: β 0.590, δ 0.9787, ρ 2.59, R_gamma 1.060 (v2: 0.572, 0.9837, 2.55, 1.058).
+  - Couple-by-couple correlation with v2: 0.86, 0.91, 0.87, 0.81.
+  - One couple's posterior sd: 0.165, 0.0153, 0.99, 0.0102, against v2's 0.164, 0.0121, 0.90, 0.0095.
+  - Within a couple's posterior, θ and the noise levels correlate at |r| ≤ 0.064.
+- **All 889:** β 0.660, ρ 2.45. The noise readings are similar: 0.189, 0.208, 0.440, 0.542.
+- **Anything PSID has that the model cannot produce is read as noise too,** so these levels are upper readings of the measurement error.
+
+### 62.4 A representative θ under each arm
+
+**The noise-unknown arm.** §61.4's indirect inference with eight unknowns: θ and the four noise levels, matched on couples' mean posterior means of all eight targets.
+- **Method:**
+  - an 8 × 8 Jacobian at their θ, with the noise at couples' own readings;
+  - noise half-steps 0.02, 0.02, 0.06 and 0.06;
+  - common random numbers, three Newton steps.
+- **No θ in the box fits.**
+
+  | last simulated point | β | δ | ρ | R_gamma | σ inc | σ cons | σ liq | σ illiq |
+  |---|---|---|---|---|---|---|---|---|
+  | value | 0.301 (floor) | 0.9975 | 2.09 | 1.047 | 0.249 (box top) | 0.222 | 0.548 | 0.667 |
+  | misfit ÷ PSID se | −8.4 | −5.4 | −3.2 | +1.0 | +11.4 | 0.0 | +1.9 | −1.8 |
+
+  - The final unsimulated step goes to β 0.19 and σ income 0.34.
+  - Every bootstrap draw lies beyond the box in both.
+- **Income noise cannot be matched.** With income noise at the box top, simulated households' average estimate is 0.151–0.155, against PSID couples' 0.173 (se 0.0019). PSID couples' income varies in ways the model's income process plus 25% noise does not produce. That points at the couples' income process (§60's parked list) more than at measurement error.
+- **That is not what pulls β down.** One linear step from their θ (diagnostic, not simulated):
+  - all eight targets: β 0.32;
+  - without the income-noise target: β 0.33;
+  - θ alone, with the noise held at couples' own readings: β 0.36, δ 0.9946, ρ 1.81.
+- **What does pull β down:** households at their θ with noise at PSID's level come out at β 0.645 on average, 7 PSID standard errors above couples' 0.604. Under v2 the gap was 0.591 against 0.586. Closing it along the β–δ ridge lowers β and raises δ, as for gross and typical (§61.4).
+
+**The noise-free arm.** The Newton steps oscillate near the ρ floor:
+- (0.71, 0.983, 0.51, 1.031), then (0.66, 0.996, 0.51, 1.022), then (0.77, 0.984, 0.93, 1.039);
+- the last misses PSID by −13.6 (β), +0.5 (δ), −7.8 (ρ) and −8.8 (R_gamma) standard errors.
+
+Its statistic is strongly nonlinear there, and the Jacobian is held at their θ. The reading does not depend on the solver: couples' average ρ under this network (1.08) comes from its response to PSID's noise, which noise-free simulated households do not have.
+
+| representative θ | β | δ | ρ | R_gamma | fit |
+|---|---|---|---|---|---|
+| Laibson et al. | 0.5305 | 0.9891 | 1.94 | 1.05, calibrated | |
+| v2 (§61) | 0.531 (se 0.022) | 0.9901 | 1.44 | 1.043 | misfit ≤ 0.85 se |
+| gross (§61) | 0.335 (se 0.031) | 0.9957 | 1.42 | 1.038 | misfit ≤ 1.8 se |
+| typical (§61) | floor (0.246 extrapolated) | 0.9972 | 1.65 | 1.039 | none: misfit 5.4 se |
+| unknown | floor (0.19 extrapolated) | 0.9978 | 2.29 | 1.049 | none: misfit 11.4 se |
+| none | (0.77 last simulated) | (0.984) | (0.93) | (1.039) | none: misfit 13.6 se |
+
+Figure 87 is figure 81 with the two new arms. It now applies one rule to every arm: an arm whose last simulated point misses PSID by more than 3 PSID standard errors (`FIT_TOL`) shows that point hollow, with no region and no bars. Figure 81 itself is unchanged.
+
+### 62.5 How each network's estimate moves when the true noise moves
+
+The change in the mean of posterior means at their θ for 0.1 more noise sd, every arm on the same households and noise (couples' readings ± the half-steps):
+
+| | β per 0.1 σ consumption | ρ per 0.1 σ consumption | ρ per 0.1 σ income | β per 0.1 σ illiquid |
+|---|---|---|---|---|
+| none | +0.062 | −0.29 | +0.000 | −0.005 |
+| v2 | +0.012 | −0.046 | +0.018 | −0.001 |
+| gross | +0.004 | −0.040 | +0.015 | −0.001 |
+| unknown | +0.006 | −0.021 | +0.022 | −0.000 |
+
+- **The noise-free network's ρ falls by 0.29 for each 0.1 of consumption noise.** Networks trained with noise move 6–14 times less.
+- **The response is systematic, so it survives averaging.** Averaging 409 couples removes the noise's randomness, not this shift.
+
+### 62.6 Households simulated at their θ (figure 81's question)
+
+The households are §61.3's: 2,048 per card type at their θ, with each arm's own training noise. The unknown arm's row has noise at couples' readings.
+
+| | 90% coverage: β | δ | ρ | R_gamma | mean of posterior means (85% cards): β | δ | ρ | R_gamma |
+|---|---|---|---|---|---|---|---|---|
+| their θ | | | | | 0.5305 | 0.9891 | 1.94 | 1.05 |
+| none (noise-free households) | 0.918 | 0.894 | 0.883 | 0.918 | 0.517 | 0.987 | 2.44 | 1.053 |
+| v2 | 0.992 | 0.913 | 0.956 | 0.863 | 0.591 | 0.975 | 2.80 | 1.058 |
+| typical | 0.998 | 0.886 | 0.986 | 0.903 | 0.626 | 0.969 | 2.82 | 1.059 |
+| gross | 0.999 | 0.880 | 0.993 | 0.933 | 0.641 | 0.967 | 2.80 | 1.060 |
+| unknown | not run | | | | 0.645 | 0.967 | 2.82 | 1.059 |
+
+- **Each household's interval usually contains their θ:** 86–100% of households under the noisy arms, 88–92% without noise.
+  - The misses are one-sided: their δ lies above the 95th percentile for 9–12% of households, and R_gamma below the 5th for 7–14%.
+  - Calibration is an average over the prior, so one θ need not give 0.90.
+- **The average posterior mean lands further from their θ the noisier the data.**
+  - Without noise it is within 0.013 of their β, 0.0025 of δ and 0.003 of R_gamma.
+  - ρ is 0.5 high even without noise, and 0.86–0.88 high with it. Behaviour changes little at high ρ, so ρ's posterior has a long upper tail.
+- **So figure 81's arrows are mostly noise.** Noise widens each posterior and pulls its mean toward the middle of the box. The households' parameters are not misestimated: their intervals contain the truth.
+
+### 62.7 Reading
+
+- **Does the noise-free model estimate the population?**
+  - No. It is calibrated only on noise-free data.
+  - On PSID couples it reads ρ at the floor.
+  - No noise-free simulated population reproduces what it reads from PSID.
+- **"In population data the iid noise should be eliminated."** Averaging eliminates the noise's randomness, not its effect.
+  - The networks respond to noise systematically (62.5), so the shift survives averaging over couples.
+  - The noise-free arm is the clearest case: its PSID average comes from PSID's noise.
+- **Can the network tell noise from signal?**
+  - On simulated households, for consumption well, for the wealth items moderately, for income weakly.
+  - Estimating the noise leaves θ calibrated and uncorrelated with it.
+- **What noise PSID couples have.**
+  - The network that estimates it reads them, on average, as noisy as the gross arm or noisier, far above v2's training noise. One couple at a time, a third or fewer exclude v2's range.
+  - Income reads noisier than any noise the box allows. That more likely reflects the model's income process, which is not a couples' process, than reporting error.
+- **The population β.**
+  - Every arm whose noise matches PSID's readings puts the representative β at or near the 0.3 floor: gross 0.335, typical at the floor, and unknown at the floor (0.19 extrapolated).
+  - v2's 0.531, Laibson et al.'s 0.53, holds only under v2's light noise, which couples' own readings reject on average.
+  - Under `CONCLUSION_DIRECTION.md` this is the case in which extending the β floor becomes necessary for a population claim. That needs regeneration and is the user's decision.
+- **The precision comparison stands where a fit exists.** Gross's standard errors are still 1.0–3.1 times smaller than their sampling-only ones (§61.4).
+
+**Figures:**
+- 82: a simulated household, none, 68/95%;
+- 83: a PSID couple, none, 68/95%;
+- 84: SBC ranks, none;
+- 85: SBC ranks of all eight targets, and each noise level's posterior mean against its truth, 68/95%;
+- 86: PSID couples, all eight targets, couples' means and the couple nearest the median, 68/95%, with v2's and gross's noise ranges shaded;
+- 87: figure 81 with none and unknown.
+
+`contour_corner` no longer shades a band over a panel it would cover entirely; figure 86 had been shading every θ-only panel.
+
+**Tests:**
+- `tests/test_noise_unknown.py` (4):
+  - the noise is drawn on its box and applied per feature;
+  - a given noise level reuses the stream;
+  - the targets round-trip and stay in the flow's box;
+  - the weighted correlation matches numpy.
+- `tests/test_laibson_comparison.py` (6): §61's five, and the no-fit rule.
+
+**Reproduce.**
+
+    nohup setsid ./scripts/run_v2_noise_none_unknown.sh >> logs/v2_noise_none_unknown.log 2>&1 &   # ~5 h training, ~1 h after
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_noise_unknown.py tests/test_laibson_comparison.py

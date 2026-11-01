@@ -167,6 +167,8 @@ def contour_corner(
         ax.set_visible(True)
         if bands:
             for bc, (blab, (blo, bhi)) in zip(BAND_COLORS, bands.items()):
+                if all(blo[k] <= lo[k] and bhi[k] >= hi[k] for k in (i, j)):
+                    continue              # covers the whole panel: says nothing there
                 ax.add_patch(plt.Rectangle(
                     (blo[i], blo[j]), bhi[i] - blo[i], bhi[j] - blo[j],
                     facecolor=bc, alpha=0.13, edgecolor=bc, lw=1.2,

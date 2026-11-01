@@ -670,6 +670,8 @@ def population_figure(res: dict, arms: dict, couples: Path, path: Path) -> None:
     arms = {**arms, "arms": {**arms["arms"], "unknown": {
         "boot": np.array(res["boot"])[:, :4].tolist(),
         "representative_theta": rep[:4].tolist(),
+        "last_simulated_theta": res["last_simulated"][:4],
+        "last_simulated_misfit_over_psid_se": res["last_simulated_misfit_over_psid_se"],
         "at_box_edge": res["at_box_edge"][:4],
         "at_laibson": {"mean_of_means": res["at_laibson_stat"][:4]},
         "psid_mean_of_means": res["psid_mean_of_means"][:4],
@@ -678,7 +680,9 @@ def population_figure(res: dict, arms: dict, couples: Path, path: Path) -> None:
             (couples / "summary.json").read_text())["couples"]["median_posterior_sd"]}}}
     mps = arms["arms"]["unknown"]["psid_median_posterior_sd"]
     arms["arms"]["unknown"]["psid_median_posterior_sd"] = [mps[n] for n in oa.BOX.names]
-    lc.plot(arms, path)
+    lc.plot(arms, path, title="Laibson et al.'s MSM point against PSID couples' representative "
+                              "θ under each noise arm (RESULTS 62; unknown: θ and noise fitted "
+                              "together)")
 
 
 def main() -> None:

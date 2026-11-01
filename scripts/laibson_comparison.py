@@ -457,10 +457,24 @@ def report(res: dict) -> None:
         print(f"  Newton steps {len(a['newton_path']) - 1}, converged {a['converged']}")
 
 
-def plot(res: dict, path: Path) -> None:
+#: a last simulated point further than this from PSID couples' statistic, in
+#: PSID standard errors, is not a fit: no region and no bars
+FIT_TOL = 3.0
+
+
+def fit_note(arm: dict) -> str:
+    """Why an arm's representative theta is not a fit with a region, or ''."""
+    miss = float(np.max(np.abs(arm["last_simulated_misfit_over_psid_se"])))
+    if miss > FIT_TOL:
+        return f"no fit (misses PSID by {miss:.0f} se)"
+    return "β at the box floor" if any(arm["at_box_edge"]) else ""
+
+
+def plot(res: dict, path: Path, title: str | None = None) -> None:
     """(a-c) Their estimate with its 68/95% region (reported covariance),
     against each arm's representative theta (bootstrap, 68/95%); PSID
     couples' median estimates and what the network reports at their theta.
+    An arm with no fit shows its last simulated point, hollow, and no region.
     (d) Standard errors against theirs."""
     import matplotlib
     matplotlib.use("Agg")
@@ -488,11 +502,20 @@ def plot(res: dict, path: Path) -> None:
             color = ARM_COLOR[name]
             b = np.array(arm["boot"])
             lo, hi = (lim[i][0], lim[j][0]), (lim[i][1], lim[j][1])
-            X, Y, Z = _kde_grid(b[:, i], b[:, j], lo, hi)
-            a.contour(X, Y, Z, levels=_hpd_levels(Z), colors=color, linestyles=["--", "-"])
-            a.plot(*np.array(arm["representative_theta"])[[i, j]], "o", color=color)
-            edge = ", β at the box floor" if arm["at_box_edge"][0] else ""
-            a.plot([], [], color=color, label=f"{name}: representative θ (bootstrap){edge}")
+            note = fit_note(arm)
+            if note.startswith("no fit"):
+                a.plot(*np.array(arm["last_simulated_theta"])[[i, j]], "o", mfc="none",
+                       color=color)
+                a.plot([], [], "o", mfc="none", color=color,
+                       label=f"{name}: last simulated point, {note}")
+            else:
+                if np.ptp(b[:, i]) > 0 and np.ptp(b[:, j]) > 0:   # clipped flat at an edge
+                    X, Y, Z = _kde_grid(b[:, i], b[:, j], lo, hi)
+                    a.contour(X, Y, Z, levels=_hpd_levels(Z), colors=color,
+                              linestyles=["--", "-"])
+                a.plot(*np.array(arm["representative_theta"])[[i, j]], "o", color=color)
+                a.plot([], [], color=color, label=f"{name}: representative θ (bootstrap)"
+                                                  + (f", {note}" if note else ""))
             est = np.array(arm["at_laibson"]["mean_of_means"])
             a.annotate("", xy=est[[i, j]], xytext=th[[i, j]],
                        arrowprops=dict(arrowstyle="->", color=color, lw=0.8))
@@ -511,11 +534,12 @@ def plot(res: dict, path: Path) -> None:
               ("Laibson, sampling only", se["sampling only"], "0.65")]
     for name, arm in res["arms"].items():
         # a fit stopped at a box edge does not reach PSID's statistic, and its
-        # bootstrap is clipped: no bars
-        edge = any(arm["at_box_edge"])
-        v = [np.nan] * 4 if edge else arm["representative_se"]
-        groups.append((f"{name}: representative θ" + (" (stopped at a box edge: no bars)"
-                                                      if edge else ""), v, ARM_COLOR[name]))
+        # bootstrap is clipped; one that misses it by more than FIT_TOL is no
+        # fit at all: no bars for either
+        note = fit_note(arm)
+        v = [np.nan] * 4 if note else arm["representative_se"]
+        groups.append((f"{name}: representative θ" + (f" ({note}: no bars)" if note else ""),
+                       v, ARM_COLOR[name]))
     for name, arm in res["arms"].items():
         groups.append((f"{name}: one couple (median sd)", arm["psid_median_posterior_sd"],
                        ARM_COLOR[name]))
@@ -529,11 +553,11 @@ def plot(res: dict, path: Path) -> None:
     a.axhline(1, color="k", lw=0.6)
     a.set_yscale("log")
     a.set_xticks(xs, [hr.LABEL[n] for n in NAMES[:3]])
-    a.set(ylabel="standard error ÷ Laibson et al.'s reported", ylim=(0.05, 40))
-    a.legend(fontsize=6.5, ncol=2)
+    a.set(ylabel="standard error ÷ Laibson et al.'s reported", ylim=(0.05, 400))
+    a.legend(fontsize=6, ncol=2, loc="upper center")
     a.grid(ls=":", lw=0.5, axis="y")
-    fig.suptitle("Laibson et al.'s MSM point against PSID couples (RESULTS 61): a representative θ "
-                 "matched on the network's estimates", fontsize=11)
+    fig.suptitle(title or "Laibson et al.'s MSM point against PSID couples (RESULTS 61): a "
+                          "representative θ matched on the network's estimates", fontsize=11)
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=130)
