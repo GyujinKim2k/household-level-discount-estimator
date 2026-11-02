@@ -67,6 +67,7 @@ from hh_npe.evaluation.weighted import sample_weighted, sbc_from_u
 from hh_npe.npe.embedder import TrajectoryTransformer
 from hh_npe.npe.prior import (
     A2_STRIP,
+    BETA_RANGE_A2,
     BETA_TRANSFORMS,
     PHASE3,
     PHASE3_RGAMMA,
@@ -79,10 +80,11 @@ from hh_npe.npe.prior import (
     beta_from_flow,
     beta_log_jacobian,
     beta_to_flow,
-    check_rgamma_tiling,
+    check_tiling,
     from_log1m,
     log1m_box,
     proposal_log_weight,
+    proposal_sampler,
     rgamma_flow_bounds,
     rgamma_from_flow,
     rgamma_log_jacobian,
@@ -102,11 +104,12 @@ N_TOTAL = 32768
 N_HELDOUT_SHARDS = 2
 #: Runs that are not 32,768 draws with 2 held-out shards: the R_gamma strip
 #: (RESULTS 43.5) holds out 1 of its 6 shards, leaving the main run's training
-#: density per unit of R_gamma.
-RUN_SIZE = {"a2_strip": (3072, 1)}
+#: density per unit of R_gamma. The beta strip (RESULTS 63) holds out 1 of its
+#: 12, leaving about the main run's training density per unit of beta at 0.3.
+RUN_SIZE = {"a2_strip": (3072, 1), "a2_beta_strip": (6144, 1)}
 #: Settings that may differ between runs trained together; every other
 #: solver_config key must agree, or two simulators would be mixed.
-PER_RUN_KEYS = ("proposal", "seed", "rgamma_range")
+PER_RUN_KEYS = ("proposal", "seed", "rgamma_range", "beta_range")
 WINDOW = dict(n_waves=7, start_low=24, start_high=45, wave_years=2, with_age=True)
 ARCH = dict(d_model=128, n_layers=3, output_dim=64)
 STATIC = ("age", "log_mean_income")
@@ -127,7 +130,14 @@ class Shard(NamedTuple):
     offset: int
 
 
-def _load_run(shards: Path, train_shards: int | None, need_complete: bool):
+def beta_range_of(cfg: dict) -> tuple[float, float]:
+    """The beta range a run's data cover: ``beta_range`` from RESULTS 63 on,
+    the A box's for every run before."""
+    return tuple(map(float, cfg.get("beta_range") or BETA_RANGE_A2))
+
+
+def _load_run(shards: Path, train_shards: int | None, need_complete: bool,
+              train_frac: float | None = None):
     """One generation run: its draws, checked against the proposal it recorded,
     and its train / held-out shards."""
     cfg = json.loads((shards / "solver_config.json").read_text())
@@ -163,46 +173,61 @@ def _load_run(shards: Path, train_shards: int | None, need_complete: bool):
            # re-aimed at PSID couples (RESULTS 43.3).
            "a2_switched": lambda: SWITCHED_A2.sample(n, seed=cfg["seed"]),
            # The R_gamma strip below it (RESULTS 43.5).
-           "a2_strip": lambda: A2_STRIP.sample(n, seed=cfg["seed"])}
+           "a2_strip": lambda: A2_STRIP.sample(n, seed=cfg["seed"]),
+           # The beta strip below the A box (RESULTS 63), on its recorded range.
+           "a2_beta_strip": lambda: proposal_sampler(
+               name, cfg.get("beta_range"))(n, seed=cfg["seed"])}
     if name not in ref:
         raise SystemExit(f"proposal {name!r} not handled here")
+    if name != "a2_beta_strip" and beta_range_of(cfg) != BETA_RANGE_A2:
+        raise SystemExit(f"{shards}: proposal {name!r} on beta {beta_range_of(cfg)}")
     if not np.allclose(theta_all[:, :3], ref[name](), rtol=0, atol=1e-12):
         raise SystemExit(f"{shards}: stored theta is not the {name} sequence")
     lo, hi = cfg["rgamma_range"]
     if not ((theta_all[:, 3] >= lo) & (theta_all[:, 3] <= hi)).all():
         raise SystemExit(f"{shards}: R_gamma outside the recorded range {lo}-{hi}")
+    blo, bhi = beta_range_of(cfg)
+    if not ((theta_all[:, 0] >= blo) & (theta_all[:, 0] <= bhi)).all():
+        raise SystemExit(f"{shards}: beta outside the recorded range {blo}-{bhi}")
 
     if len(meta) <= n_held:
         raise SystemExit(f"{shards}: not enough shards for a held-out set")
     held, train = meta[-n_held:], meta[:-n_held]
     if train_shards is not None:
         train = train[:train_shards]
+    if train_frac is not None:
+        # The learning curve (RESULTS 63): the same share of every run, still
+        # a prefix of its sequence.
+        train = train[:max(1, int(round(train_frac * len(train))))]
     return (theta_all, card_all, [m[4] for m in train], [m[4] for m in held],
             {"name": name, "n_train": int(train[-1][1])}, cfg)
 
 
 def load_shards(shards: Path | list[Path], train_shards: int | None = None,
-                need_complete: bool = False):
+                need_complete: bool = False, train_frac: float | None = None):
     """theta and card per draw from the shards, the train / held-out split, and
     the proposal the training draws came from.
 
     Held out: the last ``N_HELDOUT_SHARDS`` shards of a run (``RUN_SIZE`` for
     others). Training: every shard before them, or only the first
-    ``train_shards`` of each run (smoke tests). Training draws are always a
+    ``train_shards`` of each run (smoke tests), or the first ``train_frac`` of
+    each run's training shards (the learning curve). Training draws are always a
     prefix ``[0, n_train)`` of the generation sequence, which is what
     ``SwitchedProposal.log_weight(theta, n_train)`` assumes.
 
     **Several runs** (RESULTS 43.5: the main A2 run, then the R_gamma strip
-    below it) are combined in the order given: their draws are concatenated,
-    each shard carries its run's offset (:class:`Shard`), their R_gamma ranges
-    must tile one interval, and every solver setting except
-    ``PER_RUN_KEYS`` must agree. The proposal is then ``{"parts": [...]}``, one
-    per run with its ``rgamma_range``, which ``proposal_log_weight`` reads; one
-    run keeps the ``{"name", "n_train"}`` its checkpoints always recorded.
-    The returned config is the first run's, with ``rgamma_range`` the union.
+    below it; RESULTS 63: the beta strip below both) are combined in the order
+    given: their draws are concatenated, each shard carries its run's offset
+    (:class:`Shard`), their (beta, R_gamma) rectangles must tile one box, and
+    every solver setting except ``PER_RUN_KEYS`` must agree. The proposal is
+    then ``{"parts": [...]}``, one per run with its ``rgamma_range`` (and
+    ``beta_range`` when the run recorded one), which ``proposal_log_weight``
+    reads; one run keeps the ``{"name", "n_train"}`` its checkpoints always
+    recorded. The returned config is the first run's, with ``rgamma_range``
+    the union, and ``beta_range`` the union when it is not the A box's.
     """
     dirs = [shards] if isinstance(shards, (str, Path)) else list(shards)
-    runs = [_load_run(Path(d), train_shards, need_complete) for d in dirs]
+    runs = [_load_run(Path(d), train_shards, need_complete, train_frac) for d in dirs]
     base = {k: v for k, v in runs[0][5].items()
             if not k.startswith("_") and k not in PER_RUN_KEYS}
     for d, r in zip(dirs[1:], runs[1:]):
@@ -210,19 +235,25 @@ def load_shards(shards: Path | list[Path], train_shards: int | None = None,
         if other != base:
             diff = sorted(k for k in set(base) | set(other) if base.get(k) != other.get(k))
             raise SystemExit(f"{d}: generated under different settings than {dirs[0]}: {diff}")
-    lo, hi = check_rgamma_tiling([r[5]["rgamma_range"] for r in runs])
+    (blo, bhi), (lo, hi) = check_tiling([(beta_range_of(r[5]), r[5]["rgamma_range"])
+                                         for r in runs])
     offsets = np.cumsum([0] + [len(r[0]) for r in runs[:-1]])
     train = [Shard(f, int(o)) for r, o in zip(runs, offsets) for f in r[2]]
     held = [Shard(f, int(o)) for r, o in zip(runs, offsets) for f in r[3]]
     if len(runs) == 1:
         proposal = runs[0][4]
     else:
-        proposal = {"parts": [{**r[4], "rgamma_range": [float(x) for x in r[5]["rgamma_range"]]}
+        proposal = {"parts": [{**r[4], "rgamma_range": [float(x) for x in r[5]["rgamma_range"]],
+                               **({"beta_range": list(beta_range_of(r[5]))}
+                                  if r[5].get("beta_range") else {})}
                               for r in runs]}
     cfg = {**runs[0][5], "rgamma_range": [lo, hi]}
+    if (blo, bhi) != BETA_RANGE_A2:
+        cfg["beta_range"] = [blo, bhi]
     if len(runs) > 1:
         cfg["runs"] = [{"shards": str(d), "n_draws": len(r[0]),
-                        **{k: r[5][k] for k in PER_RUN_KEYS}} for d, r in zip(dirs, runs)]
+                        **{k: r[5][k] for k in PER_RUN_KEYS if k in r[5]}}
+                       for d, r in zip(dirs, runs)]
     return (np.concatenate([r[0] for r in runs]), np.concatenate([r[1] for r in runs]),
             train, held, proposal, cfg)
 
@@ -233,9 +264,14 @@ def n_train(proposal: dict) -> int:
 
 def box_of(cfg: dict) -> PriorBox:
     """The prior box of a run, from the R_gamma range its data cover (the A box
-    for every run before RESULTS 43.5)."""
+    for every run before RESULTS 43.5) and its beta range (the A box's before
+    RESULTS 63)."""
     lo, hi = cfg.get("rgamma_range") or (BOX.rgamma_low, BOX.rgamma_high)
-    return dataclasses.replace(BOX, rgamma_low=float(lo), rgamma_high=float(hi))
+    box = dataclasses.replace(BOX, rgamma_low=float(lo), rgamma_high=float(hi))
+    if cfg.get("beta_range"):
+        blo, bhi = map(float, cfg["beta_range"])
+        box = dataclasses.replace(box, beta_low=blo, beta_high=bhi)
+    return box
 
 
 def transform(x: torch.Tensor, masked: bool = False):
@@ -477,9 +513,12 @@ class Spec:
 
     @property
     def cuts(self) -> dict:
-        """``CUTS``, with R_gamma's thirds of this box's range."""
-        return {**CUTS, "R_gamma": tuple(np.linspace(self.box.rgamma_low,
-                                                     self.box.rgamma_high, 4).round(4))}
+        """``CUTS``, with R_gamma's thirds of this box's range, and beta's
+        cuts starting at the box's floor (RESULTS 63's strip below 0.3)."""
+        beta = tuple(c for c in CUTS["beta"] if c > self.box.beta_low)
+        return {**CUTS, "beta": (self.box.beta_low,) + beta,
+                "R_gamma": tuple(np.linspace(self.box.rgamma_low,
+                                             self.box.rgamma_high, 4).round(4))}
 
     def flow_box(self) -> PriorBox:
         """The box the flow lives in."""
@@ -509,7 +548,11 @@ class Spec:
             if self.obs_noise else "")
         mask = (f"; imputed PSID values missing (tau {self.imputation_mask[1]:g})"
                 if self.masked else "")
-        return (f"box R_gamma {self.box.rgamma_low}-{self.box.rgamma_high}; beta target "
+        # RESULTS 63: the beta range only when it is not the A box's, so earlier
+        # runs describe themselves as they always did
+        beta = ("" if (self.box.beta_low, self.box.beta_high) == BETA_RANGE_A2
+                else f"beta {self.box.beta_low}-{self.box.beta_high}, ")
+        return (f"box {beta}R_gamma {self.box.rgamma_low}-{self.box.rgamma_high}; beta target "
                 f"{self.beta_transform}; R_gamma target {self.rgamma_transform}{noise}{mask}")
 
 
@@ -547,7 +590,7 @@ def from_flow(t, spec="linear"):
 
 def train(args) -> None:
     theta_all, card_all, train_f, held_f, proposal, cfg = load_shards(
-        args.shards, args.train_shards)
+        args.shards, args.train_shards, train_frac=args.train_frac)
     noise = tuple((f, *_noise_range([float(v) for v in r.split(":")] if ":" in r else float(r)))
                   for f, r in (e.split("=") for e in args.obs_noise))
     mask = ()
@@ -591,6 +634,8 @@ def train(args) -> None:
     extra = {}
     if (spec.box.rgamma_low, spec.box.rgamma_high) != (BOX.rgamma_low, BOX.rgamma_high):
         extra["rgamma_range"] = cfg["rgamma_range"]
+    if (spec.box.beta_low, spec.box.beta_high) != BETA_RANGE_A2:
+        extra["beta_range"] = cfg["beta_range"]
     if spec.rgamma_transform != "linear":
         extra["rgamma_transform"] = spec.rgamma_transform
     if spec.obs_noise:
@@ -604,6 +649,7 @@ def train(args) -> None:
     (out / "results.json").write_text(json.dumps({"_config": {
         "shards": str(args.shards[0]) if len(args.shards) == 1 else list(map(str, args.shards)),
         "train_shards": args.train_shards,
+        **({"train_frac": args.train_frac} if args.train_frac is not None else {}),
         "proposal": proposal, "box": list(BOX.names), "delta_transform": True,
         "beta_transform": spec.beta_transform, **extra,
         "window": {**WINDOW, "n_waves": args.n_waves, **lag}, "features": list(feats),
@@ -752,8 +798,8 @@ def evaluate(args) -> None:
 
     theta_all, _card, _tr, held_f, _p, sh_cfg = load_shards(args.shards)
     if box_of(sh_cfg) != spec.box:
-        raise SystemExit(f"{args.shards} cover R_gamma {sh_cfg['rgamma_range']}, the "
-                         f"ensemble's box {spec.box.rgamma_low}-{spec.box.rgamma_high}")
+        raise SystemExit(f"{args.shards} cover {box_of(sh_cfg)}, not the ensemble's "
+                         f"box {spec.box}")
     th_ho, x_ho, pid_ho, _f = windows(held_f, theta_all, seed=HELD_SEED, noise=spec.obs_noise,
                                       mask=spec.mask_patterns())
     pick = one_per_draw(pid_ho, seed=0)[:args.n_heldout]
@@ -1000,6 +1046,9 @@ def main() -> None:
                    help="Shard directories; several are combined in order (RESULTS 43.5).")
     t.add_argument("--train_shards", type=int, default=None,
                    help="Use only the first N training shards (smoke tests).")
+    t.add_argument("--train_frac", type=float, default=None,
+                   help="Use the first fraction of each run's training shards "
+                        "(the learning curve, RESULTS 63).")
     t.add_argument("--max_epochs", type=int, default=None,
                    help="Cap epochs (smoke tests); default TRAINING's.")
     t.add_argument("--device", default=None)

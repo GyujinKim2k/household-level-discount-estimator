@@ -99,6 +99,10 @@ def _solver_config(args) -> dict:
         cfg["liqpen_scale"] = args.liqpen_scale
     if getattr(args, "rgamma_permute", False):
         cfg["rgamma_permute"] = True
+    if getattr(args, "beta_range", None) is not None:
+        # RESULTS 63: only when set, so every existing shard directory (all on
+        # [0.3, 1.0]) still resumes.
+        cfg["beta_range"] = [float(v) for v in args.beta_range]
     if getattr(args, "flow_lag", 0):
         # Consumers (optionA.windows_raw) cut their windows with the lag
         # recorded here, so data and training timing cannot drift apart.
@@ -339,7 +343,7 @@ def main() -> None:
                              "reweighting.")
     parser.add_argument("--proposal",
                         choices=["uniform", "edge_mixture", "edge_mixture_switched",
-                                 "a2_switched", "a2_strip"],
+                                 "a2_switched", "a2_strip", "a2_beta_strip"],
                         default="uniform",
                         help="How theta is drawn for training. 'uniform' is the "
                              "prior itself (every run before RESULTS 30). "
@@ -357,7 +361,15 @@ def main() -> None:
                              "re-aimed at PSID couples (RESULTS 43.3). 'a2_strip' "
                              "(A2_STRIP) is that mixture alone, for the R_gamma "
                              "strip below the A2 box (RESULTS 43.5): run it with "
-                             "its own --seed and --rgamma_range.")
+                             "its own --seed and --rgamma_range. 'a2_beta_strip' "
+                             "(prior.a2_beta_strip) is that mixture on the beta "
+                             "strip --beta_range below the A2 box (RESULTS 63).")
+    parser.add_argument("--beta_range", type=float, nargs=2, default=None,
+                        metavar=("LOW", "HIGH"),
+                        help="beta's range for 'uniform' and 'a2_beta_strip' "
+                             "(RESULTS 63's strip, [0.10, 0.30)); default the A "
+                             "box's [0.3, 1.0]. Recorded in solver_config.json "
+                             "when set; other proposals refuse it.")
     parser.add_argument("--rgamma_range", type=float, nargs=2, default=None,
                         metavar=("LOW", "HIGH"),
                         help="Estimate the illiquid return R_gamma as a 4th "
@@ -416,6 +428,14 @@ def main() -> None:
     seed_all(args.seed)
 
     box = PHASE3 if args.simulator == "twoasset" else PriorBox()
+    if args.beta_range is not None:
+        from hh_npe.npe.prior import beta_range_box
+        if args.simulator != "twoasset" or args.proposal not in ("uniform", "a2_beta_strip"):
+            raise SystemExit("--beta_range is for the twoasset 'uniform' and "
+                             "'a2_beta_strip' proposals")
+        box = beta_range_box(args.beta_range)
+    elif args.proposal == "a2_beta_strip":
+        raise SystemExit("'a2_beta_strip' needs --beta_range")
     out = args.out or Path(f"data/processed/{args.simulator}_dataset.pt")
     fn = SIMULATORS[args.simulator]
     store_panel = _stores_panel(args)
@@ -431,6 +451,9 @@ def main() -> None:
     elif args.proposal == "a2_strip":
         from hh_npe.npe.prior import A2_STRIP
         theta_np = A2_STRIP.sample(args.n_samples, seed=args.seed)
+    elif args.proposal == "a2_beta_strip":
+        from hh_npe.npe.prior import a2_beta_strip
+        theta_np = a2_beta_strip(*args.beta_range).sample(args.n_samples, seed=args.seed)
     else:
         theta_np = sample_sobol(args.n_samples, box, seed=args.seed)
     # Drawn once, from the run seed, so it is identical on every resume: a

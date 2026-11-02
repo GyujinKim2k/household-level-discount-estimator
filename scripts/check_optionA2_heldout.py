@@ -41,7 +41,10 @@ PSID = ["couples, A2=outputs/psid_optionA2_couples", "all 889, A2=outputs/psid_o
         "all 889, pilot=outputs/psid_optionA2_pilot_all"]
 #: Held-out draws of these runs all come from the A2 mixture (a2_switched's
 #: draws past its 4,096-draw pilot).
-HELD_DENSITY = {"a2_switched": "a2_strip", "a2_strip": "a2_strip"}
+#: The held-out shards' own proposal: the main run's are past its uniform pilot
+#: (the A2 mixture alone); RESULTS 63's beta strip is the mixture on its range.
+HELD_DENSITY = {"a2_switched": "a2_strip", "a2_strip": "a2_strip",
+                "a2_beta_strip": "a2_beta_strip"}
 RHO_NEAR, R_NEAR = 0.55, 0.0025
 
 
@@ -58,7 +61,8 @@ def heldout_log_weight(cfg: dict, pid: np.ndarray, theta: np.ndarray) -> np.ndar
         k = int(((pid >= off) & (pid < off + size)).sum())
         if k:
             parts.append({"name": HELD_DENSITY[r["proposal"]], "n_train": k,
-                          "rgamma_range": r["rgamma_range"]})
+                          "rgamma_range": r["rgamma_range"],
+                          **({"beta_range": r["beta_range"]} if r.get("beta_range") else {})})
     if [p["rgamma_range"] for p in parts] != [r["rgamma_range"] for r in runs]:
         raise SystemExit("a run has no held-out rows")
     return proposal_log_weight({"parts": parts}, theta)
@@ -151,8 +155,8 @@ def main() -> None:
     fb = spec.flow_box()
     theta_all, _card, _tr, held_f, _p, sh_cfg = oa.load_shards(args.shards)
     if oa.box_of(sh_cfg) != spec.box:
-        raise SystemExit(f"{args.shards} cover R_gamma {sh_cfg['rgamma_range']}, not the "
-                         f"ensemble's box")
+        raise SystemExit(f"{args.shards} cover {oa.box_of(sh_cfg)}, not the "
+                         f"ensemble's box {spec.box}")
     oa.check_flow_lag(cfg, held_f)
     th, x, pid, _f = oa.windows(held_f, theta_all, seed=oa.HELD_SEED, noise=spec.obs_noise,
                                 mask=spec.mask_patterns())

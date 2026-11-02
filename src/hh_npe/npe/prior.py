@@ -543,16 +543,57 @@ SWITCHED_A2 = SwitchedProposal(first=UniformProposal(), second=EdgeMixture(**EDG
 #: 87% of the main run -- and R_gamma from the generator's per-block stream.
 A2_STRIP = EdgeMixture(**EDGE_A2)
 
+#: Every run before RESULTS 63 covers beta on PHASE3's [0.3, 1.0]; a run's
+#: ``beta_range`` (solver_config.json, a proposal part) defaults to it.
+BETA_RANGE_A2 = (0.30, 1.00)
+
+#: RESULTS 63: the beta strip below the A2 box.
+BETA_STRIP_RANGE = (0.10, 0.30)
+
+
+def a2_beta_strip(lo: float, hi: float) -> EdgeMixture:
+    """RESULTS 63: the A2 mixture on a beta strip ``[lo, hi)`` below the A2
+    box. Half uniform on the strip's box, half with delta uniform on [0.95, 1)
+    and rho on its whole range -- EDGE_A2's (delta, rho) -- and beta uniform on
+    the strip in both halves. R_gamma comes from the generator's per-block
+    stream, on the union of the earlier runs' ranges."""
+    rest = {k: v for k, v in EDGE_A2.items() if k != "beta_lo"}
+    return EdgeMixture(box=PriorBox(beta_low=lo, beta_high=hi), beta_lo=lo, **rest)
+
+
+def beta_range_box(beta_range) -> PriorBox:
+    """The (beta, delta, rho) box with beta on ``beta_range``."""
+    lo, hi = map(float, beta_range)
+    return PriorBox(beta_low=lo, beta_high=hi)
+
+
 #: The proposals ``generate_dataset.py --proposal`` can record, and their
-#: samplers (``n``, ``seed``) -> theta of (beta, delta, rho).
+#: samplers (``n``, ``seed``) -> theta of (beta, delta, rho). A run on another
+#: beta range (``--beta_range``) is sampled by :func:`proposal_sampler`.
 PROPOSAL_SAMPLERS = {
     "uniform": UniformProposal().sample,
     "edge_mixture": EdgeMixture().sample,
     "edge_mixture_switched": SwitchedProposal().sample,
     "a2_switched": SWITCHED_A2.sample,
     "a2_strip": A2_STRIP.sample,
+    "a2_beta_strip": a2_beta_strip(*BETA_STRIP_RANGE).sample,
 }
 PROPOSALS = tuple(PROPOSAL_SAMPLERS)
+
+
+def proposal_sampler(name: str, beta_range=None):
+    """The sampler a generation run used: ``PROPOSAL_SAMPLERS[name]``, except
+    that ``uniform`` and ``a2_beta_strip`` follow the run's ``beta_range``
+    (RESULTS 63). Runs that recorded none cover BETA_RANGE_A2."""
+    br = tuple(map(float, beta_range)) if beta_range is not None else None
+    if name == "a2_beta_strip":
+        return a2_beta_strip(*(br or BETA_STRIP_RANGE)).sample
+    if br is not None and br != BETA_RANGE_A2:
+        if name != "uniform":
+            raise ValueError(f"proposal {name!r} is defined on beta {BETA_RANGE_A2}, "
+                             f"not {br}")
+        return UniformProposal(box=beta_range_box(br)).sample
+    return PROPOSAL_SAMPLERS[name]
 
 
 def proposal_log_weight(proposal: dict, theta) -> np.ndarray:
@@ -587,6 +628,12 @@ def _part_density(part: dict, theta: np.ndarray) -> np.ndarray:
     """One generation run's empirical (beta, delta, rho) density over its
     ``n_train`` training draws."""
     name, n = part["name"], int(part["n_train"])
+    if name == "a2_beta_strip":
+        return a2_beta_strip(*map(float, part["beta_range"])).density(theta)
+    if tuple(map(float, part.get("beta_range", BETA_RANGE_A2))) != BETA_RANGE_A2:
+        if name != "uniform":
+            raise ValueError(f"proposal {name!r} is defined on beta {BETA_RANGE_A2}")
+        return UniformProposal(box=beta_range_box(part["beta_range"])).density(theta)
     if name == "uniform":
         return UniformProposal().density(theta)
     if name == "edge_mixture":
@@ -610,29 +657,59 @@ def check_rgamma_tiling(ranges) -> tuple[float, float]:
     return rs[0][0], rs[-1][1]
 
 
+def check_tiling(rects) -> tuple[tuple[float, float], tuple[float, float]]:
+    """``(beta_range, rgamma_range)`` rectangles of several runs (RESULTS 63)
+    must tile their bounding box: no two overlap, and together they cover its
+    whole area. Returns the box's beta and R_gamma ends."""
+    rs = [tuple((float(a), float(b)) for a, b in r) for r in rects]
+    for (br, rr) in rs:
+        if not (br[0] < br[1] and rr[0] < rr[1]):
+            raise ValueError(f"empty range in {rs}")
+    blo, bhi = min(r[0][0] for r in rs), max(r[0][1] for r in rs)
+    rlo, rhi = min(r[1][0] for r in rs), max(r[1][1] for r in rs)
+    for i, (bi, ri) in enumerate(rs):
+        for bj, rj in rs[i + 1:]:
+            ob = min(bi[1], bj[1]) - max(bi[0], bj[0])
+            orr = min(ri[1], rj[1]) - max(ri[0], rj[0])
+            if ob > 1e-12 and orr > 1e-12:
+                raise ValueError(f"(beta, R_gamma) ranges {rs} do not tile: they overlap")
+    area = sum((b[1] - b[0]) * (r[1] - r[0]) for b, r in rs)
+    if not np.isclose(area, (bhi - blo) * (rhi - rlo), rtol=1e-9, atol=0):
+        raise ValueError(f"(beta, R_gamma) ranges {rs} do not tile their box: a gap")
+    return (blo, bhi), (rlo, rhi)
+
+
 def _parts_log_weight(parts: list[dict], th: np.ndarray) -> np.ndarray:
     """Weights for a network trained on several generation runs, each on its
-    own R_gamma range (RESULTS 43.5): the main A2 run on [1.025, 1.075] and the
-    strip below it.
+    own (beta, R_gamma) rectangle: the main A2 run on [0.3, 1] x [1.025, 1.075],
+    the R_gamma strip below it (RESULTS 43.5) and, from RESULTS 63, the beta
+    strip [0.1, 0.3) x [1.021, 1.075]. A part without ``beta_range`` covers
+    BETA_RANGE_A2.
 
     Training draws come from the empirical mixture ``sum_k (n_k / n) q_k``,
-    where run k's density is its (beta, delta, rho) density times R_gamma
-    uniform on its range. The prior is uniform on the union, so unlike a single
-    run the R_gamma factor no longer cancels. Range ends are half-open
-    ``[a, b)`` except the top one: no generated draw sits on a shared end, the
-    per-block stream drawing ``a + u (b - a)`` with ``u < 1``.
+    where run k's density is its (beta, delta, rho) density on its beta range
+    times R_gamma uniform on its range, and zero outside its rectangle. The
+    prior is uniform on the union, so unlike a single run neither factor
+    cancels. Range ends are half-open ``[a, b)`` except at the union's top:
+    no generated draw sits on a shared end, each stream drawing
+    ``a + u (b - a)`` with ``u < 1``. With every part on BETA_RANGE_A2 this is
+    RESULTS 43.5's weight, bit for bit.
     """
-    lo, hi = check_rgamma_tiling([p["rgamma_range"] for p in parts])
+    rects = [(p.get("beta_range", BETA_RANGE_A2), p["rgamma_range"]) for p in parts]
+    (blo, bhi), (lo, hi) = check_tiling(rects)
     n = sum(int(p["n_train"]) for p in parts)
-    r = th[:, 3]
+    beta, r = th[:, 0], th[:, 3]
     dens = np.zeros(len(th))
-    for p in parts:
-        a, b = map(float, p["rgamma_range"])
-        inside = (r >= a) & ((r < b) | ((b == hi) & (r <= b)))
+    for p, (br, rr) in zip(parts, rects, strict=True):
+        ba, bb = map(float, br)
+        a, b = map(float, rr)
+        inside = ((r >= a) & ((r < b) | ((b == hi) & (r <= b)))
+                  & (beta >= ba) & ((beta < bb) | ((bb == bhi) & (beta <= bb))))
         dens += np.where(inside, int(p["n_train"]) / n * _part_density(p, th[:, :3])
                          / (b - a), 0.0)
+    prior = UniformProposal(box=beta_range_box((blo, bhi)))._uniform_density()
     with np.errstate(divide="ignore"):
-        return np.log(UniformProposal()._uniform_density() / (hi - lo)) - np.log(dens)
+        return np.log(prior / (hi - lo)) - np.log(dens)
 
 
 def make_sbi_prior(box: PriorBox = PriorBox(),

@@ -42,7 +42,7 @@ import numpy as np
 import torch
 
 from hh_npe.evaluation.weighted import sample_weighted
-from hh_npe.npe.prior import PHASE3, sample_sobol
+from hh_npe.npe.prior import BETA_RANGE_A2, beta_range_box, sample_sobol
 from scripts import optionA as oa
 from scripts.sbc_households import score
 from scripts.tail_diagnostic import BLOCK
@@ -90,8 +90,13 @@ def load_set(shards: Path, box, liqpen: float = 1.0, train: Path = TRAIN):
     if not meta or [m[0] for m in meta] != [0] + [m[1] for m in meta[:-1]]:
         raise SystemExit(f"{shards}: shards do not tile a contiguous range from 0")
     theta = np.concatenate([m[2] for m in meta])
-    if not np.allclose(theta[:, :3], sample_sobol(len(theta), PHASE3, seed=cfg["seed"]),
-                       rtol=0, atol=1e-12):
+    # RESULTS 63: a set on the beta strip records its range; earlier sets are
+    # on the A box's.
+    br = tuple(map(float, cfg.get("beta_range") or BETA_RANGE_A2))
+    if not (box.beta_low <= br[0] and br[1] <= box.beta_high):
+        raise SystemExit(f"{shards}: beta {br} outside the ensemble's box")
+    if not np.allclose(theta[:, :3], sample_sobol(len(theta), beta_range_box(br),
+                                                  seed=cfg["seed"]), rtol=0, atol=1e-12):
         raise SystemExit(f"{shards}: theta is not the uniform Sobol sequence")
     blocks = theta[:, 3].reshape(-1, BLOCK) if len(theta) % BLOCK == 0 else None
     if blocks is None or not (blocks == blocks[:, :1]).all():
@@ -236,11 +241,43 @@ def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY,
     return out
 
 
+def load_sets(dirs, box, train: Path = TRAIN):
+    """Several uniform SBC sets that together cover ``box`` (RESULTS 63: the
+    A-box set and the set on the beta strip below it): their beta ranges must
+    tile the box's. Returns theta, the shards as ``optionA.Shard`` (one offset
+    per set, so draw ids stay unique), each set's own (theta, files, cfg), and
+    the beta ranges. The sets' densities per unit of beta are reported; they
+    are taken as one uniform sample."""
+    sets = [load_set(Path(d), box, train=train) for d in dirs]
+    ranges = [tuple(map(float, c.get("beta_range") or BETA_RANGE_A2)) for _t, _f, c in sets]
+    rs = sorted(ranges)
+    if (not np.isclose(rs[0][0], box.beta_low) or not np.isclose(rs[-1][1], box.beta_high)
+            or any(not np.isclose(a[1], b[0]) for a, b in zip(rs[:-1], rs[1:], strict=True))):
+        raise SystemExit(f"SBC sets' beta ranges {ranges} do not tile the box's "
+                         f"[{box.beta_low}, {box.beta_high}]")
+    offsets = np.cumsum([0] + [len(t) for t, _f, _c in sets[:-1]])
+    files = [oa.Shard(Path(f), int(o))
+             for (_t, fs, _c), o in zip(sets, offsets, strict=True) for f in fs]
+    if len(sets) > 1:
+        print("SBC sets, draws per unit of beta: " + ", ".join(
+            f"{r} {len(t) / (r[1] - r[0]):.0f}"
+            for r, (t, _f, _c) in zip(ranges, sets, strict=True)))
+    return np.concatenate([t for t, _f, _c in sets]), files, sets, ranges
+
+
+def cuts_for(box) -> dict:
+    """``CUTS``, with beta's starting at the box's floor (RESULTS 63)."""
+    return {**CUTS, "beta": (box.beta_low,) + tuple(c for c in CUTS["beta"]
+                                                     if c > box.beta_low)}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run_dirs", type=Path, nargs="+", required=True)
-    ap.add_argument("--shards", type=Path, default=SBC)
+    ap.add_argument("--shards", type=Path, nargs="+", default=[SBC],
+                    help="SBC sets; several must tile the box's beta range (RESULTS 63). "
+                         "The penalty check uses the first.")
     ap.add_argument("--penalty", nargs="*", default=[f"{k}={v}" for k, v in PENALTY.items()],
                     metavar="SCALE=SHARDS", help="The penalty sets (smoke tests: others).")
     ap.add_argument("--n_draws", type=int, default=2000)
@@ -253,7 +290,8 @@ def main() -> None:
 
     members = Members(args.run_dirs, args.device)
     spec = oa.spec_of(members.cfg)
-    theta_all, files, cfg = load_set(args.shards, spec.box, train=args.train)
+    theta_all, files, sets, ranges = load_sets(args.shards, spec.box, train=args.train)
+    cfg = sets[0][2]
     oa.check_flow_lag(members.cfg, files)
     th, x, pid, _f = oa.windows(files, theta_all, seed=oa.SBC_SEED, noise=spec.obs_noise,
                                 mask=spec.mask_patterns())
@@ -264,15 +302,19 @@ def main() -> None:
           f"{len(np.unique(pid))} draws (seed {cfg['seed']}, {len(files)} shards)", flush=True)
 
     r = posterior(members, x, th, spec, args.n_draws)
-    s = score(r, th, pid, one, cuts=CUTS)
+    s = score(r, th, pid, one, cuts=cuts_for(spec.box))
     args.out.mkdir(parents=True, exist_ok=True)
     np.savez(args.out / "sbc16.npz", truth=th, pid=pid, one_per_draw=one,
              **{k: r[k] for k in ("mean", "sd", "lo", "hi", "u", "ess")})
     show(s, "SBC, " + ", ".join(map(str, args.run_dirs)))
-    res = {"shards": str(args.shards), "seed": cfg["seed"], "run_dirs": list(map(str, args.run_dirs)),
-           "spec": spec.describe(), "sbc": s}
-    sets = {float(k): Path(v) for k, v in (a.split("=", 1) for a in args.penalty)}
-    res["penalty"] = penalty_check(members, spec, theta_all, files, args.n_draws, sets,
+    res = {"shards": (str(args.shards[0]) if len(args.shards) == 1
+                      else list(map(str, args.shards))), "seed": cfg["seed"],
+           "run_dirs": list(map(str, args.run_dirs)), "spec": spec.describe(), "sbc": s}
+    if len(args.shards) > 1:
+        res["beta_ranges"] = [list(r) for r in ranges]
+        res["seeds"] = [c["seed"] for _t, _f, c in sets]
+    pen = {float(k): Path(v) for k, v in (a.split("=", 1) for a in args.penalty)}
+    res["penalty"] = penalty_check(members, spec, sets[0][0], sets[0][1], args.n_draws, pen,
                                    train=args.train)
     (args.out / "sbc16.json").write_text(json.dumps(res, indent=2))
     figure(r["u"], one & np.isfinite(r["u"]).all(1), args.figure, title(args.run_dirs, spec))

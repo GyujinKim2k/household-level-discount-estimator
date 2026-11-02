@@ -64,13 +64,34 @@ R_GAMMA = 1.05              # their calibration
 STEP = np.array([0.03, 0.15, 0.25, 0.005])
 MAX_NEWTON = 3
 N_BOOT = 1000
+#: Newton steps and the bootstrap stop just inside the A box (RESULTS 61);
+#: :func:`box_bounds` moves them to another arm's box.
 BOX_LO = np.array([0.301, 0.851, 0.51, 1.0215])
 BOX_HI = np.array([0.999, 0.99999, 4.99, 1.0745])
-#: RESULTS 61's arms, and v2 trained with no observation noise (RESULTS 62)
+#: RESULTS 61's arms, v2 trained with no observation noise (RESULTS 62), and
+#: RESULTS 63's arms on the box with the beta strip below 0.3
 ARMS = {**hr.ARMS, "none": ("outputs/optionA2v2_noise_none",
                             "outputs/psid_optionA2v2_noise_none_couples",
-                            "outputs/psid_optionA2v2_noise_none_all")}
+                            "outputs/psid_optionA2v2_noise_none_all"),
+        "v2_b010": ("outputs/optionA2v2_b010", "outputs/psid_optionA2v2_b010_couples",
+                    "outputs/psid_optionA2v2_b010_all"),
+        **{f"{a}_b010": (f"outputs/optionA2v2_b010_noise_{a}",
+                         f"outputs/psid_optionA2v2_b010_noise_{a}_couples",
+                         f"outputs/psid_optionA2v2_b010_noise_{a}_all")
+           for a in ("typical", "gross")}}
 ARM_COLOR = {**hr.ARM_COLOR, "none": "#4A9A5B", "unknown": "#D08A1E"}
+ARM_COLOR |= {f"{a}_b010": c for a, c in list(ARM_COLOR.items())}
+
+
+def box_bounds(box) -> tuple[np.ndarray, np.ndarray]:
+    """``BOX_LO`` / ``BOX_HI`` for an arm's prior box: the same margins inside
+    its beta and R_gamma ends (RESULTS 63's box reaches down to beta 0.1). On
+    the A box they are exactly the constants, so cached simulations of
+    RESULTS 61-62's clipped Newton points still match."""
+    lo, hi = BOX_LO.copy(), BOX_HI.copy()
+    lo[0], hi[0] = round(box.beta_low + 0.001, 6), round(box.beta_high - 0.001, 6)
+    lo[3], hi[3] = round(box.rgamma_low + 0.0005, 6), round(box.rgamma_high - 0.0005, 6)
+    return lo, hi
 
 
 def to_u(theta: np.ndarray) -> np.ndarray:
@@ -253,13 +274,13 @@ def cached_post(arm: Arm, name: str, sim: dict) -> dict:
     return r | {"ids": sim["ids"], "card": sim["card"]}
 
 
-def one_couple(sd: np.ndarray, se: dict) -> dict:
+def one_couple(sd: np.ndarray, se: dict, bounds=(BOX_LO, BOX_HI)) -> dict:
     """One couple's posterior sd (median over couples) against their standard
     errors, and how many couples carry as much information as their whole
     estimate: their precision over the median couple's data precision (its
     posterior precision less the uniform prior's), under their own
     assumption of one shared theta."""
-    prior_sd = (BOX_HI[:3] - BOX_LO[:3]) / np.sqrt(12)
+    prior_sd = (bounds[1][:3] - bounds[0][:3]) / np.sqrt(12)
     med = np.median(sd[:, :3], 0)
     data = np.median(np.maximum(1 / sd[:, :3] ** 2 - 1 / prior_sd ** 2, 1e-12), 0)
     return {"median_posterior_sd": med.tolist(),
@@ -328,6 +349,7 @@ def run(args) -> dict:
     rng = np.random.default_rng(0)
     for name in args.arms:
         arm = Arm(name, args.device)
+        b_lo, b_hi = box_bounds(arm.spec.box)
         posts = {k: cached_post(arm, k, s) for k, s in sims.items()}
         card = posts["laibson"]["card"]
         for p in posts.values():
@@ -345,8 +367,8 @@ def run(args) -> dict:
                                                       CARD_SHARE).tolist()}]
         u, at_u, post_hat = u_l, np.array(path[0]["stat"]), posts["laibson"]
         # log(1 - delta) reverses the order of delta's bounds
-        lo_u = np.minimum(to_u(BOX_LO), to_u(BOX_HI))
-        hi_u = np.maximum(to_u(BOX_LO), to_u(BOX_HI))
+        lo_u = np.minimum(to_u(b_lo), to_u(b_hi))
+        hi_u = np.maximum(to_u(b_lo), to_u(b_hi))
         for it in range(1, MAX_NEWTON + 1):
             if (np.abs(target - at_u) < 0.25 * se_target).all():
                 break
@@ -365,8 +387,8 @@ def run(args) -> dict:
         # the networks never saw theta outside the box: past an edge the
         # linear step is extrapolation, so the estimate stops at the edge and
         # the bootstrap's share beyond it is reported
-        beyond = ((boot_raw < BOX_LO) | (boot_raw > BOX_HI)).mean(0)
-        boot = np.clip(boot_raw, BOX_LO, BOX_HI)
+        beyond = ((boot_raw < b_lo) | (boot_raw > b_hi)).mean(0)
+        boot = np.clip(boot_raw, b_lo, b_hi)
         # card share 0.5, linearised from the same point
         J5 = jacobian(np.array([stat(p["mean"], card, 0.5) for p in fd["plus"]]),
                       np.array([stat(p["mean"], card, 0.5) for p in fd["minus"]]), STEP)
@@ -377,7 +399,8 @@ def run(args) -> dict:
             "psid_median_of_means": np.median(pm, 0).tolist(),
             "psid_sd_of_means": pm.std(0, ddof=1).tolist(),
             "psid_median_posterior_sd": np.median(psid["sd"], 0).tolist(),
-            "one_couple": one_couple(psid["sd"], lai["se"]),
+            "one_couple": one_couple(psid["sd"], lai["se"], (b_lo, b_hi)),
+            "box_floor_beta": float(arm.spec.box.beta_low),
             "at_laibson": {
                 "mean_of_means": stat(pl, card, CARD_SHARE).tolist(),
                 "mean_of_means_card_share_0.5": stat(pl, card, 0.5).tolist(),
@@ -482,7 +505,9 @@ def plot(res: dict, path: Path, title: str | None = None) -> None:
 
     from hh_npe.evaluation.plots import _hpd_levels, _kde_grid
 
-    lim = {0: (0.25, 0.85), 1: (0.955, 1.0), 2: (0.6, 3.6)}
+    # RESULTS 63: room for fits below beta 0.3 when an arm's box reaches there
+    floor = min([0.3] + [a.get("box_floor_beta", 0.3) for a in res["arms"].values()])
+    lim = {0: (min(0.25, floor - 0.05), 0.85), 1: (0.955, 1.0), 2: (0.6, 3.6)}
     th = np.array(res["theta_laibson"])
     cov = np.array(res["laibson_cov"]["reported"])
     cov_s = np.array(res["laibson_cov"]["sampling only"])
@@ -565,17 +590,33 @@ def plot(res: dict, path: Path, title: str | None = None) -> None:
 
 
 def main() -> None:
+    global OUT
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--arms", nargs="+", default=list(hr.ARMS), choices=list(ARMS))
+    ap.add_argument("--arms", nargs="*", default=list(hr.ARMS))
+    ap.add_argument("--arm", nargs=3, action="append", default=[],
+                    metavar=("NAME", "RUN", "PSID_COUPLES"),
+                    help="an arm's ensemble and PSID couples' posteriors, replacing or "
+                         "adding to ARMS, and run (the chain's smoke test)")
+    ap.add_argument("--cache", type=Path, default=OUT,
+                    help="where simulations and scorings are cached")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else None)
     ap.add_argument("--figure", type=Path, default=FIG)
     ap.add_argument("--out", type=Path, default=OUT / "laibson_comparison.json")
+    ap.add_argument("--title", default=None, help="the figure's title")
     args = ap.parse_args()
+    for name, run_dir, couples in args.arm:
+        ARMS[name] = (run_dir, couples, None)
+        ARM_COLOR.setdefault(name, ARM_COLOR.get(name.removesuffix("_b010"), "0.4"))
+        if name not in args.arms:
+            args.arms.append(name)
+    if bad := [a for a in args.arms if a not in ARMS]:
+        ap.error(f"unknown arms {bad}; known {list(ARMS)}")
+    OUT = args.cache
     res = run(args)
     report(res)
     args.out.write_text(json.dumps(res, indent=2))
-    plot(res, args.figure)
+    plot(res, args.figure, title=args.title)
     print(f"\nwrote {args.out} and {args.figure}")
 
 

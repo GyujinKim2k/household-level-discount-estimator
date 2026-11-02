@@ -128,7 +128,7 @@ def train(args) -> None:
 
     check_ranges()
     theta_all, card_all, train_f, _held, proposal, cfg = oa.load_shards(
-        [MAIN, STRIP], args.train_shards)
+        args.shards, args.train_shards)
     spec = oa.Spec(box=oa.box_of(cfg), beta_transform="logit", rgamma_transform="logit")
     th, x, pid = oa.windows_raw(train_f, theta_all, seed=0)
     x, sig = add_noise(x, seed=SIGMA_SEED)
@@ -156,9 +156,11 @@ def train(args) -> None:
                    proposal=proposal)
     lag = oa.flow_lag_of([f.path for f in train_f])
     (out / "results.json").write_text(json.dumps({"_config": {
-        "shards": [str(MAIN), str(STRIP)], "train_shards": args.train_shards,
+        "shards": list(map(str, args.shards)), "train_shards": args.train_shards,
         "proposal": proposal, "box": list(oa.BOX.names), "delta_transform": True,
         "beta_transform": "logit", "rgamma_range": cfg["rgamma_range"],
+        # RESULTS 63: the box with the beta strip below 0.3
+        **({"beta_range": cfg["beta_range"]} if "beta_range" in cfg else {}),
         "rgamma_transform": "logit",
         "noise_targets": {"features": list(NOISY), "high": SIGMA_HIGH.tolist(),
                           "transform": "logit", "seed": SIGMA_SEED},
@@ -237,11 +239,11 @@ def sbc(args) -> None:
     all eight targets."""
     from scipy import stats
 
-    from scripts.sbc_optionA2 import load_set
+    from scripts.sbc_optionA2 import load_sets
     from scripts.tail_diagnostic import BLOCK
 
     m = Members(args.run, args.device)
-    theta_all, files, _cfg = load_set(SBC, m.spec.box, train=MAIN)
+    theta_all, files, _sets, _ranges = load_sets(args.sbc, m.spec.box, train=MAIN)
     oa.check_flow_lag(m.cfg, files)
     th, x, pid = oa.windows_raw(files, theta_all, seed=oa.SBC_SEED)
     x, sig = add_noise(x, seed=SIGMA_SEED + oa.SBC_SEED)
@@ -365,12 +367,16 @@ def sbc_figure(u: np.ndarray, truth: np.ndarray, mean: np.ndarray, path: Path) -
 
 # ----------------------------------------------------------------------- PSID
 
-def psid_dirs(root: Path = Path("outputs")) -> dict:
+#: Where an arm's PSID posteriors go: ``<root>/<PSID_NAME>_{couples,all}``.
+PSID_NAME = "psid_optionA2v2_noise_unknown"
+
+
+def psid_dirs(root: Path = Path("outputs"), name: str = PSID_NAME) -> dict:
     """PSID inputs and where their posteriors go, under ``root``."""
     return {"couples": (Path("data/processed/psid_x_comphs_couples.pt"),
-                        root / "psid_optionA2v2_noise_unknown_couples"),
+                        root / f"{name}_couples"),
             "all": (Path("data/processed/psid_x_comphs_optionA.pt"),
-                    root / "psid_optionA2v2_noise_unknown_all")}
+                    root / f"{name}_all")}
 
 
 def psid_x(path: Path) -> torch.Tensor:
@@ -390,7 +396,7 @@ def psid(args) -> None:
     m = Members(args.run, args.device)
     ref = np.append(LAIBSON, 1.05)
     summary = {}
-    dirs = psid_dirs(args.root)
+    dirs = psid_dirs(args.root, args.psid_name)
     for name, (xf, out) in dirs.items():
         x, keep = psid_x(xf)
         r = m.posterior(x, args.n_draws)
@@ -429,18 +435,18 @@ def psid(args) -> None:
         for a, v in s["within_posterior_corr_theta_sigma"].items():
             print(f"  {a:8s}" + "".join(f"{c:+9.3f}" for c in v.values()))
         if name == "couples":
-            psid_figure(mm, d, ok, args.figure)
+            psid_figure(mm, d, ok, args.figure, m.spec.box)
     (dirs["couples"][1] / "summary.json").write_text(json.dumps(summary, indent=2))
     print(f"\nwrote {dirs['couples'][1]}, {dirs['all'][1]} and {args.figure}")
 
 
-def psid_figure(means: np.ndarray, d: dict, ok: np.ndarray, path: Path) -> None:
+def psid_figure(means: np.ndarray, d: dict, ok: np.ndarray, path: Path, tbox=oa.BOX) -> None:
     """Couples' posterior means and the posterior of the couple nearest their
     median, all eight targets, 68/95%; the arms' assumed noise ranges shaded."""
     from hh_npe.evaluation.plots import contour_corner
 
-    box = SimpleNamespace(names=NAMES, low=np.concatenate([[0.3, 0.85, 0.5, 1.021], np.zeros(4)]),
-                          high=np.concatenate([[1.0, 1.0, 5.0, 1.075], SIGMA_HIGH]))
+    box = SimpleNamespace(names=NAMES, low=np.concatenate([tbox.low, np.zeros(4)]),
+                          high=np.concatenate([tbox.high, SIGMA_HIGH]))
     z = (means - means.mean(0)) / means.std(0)
     i = np.flatnonzero(ok)[np.argmin(np.abs(z - np.median(z, 0)).sum(1))]
     n = d["n_kept"][i]
@@ -523,7 +529,8 @@ def population(args) -> None:
     lai = lc.laibson()
     th_l = np.append(lai["theta"], lc.R_GAMMA)
     u_l = lc.to_u(th_l)
-    couples = psid_dirs(args.root)["couples"][1]
+    couples = psid_dirs(args.root, args.psid_name)["couples"][1]
+    b_lo, b_hi = lc.box_bounds(m.spec.box)
     z = np.load(couples / "posterior_uncorrected.npz")
     pm = z["mean"][np.isfinite(z["mean"]).all(1)]
     target = pm.mean(0)
@@ -548,8 +555,8 @@ def population(args) -> None:
     step = np.concatenate([lc.STEP, SIGMA_STEP])
     J = jacobian8(fd, card, sh, step)
 
-    lo_v = np.concatenate([np.minimum(lc.to_u(lc.BOX_LO), lc.to_u(lc.BOX_HI)), np.full(4, 0.003)])
-    hi_v = np.concatenate([np.maximum(lc.to_u(lc.BOX_LO), lc.to_u(lc.BOX_HI)), SIGMA_HIGH - 0.003])
+    lo_v = np.concatenate([np.minimum(lc.to_u(b_lo), lc.to_u(b_hi)), np.full(4, 0.003)])
+    hi_v = np.concatenate([np.maximum(lc.to_u(b_lo), lc.to_u(b_hi)), SIGMA_HIGH - 0.003])
     v = np.concatenate([u_l, s0])
     at_v, post_hat = lc.stat(base["mean"], card, sh), base
     path = [{"theta": th_l.tolist(), "sigma": s0.tolist(), "stat": at_v.tolist()}]
@@ -558,8 +565,8 @@ def population(args) -> None:
             break
         v = np.clip(lc.newton(v, J, target, at_v), lo_v, hi_v)
         th = lc.from_u(v[:4])
-        sim = lc.cached_sim(f"ii_unknown_{it}", th)
-        post_hat = _score(m, sim, v[4:], f"ii_unknown_{it}", nd)
+        sim = lc.cached_sim(f"ii_{args.tag}_{it}", th)
+        post_hat = _score(m, sim, v[4:], f"ii_{args.tag}_{it}", nd)
         at_v = lc.stat(post_hat["mean"], card, sh)
         path.append({"theta": th.tolist(), "sigma": v[4:].tolist(), "stat": at_v.tolist()})
     resid = (target - at_v) / se_t
@@ -568,14 +575,14 @@ def population(args) -> None:
     rng = np.random.default_rng(0)
     boot_raw = boot8(v, fd, post_hat, pm, sh, step, rng)
     boot_raw = np.concatenate([lc.from_u(boot_raw[:, :4]), boot_raw[:, 4:]], 1)
-    lo8 = np.concatenate([lc.BOX_LO, np.full(4, 0.003)])
-    hi8 = np.concatenate([lc.BOX_HI, SIGMA_HIGH - 0.003])
+    lo8 = np.concatenate([b_lo, np.full(4, 0.003)])
+    hi8 = np.concatenate([b_hi, SIGMA_HIGH - 0.003])
     beyond = ((boot_raw < lo8) | (boot_raw > hi8)).mean(0)
     boot = np.clip(boot_raw, lo8, hi8)
     rep = np.concatenate([lc.from_u(v_hat[:4]), v_hat[4:]])
 
     # how far each network's theta estimate moves when the true noise moves
-    sens = {"unknown": J[:4, 4:].tolist()}
+    sens = {args.tag: J[:4, 4:].tolist()}
     for name in args.known:
         arm = lc.Arm(name, args.device)
         plus = [_score_known(arm, sims["laibson"], s0 + SIGMA_STEP[k] * np.eye(4)[k],
@@ -585,7 +592,8 @@ def population(args) -> None:
         sens[name] = lc.jacobian(np.array([lc.stat(p, card, sh) for p in plus]),
                                  np.array([lc.stat(p, card, sh) for p in minus]),
                                  SIGMA_STEP)[:4].tolist()
-    res = {"sigma_high": SIGMA_HIGH.tolist(), "card_share": sh, "theta_laibson": th_l.tolist(),
+    res = {"tag": args.tag, "box_floor_beta": float(m.spec.box.beta_low),
+           "sigma_high": SIGMA_HIGH.tolist(), "card_share": sh, "theta_laibson": th_l.tolist(),
            "psid_mean_of_means": target.tolist(), "psid_se": se_t.tolist(),
            "sigma_start": s0.tolist(), "jacobian": J.tolist(), "newton_path": path,
            "last_simulated": np.concatenate([lc.from_u(v[:4]), v[4:]]).tolist(),
@@ -603,7 +611,8 @@ def population(args) -> None:
     (args.out / "population.json").write_text(json.dumps(res, indent=2))
     show_population(res)
     if args.with_arms and args.with_arms.exists():
-        population_figure(res, json.loads(args.with_arms.read_text()), couples, args.figure)
+        population_figure(res, json.loads(args.with_arms.read_text()), couples, args.figure,
+                          args.title)
         print(f"wrote {args.out / 'population.json'} and {args.figure}")
 
 
@@ -660,29 +669,32 @@ def show_population(res: dict) -> None:
             print(f"    {n:8s}" + "".join(f"{x:+9.4f}" for x in row))
 
 
-def population_figure(res: dict, arms: dict, couples: Path, path: Path) -> None:
+def population_figure(res: dict, arms: dict, couples: Path, path: Path,
+                      title: str | None = None) -> None:
     """RESULTS 61's figure with the noise-unknown arm's representative theta
     added: its bootstrap (68/95%), from ``res``; the other arms from
     ``laibson_comparison --out``."""
     from scripts import laibson_comparison as lc
 
     rep = np.array(res["representative"])
-    arms = {**arms, "arms": {**arms["arms"], "unknown": {
+    tag = res.get("tag", "unknown")
+    arms = {**arms, "arms": {**arms["arms"], tag: {
         "boot": np.array(res["boot"])[:, :4].tolist(),
         "representative_theta": rep[:4].tolist(),
         "last_simulated_theta": res["last_simulated"][:4],
         "last_simulated_misfit_over_psid_se": res["last_simulated_misfit_over_psid_se"],
         "at_box_edge": res["at_box_edge"][:4],
+        "box_floor_beta": res.get("box_floor_beta", 0.3),
         "at_laibson": {"mean_of_means": res["at_laibson_stat"][:4]},
         "psid_mean_of_means": res["psid_mean_of_means"][:4],
         "representative_se": res["representative_se"][:4],
         "psid_median_posterior_sd": json.loads(
             (couples / "summary.json").read_text())["couples"]["median_posterior_sd"]}}}
-    mps = arms["arms"]["unknown"]["psid_median_posterior_sd"]
-    arms["arms"]["unknown"]["psid_median_posterior_sd"] = [mps[n] for n in oa.BOX.names]
-    lc.plot(arms, path, title="Laibson et al.'s MSM point against PSID couples' representative "
-                              "θ under each noise arm (RESULTS 62; unknown: θ and noise fitted "
-                              "together)")
+    mps = arms["arms"][tag]["psid_median_posterior_sd"]
+    arms["arms"][tag]["psid_median_posterior_sd"] = [mps[n] for n in oa.BOX.names]
+    lc.plot(arms, path, title=title or (
+        "Laibson et al.'s MSM point against PSID couples' representative θ under each noise "
+        "arm (RESULTS 62; unknown: θ and noise fitted together)"))
 
 
 def main() -> None:
@@ -695,6 +707,8 @@ def main() -> None:
     t.add_argument("--max_epochs", type=int, default=None, help="Smoke tests.")
     t.add_argument("--device", default=None)
     t.add_argument("--out", type=Path, default=OUT)
+    t.add_argument("--shards", type=Path, nargs="+", default=[MAIN, STRIP],
+                   help="Training runs, combined in order (RESULTS 63: with the beta strip).")
     dev = "cuda" if torch.cuda.is_available() else None
     s = sub.add_parser("sbc", help="Calibration and recovery on v2's SBC set.")
     s.add_argument("--run", type=Path, default=OUT)
@@ -702,6 +716,8 @@ def main() -> None:
     s.add_argument("--device", default=dev)
     s.add_argument("--out", type=Path, default=OUT / "sbc")
     s.add_argument("--figure", type=Path, default=Path("figures/85_sbc_noise_unknown.png"))
+    s.add_argument("--sbc", type=Path, nargs="+", default=[SBC],
+                   help="SBC sets tiling the ensemble's beta range (RESULTS 63).")
     p = sub.add_parser("psid", help="PSID couples' and all 889's posteriors.")
     p.add_argument("--run", type=Path, default=OUT)
     p.add_argument("--n_draws", type=int, default=40000)
@@ -709,6 +725,8 @@ def main() -> None:
     p.add_argument("--figure", type=Path, default=Path("figures/86_psid_noise_unknown.png"))
     p.add_argument("--root", type=Path, default=Path("outputs"),
                    help="Where the PSID posterior directories go.")
+    p.add_argument("--psid_name", default=PSID_NAME,
+                   help="Their names, <psid_name>_couples and _all.")
     q = sub.add_parser("population", help="Representative theta and noise, indirect inference.")
     q.add_argument("--run", type=Path, default=OUT)
     q.add_argument("--n_draws", type=int, default=4000)
@@ -720,6 +738,10 @@ def main() -> None:
     q.add_argument("--figure", type=Path, default=Path("figures/87_population_noise_arms.png"))
     q.add_argument("--root", type=Path, default=Path("outputs"),
                    help="Where psid wrote the couples' posteriors.")
+    q.add_argument("--psid_name", default=PSID_NAME)
+    q.add_argument("--tag", default="unknown",
+                   help="The arm's name: its Newton points' simulations and scores.")
+    q.add_argument("--title", default=None, help="the figure's title")
     q.add_argument("--out", type=Path, default=POP_OUT)
     q.add_argument("--sim_cache", type=Path, default=Path("outputs/laibson_comparison"),
                    help="laibson_comparison's simulated households (reused, and added to).")

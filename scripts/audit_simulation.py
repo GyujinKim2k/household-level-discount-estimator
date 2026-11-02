@@ -259,11 +259,15 @@ DATASETS = {
     "sbc16_v2": (Path("data/processed/optionA2v2_sbc16_shards"), 1024),
     "sbc16_liqpen050_v2": (Path("data/processed/optionA2v2_sbc16_liqpen050_shards"), 1024),
     "sbc16_liqpen150_v2": (Path("data/processed/optionA2v2_sbc16_liqpen150_shards"), 1024),
+    # RESULTS 63: the beta strip below the box, and its SBC set (run_beta_strip.sh).
+    "betastrip_v2": (Path("data/processed/couples_v2_betastrip_dataset_shards"), 6144),
+    "sbc16_betastrip_v2": (Path("data/processed/optionA2v2_sbc16_betastrip_shards"), 288),
 }
 #: ``--datasets`` groups: v1, what RESULTS 54 audited, is the default.
 GROUPS = {"v1": ("main", "strip", "sbc16", "sbc16_liqpen050", "sbc16_liqpen150"),
           "v2": ("main_v2", "strip_v2", "sbc16_v2", "sbc16_liqpen050_v2", "sbc16_liqpen150_v2"),
-          "v2_sbc": ("sbc16_v2", "sbc16_liqpen050_v2", "sbc16_liqpen150_v2")}
+          "v2_sbc": ("sbc16_v2", "sbc16_liqpen050_v2", "sbc16_liqpen150_v2"),
+          "betastrip": ("betastrip_v2", "sbc16_betastrip_v2")}
 
 
 def chosen(args) -> dict:
@@ -286,11 +290,11 @@ WINDOW = dict(start_age=30, n_waves=7, wave_years=2)
 def regenerate_draws(cfg: dict, n: int):
     """theta (with R_gamma) and card exactly as generate_dataset.py drew them
     for this run's recorded configuration."""
-    from hh_npe.npe.prior import PROPOSAL_SAMPLERS
+    from hh_npe.npe.prior import proposal_sampler
     from scripts.generate_dataset import _per_block_rgamma
 
     seed = int(cfg["seed"])
-    theta = PROPOSAL_SAMPLERS[cfg["proposal"]](n, seed)
+    theta = proposal_sampler(cfg["proposal"], cfg.get("beta_range"))(n, seed)
     card = (np.random.default_rng(seed + 1).integers(0, 2, size=n)
             if cfg["card_types"] else None)
     ns = argparse.Namespace(theta_batch=int(cfg["theta_batch"]), block=512, n_samples=n,
@@ -368,7 +372,9 @@ def cmd_integrity(args) -> None:
     pair = [n for n in ("main", "strip") if n in res] or \
         [n for n in ("main_v2", "strip_v2") if n in res]
     if len(pair) == 2 and not args.partial:
-        res["proposal_weights"] = proposal_check(pair)
+        # RESULTS 63: with the beta strip, the three runs as they are trained.
+        res["proposal_weights"] = proposal_check(
+            pair + (["betastrip_v2"] if "betastrip_v2" in res else []))
     res["ok"] = not any(r["problems"] for k, r in res.items() if isinstance(r, dict)
                         and "problems" in r)
     out = OUT / f"integrity{args.tag}.json"
@@ -391,11 +397,13 @@ def proposal_check(names=("main", "strip"), n_bins: int = 8) -> dict:
         d, n = DATASETS[name]
         cfg = json.loads((d / "solver_config.json").read_text())
         th.append(np.concatenate([np.load(f)["theta"] for f in shards(d)]))
-        parts.append({"name": cfg["proposal"], "n_train": n, "rgamma_range": cfg["rgamma_range"]})
+        parts.append({"name": cfg["proposal"], "n_train": n, "rgamma_range": cfg["rgamma_range"],
+                      **({"beta_range": cfg["beta_range"]} if "beta_range" in cfg else {})})
     th = np.concatenate(th)
     w = np.exp(_parts_log_weight(parts, th))
     w = w / w.sum()
-    lo = np.array([0.30, 0.85, 0.5, 1.021])
+    beta_lo = min([0.30] + [float(p["beta_range"][0]) for p in parts if "beta_range" in p])
+    lo = np.array([beta_lo, 0.85, 0.5, 1.021])
     hi = np.array([1.00, 1.00, 5.0, 1.075])
     u = (th - lo) / (hi - lo)
     out = {"n": int(len(th)), "ess": float(1 / (w ** 2).sum())}
@@ -783,6 +791,13 @@ CORNERS = {(1, 1.021): ((0.3, 0.85), (1.0, 0.95)), (1, 1.075): ((0.3, 0.99), (0.
            # The top of the delta box, where alpha / (1 - delta) reaches 5e4;
            # 1.25% of the main run's draws have delta > 0.999.
            (1, 1.05): ((0.6, 0.99999), (0.9, 0.99999))}
+#: RESULTS 63: the same check on the beta strip below the box, at its floor
+#: (0.1) and inside it (0.2); with RHOS, 60 theta.
+CORNERS_LOW_BETA = {(1, 1.021): ((0.1, 0.85), (0.1, 0.99)),
+                    (1, 1.075): ((0.1, 0.9995), (0.2, 0.95)),
+                    (0, 1.021): ((0.1, 0.99), (0.2, 0.85)),
+                    (0, 1.075): ((0.1, 0.85), (0.1, 0.9995)),
+                    (1, 1.05): ((0.1, 0.99999), (0.2, 0.99999))}
 
 
 def spec_for(card: int, R_gamma: float, **grid):
@@ -825,7 +840,8 @@ def cmd_margins(args) -> None:
     from hh_npe.simulator.twoasset_gpu import solve_batch
 
     res = {"theta": []}
-    for (card, rg), pairs in CORNERS.items():
+    corners = CORNERS_LOW_BETA if args.corners == "low_beta" else CORNERS
+    for (card, rg), pairs in corners.items():
         thetas = np.array([(b, d, r) for b, d in pairs for r in RHOS])
         spec = spec_for(card, rg)
         mg: dict = {}
@@ -861,7 +877,7 @@ def cmd_margins(args) -> None:
                   f"{'panels same' if same_p else 'PANELS DIFFER'}", flush=True)
         print(f"  group done in {time.time() - t0:.0f} s", flush=True)
         del mg, sols, alone
-    out = OUT / f"margins{SUFFIX}.json"
+    out = OUT / f"margins{SUFFIX}{'_low_beta' if args.corners == 'low_beta' else ''}.json"
     out.write_text(json.dumps(res, indent=1))
     print(f"wrote {out}")
 
@@ -1454,8 +1470,9 @@ def cmd_v2_coarse(args) -> None:
 
     from hh_npe.simulator.twoasset_gpu import solve_batch
 
-    paths = [args.octave_dir / f"{n}.mat" for n in COARSE_RUNS]
-    cache = OUT / "v2_coarse_cpu.json"
+    paths = [args.octave_dir / f"{n}.mat" for n in args.runs]
+    tag = "" if tuple(args.runs) == COARSE_RUNS else f"_{args.tag}"
+    cache = OUT / f"v2_coarse{tag}_cpu.json"
     if args.gpu_only:
         rows = json.loads(cache.read_text())
     else:
@@ -1490,8 +1507,9 @@ def cmd_v2_coarse(args) -> None:
               f"z {r['R v2 vs P v2 (CPU)']['same_z']:.6f}  paths differ "
               f"{r['paths differ, R v2 vs P v2']:.4f}  GPU=CPU "
               f"{r.get('GPU v2 vs CPU v2', {}).get('x same')}", flush=True)
-    (OUT / "v2_coarse.json").write_text(json.dumps(res, indent=1, default=float))
-    print(f"wrote {OUT / 'v2_coarse.json'}; {'OK' if res['ok'] else 'FAILED'}")
+    out = OUT / f"v2_coarse{tag}.json"
+    out.write_text(json.dumps(res, indent=1, default=float))
+    print(f"wrote {out}; {'OK' if res['ok'] else 'FAILED'}")
 
 
 def cmd_v2_fullgrid(args) -> None:
@@ -1567,6 +1585,9 @@ def main() -> None:
     q.add_argument("--octave_dir", type=Path, default=OUT / "octave")
     q.add_argument("--gpu_only", action="store_true",
                    help="only the GPU part, on the saved CPU results")
+    q.add_argument("--runs", nargs="+", default=list(COARSE_RUNS),
+                   help="Octave runs to compare (RESULTS 63: the beta-strip runs)")
+    q.add_argument("--tag", default="runs", help="output suffix when --runs is given")
     q = sub.add_parser("v2_fullgrid")
     q.add_argument("--n", type=int, default=4000)
     q.add_argument("--reuse", action="store_true", help="reuse R's pickled solves")
@@ -1587,8 +1608,11 @@ def main() -> None:
     sub.add_parser("fullgrid_compare").add_argument("--n", type=int, default=4000)
     sub.add_parser("reproduce")
     for name in ("margins", "parity", "refine"):
-        sub.add_parser(name).add_argument("--n", type=int, default=2000,
-                                          help="households simulated per theta")
+        q = sub.add_parser(name)
+        q.add_argument("--n", type=int, default=2000, help="households simulated per theta")
+        if name == "margins":
+            q.add_argument("--corners", choices=("box", "low_beta"), default="box",
+                           help="the A box's corners, or RESULTS 63's beta strip")
     args = ap.parse_args()
     global SOLVER_FIXES, SUFFIX
     if args.solver == "v2":

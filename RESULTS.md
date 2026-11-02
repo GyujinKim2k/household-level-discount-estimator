@@ -9757,3 +9757,136 @@ The households are §61.3's: 2,048 per card type at their θ, with each arm's ow
 
     nohup setsid ./scripts/run_v2_noise_none_unknown.sh >> logs/v2_noise_none_unknown.log 2>&1 &   # ~5 h training, ~1 h after
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_noise_unknown.py tests/test_laibson_comparison.py
+
+---
+
+## 63. The β strip below 0.3: launch record
+
+*Launched 2026-11-02; results follow in this section when the chain finishes.*
+
+**Decision (user, 2026-11-02).** "let's generate data including beta below 0.3 to try the models. I think v2 looks best until now." So v2 stays the reference noise arm (§1). RESULTS 62 found that every arm whose noise matches PSID's readings puts the population β at or near the box floor of 0.3:
+- gross 0.335;
+- typical at the floor, with the unclipped Newton step at 0.246;
+- noise-unknown at the floor, unclipped 0.190.
+
+Under `CONCLUSION_DIRECTION.md`, a population claim then needs the floor extended.
+
+### 63.0 Design
+
+**A strip, not a regeneration.** It works like the R_γ strip of §43.5:
+- new draws cover only β ∈ [0.10, 0.30);
+- the v2 main run and R_γ strip are reused unchanged;
+- training weights the three runs back to a uniform prior on [0.10, 1] × [0.85, 1] × [0.5, 5] × [1.021, 1.075].
+
+0.10 leaves room below the lowest unclipped fit (0.19) and its bootstrap spread. If a fit reaches 0.10 again, this section reports it, and the floor is not moved again without the user.
+
+| directory (`data/processed/`) | draws | β | (δ, ρ) | R_γ | seed |
+|---|---|---|---|---|---|
+| `couples_v2_betastrip_dataset_shards` | 6,144 (12 shards of 512; the last held out) | uniform on [0.10, 0.30) | v2's mixture: half uniform, half δ uniform on [0.95, 1) | 1.021–1.075, per block of 16, shuffled (H8) | 200000 |
+| `optionA2v2_sbc16_betastrip_shards` | 288 (3 shards of 96) | uniform on [0.10, 0.30) | uniform | 1.021–1.075 | 41000000 |
+
+Every other setting is v2's (§55):
+- the full grid, the V100, theta_batch 16 and chunk 16;
+- 16 households per draw;
+- card types 50/50 and the PSID seed pool;
+- stored panels, 7 waves 2 years apart, from age 30;
+- `--rgamma_permute` and `--flow_lag 1`.
+
+**Training density.** The strip trains on 5,632 draws, 28,160 per unit of β. The main run has 25,600 per unit at β 0.3–0.4, all from its uniform part, since its concentrated part starts at 0.4.
+- In δ ≥ 0.95, where most PSID couples sit, the strip is about twice as dense as the main run at β 0.3–0.4.
+- Below δ 0.95 it is about half as dense.
+
+The importance weights account for both. Every run is at least half uniform, so the largest weight is 3.15, in the strip below δ 0.95.
+
+**SBC.** The 288-draw strip and the 1,024-draw SBC set together approximate a uniform prior on the new box. Per unit of β, the strip has 1,440 draws against the set's 1,463, a 1.6% step. The penalty sets stay at β ≥ 0.3.
+
+**Code.**
+- `prior.a2_beta_strip` is the proposal.
+- `prior._parts_log_weight` weights runs on (β, R_γ) rectangles. Each run's density is zero outside its own rectangle, and `check_tiling` requires the rectangles to tile their bounding box with no gap or overlap.
+- A part without `beta_range` covers [0.3, 1]. The earlier two-run weights are bit-identical, so every RESULTS 56–62 ensemble evaluates exactly as before.
+- `generate_dataset --beta_range` records the range in `solver_config.json`. The box (`optionA.box_of`) and every consumer read it from there:
+  - the held-out weights;
+  - SBC over several sets (`sbc_optionA2.load_sets`);
+  - the population fit's bounds (`laibson_comparison.box_bounds`, exactly the old constants on the old box);
+  - the noise-unknown arm (`--shards`, `--sbc`, `--psid_name`, `--tag`).
+- `optionA train --train_frac` takes the first share of every run's training shards, for the learning curve.
+
+### 63.1 Gates before launch
+
+All pass. Commands are under *Reproduce*.
+
+1. **Tests.** The whole suite passes: 579 with the GPU hidden, then the GPU tests with the card free (171 in the files with GPU tests; the 7 skips are scripts with no plain argument parser). New: `tests/test_beta_strip.py` (13):
+   - the strip's draws and density;
+   - the three runs' weights restore the uniform prior on the union: β below 0.3 gets its 0.2 / 0.9 share, R_γ below 1.025 its 0.004 / 0.054, and E_q[w] = 1;
+   - a run has no density outside its rectangle;
+   - a gap or overlap is refused;
+   - **the two-run weights of every earlier ensemble are bit-identical** to the code before this change;
+   - three runs combine with their offsets and rectangles, and the two earlier runs alone return exactly what they did;
+   - `--train_frac` takes the same share of every run;
+   - strip draws outside the recorded range are refused;
+   - coverage-region cuts and the population bounds follow the box (the old bounds exactly on the old box);
+   - SBC sets must tile the box.
+2. **Against Laibson et al.'s code at low β.** `run_lifecycle.m` runs their code unmodified under Octave. It ran on the coarse grid (xjump 6,000, zjump 24,000, 2,000 households) at five θ. `v2_coarse --runs` compared each run on its own shocks:
+
+   | run | θ | card, R_γ | L = R (MATLAB arithmetic) | R v2 = P v2 | paths differ | GPU = CPU |
+   |---|---|---|---|---|---|---|
+   | beta010 | (0.10, 0.95, 2.0) | yes, 1.05 | 100% | 100% | 0 | 100% |
+   | beta010_nocard | (0.10, 0.99, 1.0) | no, 1.021 | 100% | 100% | 0 | 100% |
+   | beta020_rho46 | (0.20, 0.97, 4.6) | yes, 1.075 | 13.7% | 100% | 0 | 100% |
+   | beta010_delta999 | (0.10, 0.999, 3.5) | yes, 1.05 | 95.9% | 100% | 0 | 100% |
+   | beta010_rho05 | (0.10, 0.90, 0.5) | yes, 1.03 | 100% | 100% | 0 | 100% |
+
+   - R's forward pass on L's own policies reproduces L's panels at every θ.
+   - L ≠ R only at ρ ≥ 3.5. That is the float-resolution failure of MATLAB's uncentred utility (§40, §54.2): §55's ρ 3.5 and 4.6 runs gave 91.5% and 13.6%.
+   - **Behaviour at β 0.10 is what extreme present bias predicts.**
+     - Cardholders borrow to the limit: 100% in debt, mean debt 0.30 of mean income, no illiquid wealth, consumption 97% of income.
+     - Without a card, households live hand to mouth: no wealth, consumption equal to income.
+     - At δ 0.999 and ρ 3.5, 75% are in debt.
+
+     So below β 0.3 behaviour flattens toward the borrowing limit, and windows there carry less about the other parameters.
+3. **Margins at the strip's corners** (`--solver v2 margins --corners low_beta`). There are 60 θ: β 0.1 and 0.2, δ up to 0.99999, the six ρ of §54.3, both card types and the ends of R_γ.
+   - No visited decision is below 1e-12 of its payoff's scale, in behaviour or value, and there are no exact ties.
+   - The smallest 1st percentile is 6.9e-8 (value) and 9.8e-8 (behaviour; no card, β 0.1, δ 0.9995, ρ 0.5).
+   - Each θ solved alone and in its batch gives identical panels.
+   - No NaN.
+4. **Smoke run of the whole chain** (`SMOKE=<dir> scripts/run_beta_strip.sh`).
+   - Every stage ran to `DONE` in an hour.
+   - Integrity: OK on both new sets. Invariants:
+     - the budget closes to 5.8e-11 dollars;
+     - no zero-consumption year;
+     - phantom debt is 0.03% of household-years, inside the 0.1% bound.
+
+     Both smoke sets happened to draw only no-card blocks. Cardholders at β 0.10 are covered by gate 2.
+   - **Generation ran at 10.9–11.0 s per draw**, as v2's SBC set did (§55). That puts the strip at about 18.7 h.
+   - Training members recorded the three parts with the strip's `beta_range`, the box β 0.1–1, and `train_frac`.
+   - The population stage simulated Newton points clipped at β 0.101 without trouble. Its fits are meaningless on one-epoch networks, as expected.
+   - The smoke wrote nothing into the real caches; it uses its own simulation cache (`laibson_comparison --cache`).
+   - **On the real held-out set** (1,024 main, 512 R_γ-strip and 512 β-strip draws), the weights run from 0.10 to 2.88, an ESS of 1,060 of 2,048 (v2's: 758 of 1,536).
+   - One fix came out of it: the spec's description now names the β range when it is not the A box's.
+
+**The chain** (`scripts/run_beta_strip.sh`, about 1.3 days: 19 h of generation, about 8 h of training, about 2 h of evaluation):
+1. the SBC strip, then the audit's integrity and invariants on it;
+2. the β strip, the same checks, `optionA verify` on the three runs, and the three runs' weighted draws against the uniform prior;
+3. training, two members at a time:
+   - v2 (its noise), typical and gross (§58's ranges), and noise-unknown (§62), five members each;
+   - v2 members 0–1 on half of every run's training shards;
+4. per arm:
+   - PSID couples and all 889;
+   - the held-out check;
+   - SBC on the set plus the strip;
+   - household figures 88–96, 68/95%;
+   - for noise-unknown, SBC and PSID (figures 97–98);
+5. the learning curve: half- against full-data members 0–1 on one held-out set;
+6. the population fits, figure 99, then noise-unknown's eight-unknown fit, figure 100.
+
+**Reproduce.**
+
+    # their code at the five θ (configs: prefs, R_gamma, card as in the table; xjump 6000,
+    # zjump 24000, pop 2000), one JSON each under outputs/audit/octave/
+    octave --no-gui --eval "addpath('scripts/laibson_octave'); run_lifecycle('outputs/audit/octave/beta010.json')"
+    PYTHONPATH=. .venv/bin/python scripts/audit_simulation.py --solver v2 v2_coarse \
+        --runs beta010 beta010_nocard beta020_rho46 beta010_delta999 beta010_rho05 --tag low_beta
+    PYTHONPATH=. .venv/bin/python scripts/audit_simulation.py --solver v2 margins --corners low_beta
+    SMOKE=<dir> ./scripts/run_beta_strip.sh
+    nohup setsid ./scripts/run_beta_strip.sh >> logs/beta_strip.log 2>&1 &
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_beta_strip.py
