@@ -133,13 +133,15 @@ def show(s: dict, title: str) -> None:
                   f"  {f(r['coverage_90'])}  {f(r['above_95'])}  {f(r['below_5'])}")
 
 
-def title(run_dirs, spec) -> str:
+def title(run_dirs, spec, n_draws: int = 1024) -> str:
     """The SBC figure's title, named after the ensemble's run directory."""
     name = Path(run_dirs[0]).parent.name.replace("option", "Option ")
     what = "the training observation noise" + (
         f" and PSID's imputation masks (tau {spec.imputation_mask[1]:g})" if spec.masked else "")
-    return (f"{name}: SBC rank calibration on 1,024 uniform-prior draws, 16 households each,\n"
-            f"with {what}; R_gamma ranks are shared within blocks of 16 draws")
+    lo, hi = spec.box.beta_low, spec.box.beta_high
+    box = "" if (lo, hi) == tuple(BETA_RANGE_A2) else f" (beta {lo:g}-{hi:g})"
+    return (f"{name}: SBC rank calibration on {n_draws:,} uniform-prior draws{box}, "
+            f"16 households each,\nwith {what}; R_gamma ranks are shared within blocks of 16 draws")
 
 
 def figure(u: np.ndarray, one: np.ndarray, path: Path, title: str) -> None:
@@ -317,7 +319,8 @@ def main() -> None:
     res["penalty"] = penalty_check(members, spec, sets[0][0], sets[0][1], args.n_draws, pen,
                                    train=args.train)
     (args.out / "sbc16.json").write_text(json.dumps(res, indent=2))
-    figure(r["u"], one & np.isfinite(r["u"]).all(1), args.figure, title(args.run_dirs, spec))
+    figure(r["u"], one & np.isfinite(r["u"]).all(1), args.figure,
+           title(args.run_dirs, spec, len(np.unique(pid))))
     print(f"\nwrote {args.out}/ and {args.figure}")
 
 

@@ -50,7 +50,10 @@ def test_help_text_formats(path, monkeypatch):
         spec.loader.exec_module(mod)
     except SystemExit:
         pass
-    if hasattr(mod, "main"):
+    # A script that builds no parser would run in full: plot_optionA2_pilot
+    # redraws a committed figure (RESULTS 63). Only call main() where a parser
+    # can stop it.
+    if hasattr(mod, "main") and "ArgumentParser" in path.read_text():
         try:
             mod.main()
         except SystemExit:

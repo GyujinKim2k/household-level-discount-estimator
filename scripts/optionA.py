@@ -196,8 +196,9 @@ def _load_run(shards: Path, train_shards: int | None, need_complete: bool,
     if train_shards is not None:
         train = train[:train_shards]
     if train_frac is not None:
-        # The learning curve (RESULTS 63): the same share of every run, still
-        # a prefix of its sequence.
+        # The learning curve (RESULTS 63): the same share of every run, rounded
+        # to whole shards (2 of 5, 6 of 11 at 0.5), still a prefix of its
+        # sequence; n_train records what was taken, so the weights follow it.
         train = train[:max(1, int(round(train_frac * len(train))))]
     return (theta_all, card_all, [m[4] for m in train], [m[4] for m in held],
             {"name": name, "n_train": int(train[-1][1])}, cfg)
@@ -1047,8 +1048,8 @@ def main() -> None:
     t.add_argument("--train_shards", type=int, default=None,
                    help="Use only the first N training shards (smoke tests).")
     t.add_argument("--train_frac", type=float, default=None,
-                   help="Use the first fraction of each run's training shards "
-                        "(the learning curve, RESULTS 63).")
+                   help="Use the first fraction of each run's training shards, rounded "
+                        "to whole shards (the learning curve, RESULTS 63).")
     t.add_argument("--max_epochs", type=int, default=None,
                    help="Cap epochs (smoke tests); default TRAINING's.")
     t.add_argument("--device", default=None)

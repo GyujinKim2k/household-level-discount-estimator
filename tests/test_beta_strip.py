@@ -207,7 +207,7 @@ def test_three_runs_combine_with_their_rectangles(tmp_path):
     assert oa.box_of(cfg2) == oa.box_of({"rgamma_range": [1.021, 1.075]})
 
 
-def test_train_frac_takes_the_same_share_of_every_run(tmp_path):
+def test_train_frac_takes_a_share_of_every_run_in_whole_shards(tmp_path):
     dirs, _ = _three(tmp_path)
     *_x, train, _held, prop, _cfg = oa.load_shards(dirs, train_frac=0.5)
     # 3, 2 and 3 training shards of 64 draws: halves rounded, at least one.

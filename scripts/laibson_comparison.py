@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import textwrap
 from pathlib import Path
 
 import numpy as np
@@ -581,8 +582,10 @@ def plot(res: dict, path: Path, title: str | None = None) -> None:
     a.set(ylabel="standard error ÷ Laibson et al.'s reported", ylim=(0.05, 400))
     a.legend(fontsize=6, ncol=2, loc="upper center")
     a.grid(ls=":", lw=0.5, axis="y")
-    fig.suptitle(title or "Laibson et al.'s MSM point against PSID couples (RESULTS 61): a "
-                          "representative θ matched on the network's estimates", fontsize=11)
+    # a long title wraps rather than running off the figure's edges
+    fig.suptitle(textwrap.fill(title or "Laibson et al.'s MSM point against PSID couples "
+                               "(RESULTS 61): a representative θ matched on the network's "
+                               "estimates", 130), fontsize=11)
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=130)

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,7 +44,7 @@ import numpy as np
 import torch
 
 from hh_npe.data.waves import FEATURES_TWOASSET_AGE
-from hh_npe.npe.prior import LOG1M_EPS, proposal_log_weight
+from hh_npe.npe.prior import BETA_RANGE_A2, LOG1M_EPS, proposal_log_weight
 from scripts import optionA as oa
 
 MAIN = Path("data/processed/couples_v2_dataset_shards")
@@ -303,7 +304,7 @@ def sbc(args) -> None:
              **{k: r[k] for k in ("mean", "sd", "lo", "hi", "u")}, names=np.array(NAMES))
     (args.out / "sbc16.json").write_text(json.dumps(res, indent=2))
     show_sbc(res)
-    sbc_figure(r["u"][ok & one], truth[ok], r["mean"][ok], args.figure)
+    sbc_figure(r["u"][ok & one], truth[ok], r["mean"][ok], args.figure, sbc_where(m.spec, pid))
     print(f"wrote {args.out} and {args.figure}")
 
 
@@ -327,7 +328,24 @@ def show_sbc(res: dict) -> None:
         print(f"  {a:8s}" + "".join(f"{c:+9.3f}" for c in v.values()))
 
 
-def sbc_figure(u: np.ndarray, truth: np.ndarray, mean: np.ndarray, path: Path) -> None:
+def arm_head(box) -> str:
+    """A figure title's head: the arm, and its beta range when it is not the A box's."""
+    lo, hi = box.beta_low, box.beta_high
+    if (lo, hi) == tuple(BETA_RANGE_A2):
+        return "Noise unknown (RESULTS 62)"
+    return f"Noise unknown, beta {lo:g}-{hi:g} (RESULTS 63)"
+
+
+def sbc_where(spec, pid: np.ndarray) -> str:
+    """The SBC figure's title head: the arm's box and how many draws."""
+    if (spec.box.beta_low, spec.box.beta_high) == tuple(BETA_RANGE_A2):
+        return f"{arm_head(spec.box)}: SBC on v2's set"
+    return (f"{arm_head(spec.box)}: SBC on v2's set and the beta strip, "
+            f"{len(np.unique(pid)):,} draws")
+
+
+def sbc_figure(u: np.ndarray, truth: np.ndarray, mean: np.ndarray, path: Path,
+               where: str = "Noise unknown (RESULTS 62): SBC on v2's set") -> None:
     """Top: rank ECDF minus uniform, eight targets, with the 95% KS band.
     Bottom: each sigma's posterior mean against its truth (2D 68/95% contours)."""
     import matplotlib
@@ -356,9 +374,9 @@ def sbc_figure(u: np.ndarray, truth: np.ndarray, mean: np.ndarray, path: Path) -
         a.plot([0, SIGMA_HIGH[k]], [0, SIGMA_HIGH[k]], "k:", lw=0.8)
         a.set(xlabel=f"true {n}", ylabel="posterior mean", xlim=(0, SIGMA_HIGH[k]),
               ylim=(0, SIGMA_HIGH[k]), title=n)
-    fig.suptitle("Noise unknown (RESULTS 62): SBC on v2's set, each household's noise sd "
-                 f"uniform on [0, {SIGMA_HIGH.tolist()}]; bottom: posterior mean against "
-                 "truth, 68% (solid) / 95% (dashed)", fontsize=11)
+    fig.suptitle(textwrap.fill(f"{where}, each household's noise sd "
+                               f"uniform on [0, {SIGMA_HIGH.tolist()}]; bottom: posterior mean "
+                               "against truth, 68% (solid) / 95% (dashed)", 150), fontsize=11)
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=120)
@@ -466,7 +484,7 @@ def psid_figure(means: np.ndarray, d: dict, ok: np.ndarray, path: Path, tbox=oa.
                     f"one couple's posterior (nearest the median, #{i})": d["theta"][i, rs]},
                    box, bands=bands, reflect_axes=("delta",), path=path,
                    axis_limits=(box.low, np.where(np.array(NAMES) == "delta", 1.0, box.high)),
-                   title="Noise unknown (RESULTS 62): PSID couples, θ and each feature's noise "
+                   title=f"{arm_head(tbox)}: PSID couples, θ and each feature's noise "
                          "sd estimated together; importance-weighted, card type marginalised")
 
 

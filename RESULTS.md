@@ -4,7 +4,7 @@
 (user). It is option A2n's model and training (§43.7–43.9) on data regenerated
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
-**Last updated:** 2026-10-31 (§1's heterogeneity paragraph corrected, §60).
+**Last updated:** 2026-11-04 (§63: the β strip to 0.10; §1's population estimate updated).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -15,6 +15,8 @@ Laibson, Lee, Maxted, Repetto & Tobacman's single population MSM estimate.
 ## 1. Headline
 
 **Reference: v2** (§55–56; `outputs/optionA2v2/`, `scripts/run_regen_v2.sh`).
+
+**Since §63 (2026-11-04), v2 is also trained on the box extended to β 0.10** (`outputs/optionA2v2_b010/`, `scripts/run_beta_strip.sh`). That is v2's noise model, the user's choice (2026-11-02). Its population estimate supersedes the old box's (below). The household tables in this section are still the old box's; on the wider box couples' median β is 0.480 and their other medians barely move (§63.5).
 
 The model and training:
 - the two-asset model with card-access types; the network never sees the type and marginalises over it (§26, §35);
@@ -65,16 +67,18 @@ The data carry the audit's fixes (§55.1):
   | | β | δ | ρ | R_gamma |
   |---|---|---|---|---|
   | Laibson et al. (reported se; sampling-only se) | 0.5305 (0.114; 0.050) | 0.9891 (0.0051; 0.0020) | 1.94 (0.435; 0.204) | 1.05, calibrated |
-  | PSID couples, v2 (bootstrap se) | **0.531** (0.022) | **0.9901** (0.0009) | **1.44** (0.098) | **1.043** (0.0016) |
-  | PSID couples, gross | 0.335 (0.031; 18% of the bootstrap below the floor) | 0.9957 (0.0007) | 1.42 (0.20) | 1.038 (0.0023) |
+  | **PSID couples, v2, β strip (bootstrap se; §63.6)** | **0.437** (0.021) | **0.9927** (0.0006) | **1.58** (0.096) | **1.042** (0.0015) |
+  | PSID couples, v2, old box (superseded) | 0.531 (0.022) | 0.9901 (0.0009) | 1.44 (0.098) | 1.043 (0.0016) |
+  | PSID couples, gross, old box | 0.335 (0.031; 18% of the bootstrap below the floor) | 0.9957 (0.0007) | 1.42 (0.20) | 1.038 (0.0023) |
 
-  - **Under v2, couples' representative β and δ are theirs,** to within 0.001.
+  - **Under v2 on the wider box, couples' representative β is 0.094 below theirs,** δ 0.0036 above and ρ 0.35 below, each within their reported error (|z| ≤ 0.81) and 1.6–1.7 combined standard errors from their sampling-only one. The fit misses PSID by at most 0.32 standard errors. Our standard errors are 2.1–3.2 times smaller than their sampling-only ones (§63.6).
+  - *Withdrawn (§63.6):* "under v2, couples' representative β and δ are theirs, to within 0.001". The old box's floor at 0.3 had held up the estimates of couples near it.
   - **ρ is lower than theirs in every arm** (1.42–1.65), not higher as the medians suggested.
   - **R_gamma is lower than their calibrated 1.05** in every arm (1.038–1.043), not higher.
-  - **The noise assumption moves β by 0.2.** That is 6–9 of our standard errors: the error model, not sampling, is the main uncertainty. Under the typical arm, no θ in the box fits, because β would have to fall below 0.3.
+  - **The noise assumption moves β by 0.2.** That is 6–9 of our standard errors: the error model, not sampling, is the main uncertainty. Under the typical arm, no θ in the old box fits, because β would have to fall below 0.3. On the wider box the PSID-level arms go to β 0.16–0.23, but the method does not converge there: its Jacobian, held at their θ, fails far from it (§63.7).
 - **The old headline is reversed.** There, β was 0.852, inside the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14). Under v2, 28% of couples' means are inside that band, and 50% of all 889's.
 - **β is weakly identified per couple:** held-out contraction 0.40 (§56.2).
-  - PSID couples' β population piles at the box floor of 0.3 (§47.3).
+  - PSID couples' β population piles at the box floor of 0.3 (§47.3). On the wider box, 75% of couples' 5th percentiles fall below 0.3, and no couple's or simulated household's 95th percentile does: below 0.3, one household's β is not resolved with seven waves (§63.4–63.5).
   - Near that floor, uniform-prior intervals undercovered on simulated populations shaped like PSID's (§47.3).
 - **ρ's posteriors are wide** (median sd 0.90). It is the parameter v2 moved most: −0.17 from A2n (§56.3).
 - **Between §29 and v2 the model changed in several steps:** card-access types (§36), R_gamma estimated (§32), the couples' seed pool (§43.1–43.4), observation noise (§43.7–43.8) and the audit's fixes (§56). Each step's effect is recorded in its own section and is not re-attributed here.
@@ -112,7 +116,8 @@ In its place, couples' posterior means are compared with those of simulated hous
 - 66, a held-out simulated household;
 - 69, SBC;
 - 80, household resolution: one couple's posterior against the spread of couples' means and of households sharing θ (§60);
-- 81, Laibson et al.'s point and covariance against PSID couples' representative θ per arm, 68/95% (§61).
+- 81, Laibson et al.'s point and covariance against PSID couples' representative θ per arm, 68/95% (§61);
+- 99–100, the same on the box with the β strip (§63).
 
 **Reproduce.**
 
@@ -9531,7 +9536,7 @@ Figure 80 has four panels:
 - **At the population level, the 409 couples' representative θ is tighter than theirs:**
   - 2.1–2.3 times smaller standard errors than their sampling-only ones under v2, and 4–6 times smaller than their reported ones;
   - 1.0–3.1 and 2.1–7.8 times smaller under gross.
-- **Under v2 the panel data replicate their β and δ to within 0.001,** with a different estimator and different information. ρ (1.44) and R_gamma (1.043) come out lower.
+- **Under v2 the panel data replicate their β and δ to within 0.001,** with a different estimator and different information. ρ (1.44) and R_gamma (1.043) come out lower. *(Superseded, §63.6: on the box extended to β 0.10, v2's representative β is 0.437; the old floor had held it up.)*
 - **Corrections to §1:**
   - ρ is lower than theirs, not higher;
   - R_gamma is lower than 1.05, not higher;
@@ -9760,9 +9765,9 @@ The households are §61.3's: 2,048 per card type at their θ, with each arm's ow
 
 ---
 
-## 63. The β strip below 0.3: launch record
+## 63. The β strip below 0.3: under v2's noise the population β is 0.437, inside the wider box and 0.094 below theirs; one household's β below 0.3 is not resolved; the PSID-level-noise fits do not converge
 
-*Launched 2026-11-02; results follow in this section when the chain finishes.*
+*Launched 2026-11-02 12:39 UTC, finished 2026-11-03 22:25 UTC. 63.0–63.1 are the launch record, as committed then, with three corrections marked; the results start at 63.2.*
 
 **Decision (user, 2026-11-02).** "let's generate data including beta below 0.3 to try the models. I think v2 looks best until now." So v2 stays the reference noise arm (§1). RESULTS 62 found that every arm whose noise matches PSID's readings puts the population β at or near the box floor of 0.3:
 - gross 0.335;
@@ -9809,7 +9814,7 @@ The importance weights account for both. Every run is at least half uniform, so 
   - SBC over several sets (`sbc_optionA2.load_sets`);
   - the population fit's bounds (`laibson_comparison.box_bounds`, exactly the old constants on the old box);
   - the noise-unknown arm (`--shards`, `--sbc`, `--psid_name`, `--tag`).
-- `optionA train --train_frac` takes the first share of every run's training shards, for the learning curve.
+- `optionA train --train_frac` takes the first share of every run's training shards, for the learning curve. *(Corrected after the run: rounded to whole shards, so 0.5 took 0.50, 0.40 and 0.55 of the three runs; 63.8.)*
 
 ### 63.1 Gates before launch
 
@@ -9822,7 +9827,7 @@ All pass. Commands are under *Reproduce*.
    - a gap or overlap is refused;
    - **the two-run weights of every earlier ensemble are bit-identical** to the code before this change;
    - three runs combine with their offsets and rectangles, and the two earlier runs alone return exactly what they did;
-   - `--train_frac` takes the same share of every run;
+   - `--train_frac` takes a share of every run, in whole shards;
    - strip draws outside the recorded range are refused;
    - coverage-region cuts and the population bounds follow the box (the old bounds exactly on the old box);
    - SBC sets must tile the box.
@@ -9864,12 +9869,12 @@ All pass. Commands are under *Reproduce*.
    - **On the real held-out set** (1,024 main, 512 R_γ-strip and 512 β-strip draws), the weights run from 0.10 to 2.88, an ESS of 1,060 of 2,048 (v2's: 758 of 1,536).
    - One fix came out of it: the spec's description now names the β range when it is not the A box's.
 
-**The chain** (`scripts/run_beta_strip.sh`, about 1.3 days: 19 h of generation, about 8 h of training, about 2 h of evaluation):
+**The chain** (`scripts/run_beta_strip.sh`; estimated at 1.3 days, it took 1.4: 1.1 h for the SBC strip, 22.5 h for the β strip, 9.0 h of training and 1.2 h of evaluation):
 1. the SBC strip, then the audit's integrity and invariants on it;
 2. the β strip, the same checks, `optionA verify` on the three runs, and the three runs' weighted draws against the uniform prior;
 3. training, two members at a time:
    - v2 (its noise), typical and gross (§58's ranges), and noise-unknown (§62), five members each;
-   - v2 members 0–1 on half of every run's training shards;
+   - v2 members 0–1 on half the training draws (each run's first shards, rounded as above);
 4. per arm:
    - PSID couples and all 889;
    - the held-out check;
@@ -9878,6 +9883,193 @@ All pass. Commands are under *Reproduce*.
    - for noise-unknown, SBC and PSID (figures 97–98);
 5. the learning curve: half- against full-data members 0–1 on one held-out set;
 6. the population fits, figure 99, then noise-unknown's eight-unknown fit, figure 100.
+
+### 63.2 The run
+
+Every stage ran to `DONE`; no stage failed or was rerun.
+- **Generation.** The SBC strip ran at 14.1 s per draw. The β strip took 22.5 h, 12.4–14.0 s per draw by shard (mean 13.2), slower than the smoke's 11, which had drawn no cardholders.
+- **Integrity:** OK on both sets (12 shards, 6,144 draws, 98,304 households; 3 shards, 288 draws).
+- **Invariants on the β strip** (6,979,584 household-years):
+  - the budget closes to 1.2e-10 dollars;
+  - one zero-consumption year, at age 90, none before (v2's earlier sets: two, also at 90);
+  - debt the model does not allow (no-card below zero, or a cardholder past its limit) in 0.018% of household-years, against the 0.1% bound (v2's earlier sets: 0.007–0.011%);
+  - the SBC strip: 0.018%, the budget to 5.8e-11, half its household-years cardholders.
+- **The three runs** (`optionA verify`): 41,984 draws in 82 shards; θ matches each run's recorded sequence; cardholder share 0.495. Their weighted draws against the uniform prior on the union: largest |z| of a bin's mass 0.71 (bound 4), ESS 27,782 of 41,984.
+- **Training:** all 22 members converged, in 35–52 epochs (v2 44–52, typical 35–45, gross 35–40, noise-unknown 41–47, half-data 48–51).
+
+### 63.3 Calibration on the wider box
+
+Held-out: 2,048 draws (1,024 main, 512 R_γ strip, 512 β strip), weighted to the uniform prior. SBC: v2's 1,024-draw set and the 288-draw strip, 20,992 households.
+
+| 90% coverage | β | δ | ρ | R_γ |
+|---|---|---|---|---|
+| v2, held-out / SBC | 0.908 / 0.908 | 0.907 / 0.895 | 0.913 / 0.903 | 0.903 / 0.889 |
+| typical | 0.905 / 0.905 | 0.899 / 0.891 | 0.907 / 0.901 | 0.895 / 0.889 |
+| gross | 0.913 / 0.904 | 0.902 / 0.896 | 0.908 / 0.896 | 0.893 / 0.887 |
+| noise-unknown, SBC | 0.903 | 0.891 | 0.898 | 0.887 |
+
+- **Every arm is calibrated on average, as on the old box** (§56.2, §58.1, §62.2).
+  - SBC rank tests, one household per draw: KS p 0.11–1.00 for θ in every arm.
+  - R_γ's SBC interval is wide (v2: 0.850–0.921), since R_γ varies only per block of 16 draws.
+  - Noise-unknown's four noise levels: 0.901, 0.909, 0.908 and 0.906 (KS p 0.10–0.76). Within a posterior, θ and the noise levels correlate at |r| ≤ 0.016.
+- **Households whose posterior mean β is below 0.3** are covered 0.900 (v2, 742 households), 0.895 (typical) and 0.904 (gross).
+- **Shares of prior variance removed (held-out) cannot be set against the old box's.**
+  - β's prior is wider, so the same posterior removes a larger share: v2 0.522 (old box 0.401).
+  - For δ, ρ and R_γ the held-out set now includes the β strip, whose households carry less about them. v2: 0.464, 0.526 and 0.463 (old 0.541, 0.614, 0.530).
+  - By true β on the SBC households (v2), δ: 0.31 below 0.3 against 0.51 above; R_γ: 0.24 against 0.53; ρ: 0.55 against 0.52.
+
+### 63.4 One household's β below 0.3 is not resolved
+
+The SBC households by true β (v2; the other arms alike):
+
+| true β | households | mean of posterior means | median posterior sd | 90% coverage | 95th percentile below 0.3 |
+|---|---|---|---|---|---|
+| 0.1–0.2 | 2,304 | 0.353 | 0.183 | 0.782 | 0 |
+| 0.2–0.3 | 2,304 | 0.387 | 0.185 | 0.936 | 0 |
+| 0.3–0.4 | 2,336 | 0.434 | 0.187 | 0.950 | 0 |
+| 0.4–0.6 | 4,688 | 0.510 | 0.184 | 0.965 | 0 |
+| 0.6–0.8 | 4,672 | 0.628 | 0.177 | 0.953 | 0 |
+| 0.8–1.0 | 4,688 | 0.739 | 0.155 | 0.832 | 0 |
+
+- **Seven waves cannot tell β 0.15 from 0.35 for one household.**
+  - Below 0.3, posterior means correlate 0.25 with the truth (0.73 over the whole box).
+  - No simulated household in any arm, at any β, has its 95th percentile below 0.3 (0 of 20,992 per arm).
+  - Households at true β 0.1–0.2 have their interval cover the truth 0.72–0.78 of the time. Coverage by true value need not be 0.90 (§62.6); the average is.
+- **This is gate 2's behaviour seen through the network.** Below 0.3, cardholders sit at the credit limit and households without a card live hand to mouth, so many (β, δ, ρ) combinations give the same panel.
+- **Populations are another matter.** A mean over hundreds of households still moves with β, which is what 63.6 uses.
+
+### 63.5 PSID couples
+
+| couples (409), median of posterior means | β | δ | ρ | R_γ |
+|---|---|---|---|---|
+| v2, β strip / old box | 0.480 / 0.572 | 0.9867 / 0.9837 | 2.54 / 2.55 | 1.0571 / 1.0584 |
+| typical | 0.495 / 0.560 | 0.9858 / 0.9826 | 2.74 / 2.59 | 1.0561 / 1.0571 |
+| gross | 0.551 / 0.596 | 0.9796 / 0.9779 | 2.71 / 2.56 | 1.0587 / 1.0596 |
+| noise-unknown | 0.541 / 0.590 | 0.9820 / 0.9787 | 2.69 / 2.59 | 1.0598 / 1.0601 |
+| v2's median posterior sd, β strip / old box | 0.183 / 0.164 | 0.0123 / 0.0121 | 0.93 / 0.90 | 0.0102 / 0.0095 |
+
+- **β falls by 0.05–0.09, mostly for couples who were near the old floor.** Under v2 the couples in the lowest third of old-box means fall by 0.12, the middle third by 0.08, the top third by 0.03. The other arms are alike.
+- **The floor had held their posteriors up.** Under v2:
+  - 75% of couples' 5th percentiles are now below 0.3 (old box: 39% within 0.02 of the floor);
+  - 14% of couples' means are below 0.3.
+  - no couple's 95th percentile is below 0.3, in any arm, couples or all 889, as for every simulated household (63.4);
+  - the new floor touches some tails: 8% of couples' 5th percentiles are below 0.11.
+- **Couples' spread in β grows:** sd of means 0.175 under v2, against 0.127.
+- **δ, ρ and R_γ barely move.** Couple by couple, the new and old estimates correlate 0.93–0.96 (β), 0.96–0.98 (δ), 0.88–0.94 (ρ) and 0.95–0.98 (R_γ) across the arms.
+- **All 889 under v2:** β 0.601 (0.663), δ 0.9856, ρ 2.43, R_γ 1.0563.
+- **Noise-unknown's readings of couples' noise are unchanged:** mean posterior means 0.168, 0.193, 0.474 and 0.539 for income, consumption, liquid and illiquid wealth (§62.3: 0.173, 0.194, 0.476, 0.541).
+
+### 63.6 The population: v2's representative θ
+
+§61.4's indirect inference, unchanged except for the bounds:
+- the Jacobian at their θ;
+- common random numbers;
+- three Newton steps, then one unsimulated step;
+- a 1,000-draw bootstrap.
+
+| | β | δ | ρ | R_γ |
+|---|---|---|---|---|
+| Laibson et al. (reported se; sampling-only se) | 0.5305 (0.114; 0.050) | 0.9891 (0.0051; 0.0020) | 1.94 (0.435; 0.204) | 1.05, calibrated |
+| **v2, β strip** (bootstrap se) | **0.437** (0.021) | **0.9927** (0.0006) | **1.58** (0.096) | **1.0423** (0.0015) |
+| 90% bootstrap | 0.402–0.471 | 0.9916–0.9936 | 1.43–1.74 | 1.0401–1.0450 |
+| v2, old box (§61.4) | 0.531 (0.022) | 0.9901 (0.0009) | 1.44 (0.098) | 1.043 (0.0016) |
+
+- **It fits better than the old box's.** The last simulated point misses PSID couples by at most 0.32 of their standard errors (β −0.32, δ −0.21, ρ +0.15, R_γ +0.05; old box: 0.85).
+- **The box does not bind.** No bootstrap draw is beyond any edge.
+- **The precision comparison stands.**
+  - Their reported errors are 5.4, 8.1 and 4.5 times ours (β, δ, ρ), and their sampling-only errors 2.4, 3.2 and 2.1 times.
+  - Old box: 5.2 / 2.3, 5.9 / 2.3, 4.4 / 2.1.
+- **Against theirs:**
+  - β is 0.094 lower: z −0.81 against both errors combined, −1.72 against their sampling-only error combined with ours.
+  - δ is 0.0036 higher: z +0.71 / +1.71.
+  - ρ is 0.35 lower: z −0.79 / −1.56.
+  - R_γ is 5.1 of our standard errors below their calibrated 1.05.
+- **The ridges:** in the bootstrap, β and δ correlate −0.87, β and ρ −0.78, δ and ρ +0.67.
+- **At card share 0.5** (linearised): β 0.419, δ 0.9932, ρ 1.73.
+
+**Why the estimate moved by 0.094, 4.3 of its standard errors.** The method matches couples' mean posterior mean with that of simulated households sharing one θ.
+- Couples' mean β estimate fell by 0.084 (0.586 to 0.502).
+- Simulated households at their θ fell by only 0.033 (0.591 to 0.558).
+- The gap at their θ widened from −0.005 to −0.055 (−6.4 PSID standard errors).
+
+Couples spread more than households sharing one θ (§60; here sd 0.175 against 0.111). More of them sat near the old floor, and the floor held their estimates up more than it held up households sharing their θ. **§61's "under v2, couples' representative β and δ are theirs, to within 0.001" was partly the floor's work, and is withdrawn.** On a box whose floor no longer binds, v2's representative β is 0.437.
+
+What it still rests on is §61.4's list:
+- one θ for everyone, though couples differ, and with heterogeneity a one-θ estimate depends on the statistic matched;
+- the first stage held fixed;
+- the error model (63.7);
+- 85% cardholders;
+- two misspecified models.
+
+### 63.7 The PSID-level noise arms: β 0.16–0.23, and the method does not converge there
+
+| last simulated point (misfit ÷ PSID se) | β | δ | ρ | R_γ | σ income |
+|---|---|---|---|---|---|
+| typical | 0.157 (+3.5) | 0.9987 (+5.7) | 2.23 (−1.8) | 1.038 (−0.3) | |
+| gross | 0.229 (+0.2) | 0.9976 (+4.0) | 1.41 (−4.2) | 1.036 (+0.5) | |
+| noise-unknown (θ and noise, §62.4) | 0.200 (+1.3) | 0.9983 (+3.7) | 2.43 (−1.4) | 1.048 (+0.4) | 0.249, box top (+7.8) |
+
+- **None is a fit by §62.4's rule** (misfit above 3 PSID standard errors), so figures 99–100 show them hollow, with no region.
+- **The floor binds none of them.** β's last points are 0.16–0.23, well above 0.10.
+  - 0.7–2.4% of their linearised bootstraps fall below 0.10; with no fit, that bootstrap is not an interval.
+  - So no fit reached the new floor; under 63.0's rule, the floor stays at 0.10.
+- **Unlike §62.4, the failure is the method's, not the box's.**
+  - The Jacobian is held at their θ, and down the β–δ ridge (δ near 0.998) it no longer predicts the statistic.
+  - Typical's last two steps were predicted to move δ's statistic by 8.5 PSID standard errors each and moved it by −0.1 and +2.8. Gross's last step: 7.0 predicted, 3.0 moved.
+  - Under v2, whose steps stayed nearer their θ, the predictions were off by at most 2 standard errors on moves of up to 10, and by under 1 in the last two steps.
+- **Whether some θ fits couples under PSID-level noise is open.** A Jacobian recomputed at the last point (8 simulated points per arm, 16 for noise-unknown) would settle it.
+- **What does hold:** under every PSID-level arm, the population β goes well below v2's.
+  - Households at their θ are read 0.05–0.09 higher than couples: typical 0.600 against 0.511, gross 0.611 against 0.558, noise-unknown 0.608 against 0.543.
+  - Closing that gap along the β–δ ridge takes β to about 0.15–0.25 and δ to about 0.998.
+- **Noise-unknown's income noise is again at the box top** and misses by 7.8 standard errors, as in §62.4. The model's income process plus 25% noise does not produce couples' income variation.
+
+### 63.8 The learning curve: a denser dataset would add little
+
+v2 members 0 and 1 trained on half the training draws, scored with the full-data members 0 and 1 on one held-out set (2,048 draws):
+- 19,968 draws against 39,936;
+- by run, 0.50, 0.40 and 0.55 of the main run, R_γ strip and β strip (whole shards, rounded);
+- the importance weights use the counts taken, so both target the same prior.
+
+| two-member ensemble | log q | prior variance removed: β / δ / ρ / R_γ | mean abs error ÷ prior sd | corr(mean, truth) | 90% coverage |
+|---|---|---|---|---|---|
+| half data | 3.427 | 0.518 / 0.463 / 0.537 / 0.468 | 0.569 / 0.582 / 0.559 / 0.582 | 0.716 / 0.680 / 0.725 / 0.653 | 0.891–0.898 |
+| full data | 3.615 | 0.528 / 0.465 / 0.526 / 0.465 | 0.561 / 0.567 / 0.554 / 0.569 | 0.725 / 0.695 / 0.733 / 0.660 | 0.900–0.913 |
+| gain from doubling | +0.19 | +0.010 / +0.002 / −0.011 / −0.003 | −0.008 / −0.015 / −0.005 / −0.013 | +0.009 / +0.015 / +0.008 / +0.007 | |
+
+- **Doubling the data sharpens nothing.** The share of prior variance removed is unchanged, within ±0.011. The gain is in accuracy: log q +0.19 (members +0.18 and +0.25), errors 1–3% smaller, and correlations up by 0.007–0.015.
+- **Half the data is slightly overconfident** (coverage 0.891–0.898); the full data is calibrated.
+- **Against §19.5** (+0.26 log q and +0.022 in β's correlation for the doubling from 9.5k to 19k panels), this doubling buys a little less, in line with that saturating curve (its units were panels of a different model, so the two are not on one scale).
+- **Another doubling would buy about +0.1 log q and +0.005 in correlation, and no sharpness.** It would take about 40,000 more draws, about 6 GPU-days at 13 s per draw.
+- **So no denser dataset is needed.** What limits one household's precision is its seven waves (63.4), not the training set's size. This answers the user's question of 2026-11-02 with a measurement.
+
+### 63.9 Reading
+
+- **Under v2's noise model, the reference, the population estimate is a fit inside the wider box:** β 0.437 (se 0.021), δ 0.9927, ρ 1.58, R_γ 1.042.
+  - It is 2.1–3.2 times as precise as Laibson et al.'s sampling-only errors, and 4.5–8.1 times as precise as their reported ones.
+  - It is lower in β and ρ and higher in δ than theirs, within their reported errors (|z| ≤ 0.81). Against their sampling-only errors, β, δ and ρ are each 1.6–1.7 combined standard errors away.
+- **The old box's agreement with their β was partly the floor's work.** §61.4's and §1's "replicates their β and δ to within 0.001" is superseded.
+- **Under PSID-level noise, β goes to about 0.15–0.25.** The method does not converge there, because its Jacobian, held at their θ, fails far from it. Whether a θ fits is open. The noise model still decides the population β, by 0.2 or more.
+- **One household's β below 0.3 cannot be told apart** from the 0.3–0.4 range with seven waves: no household, simulated or PSID, has its 95th percentile below 0.3.
+  - For the waves experiment this is the first thing to measure: whether longer panels resolve low β for one household.
+  - The behaviour at the credit limit suggests that more waves of the same behaviour may add little there.
+- **The data are dense enough** (63.8). The waves experiment can train on this box as it is.
+- **Calibration holds in every arm on the wider box,** so the new box costs nothing in validity. In δ and R_γ it costs some precision for low-β households.
+
+**Figures** (68/95% contours on every estimate):
+- 88, 91, 94: a held-out simulated household under v2, typical and gross;
+- 89, 92, 95: the PSID couple nearest the median, same arms;
+- 90, 93, 96: SBC ranks, same arms;
+- 97: noise-unknown's SBC on all eight targets, and each noise level's posterior mean against its truth;
+- 98: PSID couples under noise-unknown, all eight targets;
+- 99: Laibson et al.'s point against v2's representative θ, with typical and gross's last points;
+- 100: figure 99 with noise-unknown.
+
+**Fixes after the run** (titles only; no number changed):
+- SBC figures said "1,024 uniform-prior draws" whatever the sets were. `sbc_optionA2.title` and noise-unknown's SBC title now give the draws and the β range.
+- Figure 98's title said RESULTS 62; `noise_unknown.arm_head` now names the box.
+- Long titles in `laibson_comparison.plot` and noise-unknown's SBC figure now wrap; figure 100's and 97's ran off the edges.
+- Figures 90, 93, 96, 97 and 100 were redrawn from the saved ranks and results. Figure 98 was redrawn by rerunning its PSID step into a scratch directory; the posteriors reproduced the chain's exactly (largest difference 0).
+- `--train_frac`'s help and comment now say it rounds to whole shards.
 
 **Reproduce.**
 
@@ -9890,3 +10082,6 @@ All pass. Commands are under *Reproduce*.
     SMOKE=<dir> ./scripts/run_beta_strip.sh
     nohup setsid ./scripts/run_beta_strip.sh >> logs/beta_strip.log 2>&1 &
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_beta_strip.py
+    # 63.2-63.8 read the chain's outputs: outputs/beta_strip/ (STATUS, learning curve, population),
+    # outputs/optionA2v2_b010*/heldout_check.json and sbc/, outputs/psid_optionA2v2_b010*_{couples,all}/,
+    # outputs/noise_unknown_b010/population.json, outputs/audit/{integrity,invariants}_betastrip_*.json
