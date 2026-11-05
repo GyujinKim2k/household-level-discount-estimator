@@ -153,10 +153,12 @@ def _households(n: np.ndarray) -> int:
 
 # -------------------------------------------------------------- simulation
 
-def simulate(theta: np.ndarray) -> dict:
+def simulate(theta: np.ndarray, return_panel: bool = False) -> dict:
     """``PER_CARD`` households per card type at ``theta`` (beta, delta, rho,
     R_gamma), v2's generation; windows start where PSID couples' first waves
-    do. The same seed at every theta: common random numbers."""
+    do. The same seed at every theta: common random numbers. ``return_panel``
+    adds each household's annual panel (``panel_<field>``, ages 20-90, in the
+    windows' order), from which other windows can be cut (RESULTS 64)."""
     from hh_npe.data.waves import FEATURES_TWOASSET_AGE
     from hh_npe.data.windows import add_age, cut_windows
     from hh_npe.simulator.dispatch import simulate_batch_twoasset_gpu
@@ -188,8 +190,11 @@ def simulate(theta: np.ndarray) -> dict:
                              oa.WINDOW["n_waves"], oa.WINDOW["wave_years"],
                              FEATURES_TWOASSET_AGE, flow_lag=cfg["flow_lag"])
     o = np.argsort(ids)
-    return {"x": x[o].astype(np.float32), "ids": ids[o],
-            "card": np.repeat(card, PER_CARD)[ids[o]], "theta": np.asarray(theta, float)}
+    out = {"x": x[o].astype(np.float32), "ids": ids[o],
+           "card": np.repeat(card, PER_CARD)[ids[o]], "theta": np.asarray(theta, float)}
+    if return_panel:
+        out |= {f"panel_{k}": np.asarray(v)[ids[o]] for k, v in add_age(panel).items()}
+    return out
 
 
 def cached_sim(name: str, theta: np.ndarray) -> dict:

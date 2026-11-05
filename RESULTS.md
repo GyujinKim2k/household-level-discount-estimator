@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-05 (§1 switched to v2 on the wider box; the β floor stays at 0.10; §63.10: the population fits with the Jacobian recomputed at each point).
+**Last updated:** 2026-11-05 (§1 switched to v2 on the wider box; the β floor stays at 0.10; §63.10: the population fits with the Jacobian recomputed at each point; §64: the waves experiment launched).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -10244,3 +10244,115 @@ So couples' mean δ estimate responds to β 3.6–5.0 times as steeply as the fi
         --figure figures/102_population_noise_arms_b010_refresh.png \
         --title "Laibson et al.'s MSM point against PSID couples' representative θ under each noise arm, the box with the β strip down to 0.1, the Jacobian recomputed at each Newton point (RESULTS 63.10; unknown: θ and noise fitted together)"
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_laibson_comparison.py
+
+## 64. The waves experiment: 7, 10, 14 and 20 waves inside one age range (launch record)
+
+*Launch record, written before the run. The results will follow from 64.2.*
+
+**Decisions (user, 2026-11-05).**
+- "let's plan the waves experiment with plan mode." The plan was approved as it stands here.
+- **Every window lies inside the same ages** (24–64), so longer windows start earlier: "Same age range … and try Run forward later if the result is weird."
+  - The alternative was to keep PSID couples' start ages (24–45) and run forward to 83. It is the fallback, if these results look odd.
+
+**Why the age range is matched.** SIMULATOR_SPEC §6.1.2 found that the 7- against 10-wave comparison had confounded length with depth into life.
+
+**Retirement is not a regime switch in the model.** Laibson et al.'s `retireage = 64` is used only by their income-split robustness option (`LifecycleSim.m` lines 88–127, read in their package). The baseline income is one cubic age profile from 20 to 90. So the bound keeps windows out of the old ages, where rising mortality in the backward induction and the falling income profile drive decumulation, and where the forward pass, which has no mortality (their design, SIMULATOR_SPEC §4), describes survivors only.
+
+### 64.0 Design
+
+**The arms.** Everything is v2 on the box with the β strip (§63, §1):
+- v2's noise;
+- logit β on [0.10, 1], logit R_γ;
+- the three runs (main, R_γ strip, β strip) and their weights;
+- 5 members per arm, seeds 0–4.
+
+Only the window changes. Its last wave starts by 63, so it holds the stocks at the start of 64 and the flows of 63: start ∈ U{24 … 65 − 2n} (`waves_experiment.start_high`).
+
+| arm | waves (years) | start ages | output |
+|---|---|---|---|
+| w07 | 7 (14) | 24–51 | `outputs/waves/w07/` |
+| w10 | 10 (20) | 24–45 | `outputs/waves/w10/` |
+| w14 | 14 (28) | 24–37 | `outputs/waves/w14/` |
+| w20 | 20 (40) | 24–25 | `outputs/waves/w20/` |
+
+- **v2_b010 stays §1's model for PSID** (start 24–45). w07 is the 7-wave point on the matched range.
+- **w07 also scores PSID couples and all 889**, to check that the wider start range leaves PSID's seven waves where v2_b010 put them.
+- **No new data.** The stored panels cover ages 20–90, so every window is cut from the existing shards. Held-out and SBC sets are §63's.
+
+**Measures, per arm:**
+- **Calibration** (the gate): held-out and SBC 90% coverage, 0.88–0.92.
+- **One household:**
+  - share of prior variance removed;
+  - median posterior sd;
+  - held-out log q (the same draws in every arm, as in SIMULATOR_SPEC §6.1.2);
+  - correlation of posterior mean with truth.
+- **Telling households apart** (SBC households, truth known):
+  - one household's 90% interval against the 5–95% range of households' means;
+  - pairs ordered at p ≥ 0.9, and the share of those that are right;
+  - households sharing θ falsely ordered.
+- **Low β:** §63.4's table by true β, including the share whose 95th percentile is below 0.3.
+- **The population:** the representative θ's standard error for 409 households at θ₀, v2_b010's PSID estimate (0.437, 0.9928, 1.58, 1.042), with 85% cardholders.
+  - It uses §61/63.10's statistic and a Jacobian by central differences at θ₀, with common random numbers: 9 simulations, each keeping its annual panels, from which every arm cuts its own windows.
+  - The households share θ₀, so this understates PSID's standard error (couples differ, §60). The ratio across waves is the result.
+  - v2_b010 is scored on the same households too, to scale PSID's 7-wave standard error into a projection.
+- **Underfitting:** each member's loss curves (new `training_summary.json`). If training loss is still falling while validation has stopped, I report it and ask before adding a wider-embedder arm.
+
+**Figures** (68/95% contours on every estimate):
+- 104: precision against waves;
+- 105: one held-out simulated household, the same panel from age 24, under each arm;
+- 106: the population's 68/95% regions against Laibson et al.'s;
+- 107–110: SBC ranks per arm.
+
+**Code.**
+- **`optionA.py`**
+  - `train --start_high` records the start range in the members' `window`.
+  - `window_of(cfg)` reads a run's window back, falling back to `WINDOW` for older configs.
+  - `windows` / `windows_raw` take `window=`; by default every earlier call is bit-identical.
+  - `load_members` reads the window length from the members, and refuses members whose windows differ.
+  - `training_summary.json` keeps the loss curves and epoch times.
+- **`sbc_optionA2`, `check_optionA2_heldout`, `plot_optionA2_households`** cut the members' own windows. `check_optionA2_heldout --psid` may be empty.
+- **`laibson_comparison.simulate(..., return_panel=True)`** adds the annual panels; its default output is unchanged.
+- **`household_resolution`'s** measures are reused on each arm's SBC households.
+- **New:**
+  - `scripts/waves_experiment.py` (start ages, population, measures, figures);
+  - `scripts/run_waves.sh` (the chain);
+  - `tests/test_waves.py` (14 tests, 3 of them on v2's shards).
+
+### 64.1 Gates before launch
+
+All pass. Commands are under *Reproduce*.
+
+1. **Tests.**
+   - The whole suite passes with the GPU hidden: 579 passed, 37 skipped. With the card visible, the 14 files with GPU tests pass: 135.
+   - New: `tests/test_waves.py` (14) and the edge flag's test (§63.10).
+   - **Existing runs evaluate exactly as before.**
+     - v2_b010's held-out check and SBC, rerun through the new code, are identical in every field and every array.
+     - `laibson_comparison.simulate` at their θ returns its cached output exactly. Windows recut from the panels it now also returns reproduce its windows exactly.
+2. **The windows against the stored panels, read by hand** (`test_every_arms_windows_are_the_stored_panels_read_by_hand`). One held-out shard per run (main, R_γ strip, β strip), each arm's windows, every 97th household. Each wave's stocks are the panel's at the start of the wave's second year, and its flows the year before (flow_lag 1).
+   - 0 mismatches.
+   - Start ages span 24–51, 24–45, 24–37 and 24–25 (28, 22, 14 and 2 values).
+   - The last wave's age is at most 64 in every arm.
+3. **Smoke run of the whole chain** (`SMOKE=<dir> scripts/run_waves.sh`: 1 member per arm, 1 epoch on one shard per run, 500 draws).
+   - Every stage ran to `DONE` in 29 minutes, and every table and figure 104–110 filled.
+   - The 9 population simulations it made at θ₀ are kept for the run; they are the same simulations by construction.
+   - In it, v2_b010's 7-wave population se on households sharing θ₀ was 0.016 against PSID couples' 0.027. That 1.65 is what heterogeneity adds (couples spread about twice as much as households sharing θ, §1), which is why the ratio across waves is the result.
+4. **Timing**, one epoch per arm on the full training data (`optionA.py train --max_epochs 1`), alone on the card.
+   - 58–63 s per epoch at every length: the cost does not grow with the window.
+   - Peak GPU memory 0.9–1.7 GB.
+   - After two epochs the validation loss already falls with length: 4.10, 3.71, 3.41 and 2.80 (unweighted, in flow space, indicative only).
+
+### The chain
+
+About 11–12 hours, from gate 4: about 1 h per member two at a time (v2_b010 trained 52 epochs in 61 min), so about 10 h for 20 members, then about 1.5 h of evaluation.
+1. **Training,** 2 members at a time: w07, w10, w14, w20, seeds 0–4.
+2. **Per arm:** held-out check; SBC on the set plus the strip (figures 107–110); for w07, PSID couples and all 889.
+3. **The population:** `waves_experiment.py population --with_psid_arm`.
+4. **The measures and figures 104–106,** then `DONE`.
+
+**If the results look odd,** I report them and propose the run-forward arms (the user's fallback). Nothing more runs without the user.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_waves.py
+    SMOKE=<dir> ./scripts/run_waves.sh
+    nohup setsid ./scripts/run_waves.sh >> logs/waves.log 2>&1 &

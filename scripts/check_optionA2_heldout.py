@@ -111,6 +111,8 @@ def by_region(r: dict, w: np.ndarray, spec) -> dict:
 
 def floors(entries: list[str]) -> dict:
     out, means = {}, {}
+    if not entries:     # RESULTS 64: windows longer than PSID's seven waves have no PSID
+        return out
     for e in entries:
         nm, p = e.split("=", 1)
         a = np.load(f"{p}/posterior_uncorrected.npz")
@@ -141,9 +143,10 @@ def main() -> None:
     ap.add_argument("--shards", type=Path, nargs="+",
                     default=[Path("data/processed/couples_dataset_shards")],
                     help="The ensemble's shard directories, in training order.")
-    ap.add_argument("--psid", nargs="+", default=PSID,
+    ap.add_argument("--psid", nargs="*", default=PSID,
                     help="NAME=DIR of `optionA.py psid` outputs; the first is the "
-                         "reference for the correlations.")
+                         "reference for the correlations. None for an ensemble "
+                         "whose windows PSID cannot supply (RESULTS 64).")
     ap.add_argument("--n_draws", type=int, default=4000)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out", type=Path, default=Path("outputs/optionA2/heldout_check.json"))
@@ -159,7 +162,7 @@ def main() -> None:
                          f"ensemble's box {spec.box}")
     oa.check_flow_lag(cfg, held_f)
     th, x, pid, _f = oa.windows(held_f, theta_all, seed=oa.HELD_SEED, noise=spec.obs_noise,
-                                mask=spec.mask_patterns())
+                                mask=spec.mask_patterns(), window=oa.window_of(cfg))
     pick = oa.one_per_draw(pid, seed=0)
     th, x, pid = th[pick], x[pick], pid[pick].numpy()
     t = th.numpy().astype(float)

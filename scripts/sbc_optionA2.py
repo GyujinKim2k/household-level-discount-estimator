@@ -115,6 +115,8 @@ def posterior(members, x, th, spec, n_draws):
 class Members:
     def __init__(self, run_dirs, device):
         self.nets, self.proposal, self.cfg = oa.load_members(run_dirs, device)
+        #: the members' window (RESULTS 64: length and start ages vary by run)
+        self.window = oa.window_of(self.cfg)
 
 
 def show(s: dict, title: str) -> None:
@@ -177,10 +179,11 @@ def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY,
     """Posterior shifts and coverage at penalty 0.5 and 1.5 against 1, paired
     by household (same first shard, seed, windows and noise)."""
     n = len(np.load(files_base[0])["theta"])
+    win = members.window
     th0, x0, pid0, _ = oa.windows(files_base[:1], theta_base, seed=oa.SBC_SEED,
-                                  noise=spec.obs_noise, mask=spec.mask_patterns())
+                                  noise=spec.obs_noise, mask=spec.mask_patterns(), window=win)
     th0 = th0.numpy().astype(float)
-    _, raw0, _ = oa.windows_raw(files_base[:1], theta_base, seed=oa.SBC_SEED)
+    _, raw0, _ = oa.windows_raw(files_base[:1], theta_base, seed=oa.SBC_SEED, window=win)
     r0 = posterior(members, x0, th0, spec, n_draws)
     out = {"n_draws": n, "n_households": int(len(th0)), "by_scale": {}}
     names = list(oa.BOX.names)
@@ -198,7 +201,8 @@ def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY,
         if not np.array_equal(theta_s[:n], theta_base[:n]):
             raise SystemExit(f"{shards}: draws differ from the SBC set's")
         th1, x1, pid1, _ = oa.windows(files_s[:1], theta_s, seed=oa.SBC_SEED,
-                                      noise=spec.obs_noise, mask=spec.mask_patterns())
+                                      noise=spec.obs_noise, mask=spec.mask_patterns(),
+                                      window=win)
         th1 = th1.numpy().astype(float)
         if not (np.array_equal(pid1.numpy(), pid0.numpy()) and np.array_equal(th1, th0)):
             raise SystemExit(f"{shards}: households are not paired with the SBC set's")
@@ -206,7 +210,7 @@ def penalty_check(members, spec, theta_base, files_base, n_draws, sets=PENALTY,
         # Households whose simulated (noise-free) windows the scale leaves
         # unchanged: the solve is a grid search, so the penalty moves a path
         # only where it changes a choice.
-        _, raw1, _ = oa.windows_raw(files_s[:1], theta_s, seed=oa.SBC_SEED)
+        _, raw1, _ = oa.windows_raw(files_s[:1], theta_s, seed=oa.SBC_SEED, window=win)
         same = (raw1 == raw0).flatten(1).all(1).numpy()
         ok = np.isfinite(r0["mean"][:, 0]) & np.isfinite(r1["mean"][:, 0])
         d = (r1["mean"] - r0["mean"])[ok] / spec.prior_sd
@@ -296,7 +300,7 @@ def main() -> None:
     cfg = sets[0][2]
     oa.check_flow_lag(members.cfg, files)
     th, x, pid, _f = oa.windows(files, theta_all, seed=oa.SBC_SEED, noise=spec.obs_noise,
-                                mask=spec.mask_patterns())
+                                mask=spec.mask_patterns(), window=members.window)
     th, pid = th.numpy().astype(float), pid.numpy()
     one = np.zeros(len(pid), bool)
     one[oa.one_per_draw(torch.from_numpy(pid), seed=0)] = True

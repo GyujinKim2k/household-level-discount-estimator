@@ -399,7 +399,16 @@ def add_obs_noise(x: torch.Tensor, noise, seed: int) -> torch.Tensor:
     return out
 
 
-def windows_raw(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=(), mask=None):
+def window_of(cfg: dict | None = None) -> dict:
+    """A run's window settings (``build_windowed``'s n_waves, start ages,
+    wave years and age channel) from its members' config, falling back to
+    ``WINDOW`` for anything a config does not record (RESULTS 64's arms
+    record their own start range)."""
+    rec = (cfg or {}).get("window", {})
+    return {k: rec.get(k, v) for k, v in WINDOW.items()}
+
+
+def windows_raw(files, theta_all, seed, n_waves=None, noise=(), mask=None, window=None):
     """``build_windowed`` over shards of one or more runs, untransformed.
     ``files`` are :class:`Shard`\\ s or plain paths (one run, offset 0). Draw
     ids, and the window seeds (``seed + lo``), are offset per run, so ids stay
@@ -407,15 +416,19 @@ def windows_raw(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=(), mas
     ``noise`` (a :class:`Spec`'s ``obs_noise``) adds observation noise, seeded
     by the window seed; ``mask`` (PSID couples' mask patterns,
     :meth:`Spec.mask_patterns`) then marks feature-waves missing, from its own
-    stream, so the noise is the same with or without it."""
+    stream, so the noise is the same with or without it. ``window`` (a dict
+    like ``WINDOW``, e.g. :func:`window_of` a members' config) sets the window;
+    ``n_waves``, if given, overrides its length."""
+    win = {**WINDOW, **{k: v for k, v in (window or {}).items() if k in WINDOW}}
+    if n_waves is not None:
+        win["n_waves"] = n_waves
     groups: dict[int, list[Path]] = {}
     for f in files:
         path, off = (f.path, f.offset) if isinstance(f, Shard) else (Path(f), 0)
         groups.setdefault(off, []).append(path)
     out = []
     for off, paths in groups.items():
-        th, x, pid = build_windowed(paths, theta_all[off:], k=1, seed=seed + off,
-                                    **{**WINDOW, "n_waves": n_waves},
+        th, x, pid = build_windowed(paths, theta_all[off:], k=1, seed=seed + off, **win,
                                     flow_lag=flow_lag_of(paths))
         x = add_obs_noise(x, noise, seed=NOISE_SEED + seed + off)
         if mask is not None:
@@ -446,8 +459,8 @@ def check_flow_lag(cfg: dict, files) -> None:
                          f"were generated with {sorted(data)}")
 
 
-def windows(files, theta_all, seed, n_waves=WINDOW["n_waves"], noise=(), mask=None):
-    th, x, pid = windows_raw(files, theta_all, seed, n_waves, noise, mask)
+def windows(files, theta_all, seed, n_waves=None, noise=(), mask=None, window=None):
+    th, x, pid = windows_raw(files, theta_all, seed, n_waves, noise, mask, window)
     x, feats = transform(x, masked=mask is not None)
     return th, x, pid, feats
 
@@ -602,8 +615,11 @@ def train(args) -> None:
                 hashlib.sha256(Path(args.mask_patterns).read_bytes()).hexdigest())
     spec = Spec(box=box_of(cfg), beta_transform=args.beta_transform,
                 rgamma_transform=args.rgamma_transform, obs_noise=noise, imputation_mask=mask)
-    th, x, pid, feats = windows(train_f, theta_all, seed=0, n_waves=args.n_waves,
-                                noise=spec.obs_noise, mask=spec.mask_patterns())
+    # RESULTS 64: the start range is set per run (longer windows start earlier)
+    win = {**WINDOW, "n_waves": args.n_waves,
+           **({"start_high": args.start_high} if args.start_high is not None else {})}
+    th, x, pid, feats = windows(train_f, theta_all, seed=0, noise=spec.obs_noise,
+                                mask=spec.mask_patterns(), window=win)
     drawn = np.unique(pid.numpy())
     train_ids = np.concatenate([f.offset + np.arange(int(np.load(f.path)["lo"]),
                                                      int(np.load(f.path)["hi"]))
@@ -622,7 +638,7 @@ def train(args) -> None:
     dev = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     over = {"max_num_epochs": args.max_epochs} if args.max_epochs else {}
     torch.manual_seed(args.seed)
-    post, _d, _i = train_npe(spec.to_flow(th).float(), x, embedder=emb,
+    post, _d, inference = train_npe(spec.to_flow(th).float(), x, embedder=emb,
                              box=spec.flow_box(), device=dev, group_ids=pid,
                              **{**TRAINING, "batch_size": 1024,
                                 "learning_rate": 1e-3, **over})
@@ -630,6 +646,12 @@ def train(args) -> None:
     out.mkdir(parents=True, exist_ok=True)
     save_posterior(post, emb, spec.flow_box(), out / f"posterior_{args.n_waves}w.pt",
                    proposal=proposal)
+    # RESULTS 64: loss curves and epoch times, for the underfitting check; a
+    # file of its own, so results.json stays what earlier runs wrote
+    summ = getattr(inference, "_summary", {})
+    (out / "training_summary.json").write_text(json.dumps(
+        {k: [float(v) for v in summ.get(k, [])]
+         for k in ("training_loss", "validation_loss", "epoch_durations_sec")}))
     # Keys runs before RESULTS 43.5 never recorded, written only when they
     # differ from the defaults, so a run like those writes the same config.
     extra = {}
@@ -653,7 +675,7 @@ def train(args) -> None:
         **({"train_frac": args.train_frac} if args.train_frac is not None else {}),
         "proposal": proposal, "box": list(BOX.names), "delta_transform": True,
         "beta_transform": spec.beta_transform, **extra,
-        "window": {**WINDOW, "n_waves": args.n_waves, **lag}, "features": list(feats),
+        "window": {**win, **lag}, "features": list(feats),
         "anchor_log": True,
         "mean_income_channel": True, "static_norm_channels": list(STATIC),
         "card": "marginalised", "arch": ARCH, "max_epochs": args.max_epochs,
@@ -663,13 +685,17 @@ def train(args) -> None:
 
 # ------------------------------------------------------------------------ evaluate
 
-def load_members(run_dirs, device=None, n_waves=WINDOW["n_waves"]):
-    """Members of one ensemble: same configuration except the seed. Refuses
+def load_members(run_dirs, device=None, n_waves=None):
+    """Members of one ensemble: same configuration except the seed, so the
+    same window (length, start ages, timing). ``n_waves``, if given, refuses
     members trained on another window length (the 5-wave models of the
-    out-of-sample test, ``train --n_waves 5``)."""
+    out-of-sample test, ``train --n_waves 5``); by default it is read from the
+    members (RESULTS 64's arms are 7-20 waves)."""
     posts, cfgs, props = [], [], []
     for d in run_dirs:
         cfg = json.loads((Path(d) / "results.json").read_text())["_config"]
+        if n_waves is None:
+            n_waves = cfg["window"]["n_waves"]
         if cfg["window"]["n_waves"] != n_waves:
             raise SystemExit(f"{d}: trained on {cfg['window']['n_waves']} waves, "
                              f"expected {n_waves}")
@@ -1059,6 +1085,10 @@ def main() -> None:
                    help="beta's flow target (RESULTS 37); delta is always log(1 - delta).")
     t.add_argument("--n_waves", type=int, default=WINDOW["n_waves"],
                    help="Window length; 5 for the out-of-sample test (oos_optionA.py).")
+    t.add_argument("--start_high", type=int, default=None,
+                   help=f"Latest window start age (default {WINDOW['start_high']}). RESULTS "
+                        "64 matches the age range across window lengths: the last wave "
+                        "starts by 63, so 65 - 2 * n_waves.")
     t.add_argument("--obs_noise", nargs="*", default=[], metavar="FEATURE=LOW:HIGH",
                    help="Observation noise on the simulated windows, per dollar feature: "
                         "each household's sigma uniform on [LOW, HIGH], or a fixed SIGMA "

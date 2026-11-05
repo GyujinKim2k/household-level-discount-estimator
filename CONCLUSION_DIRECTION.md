@@ -43,9 +43,9 @@
      - v2's 0.437 holds.
    - Typical's 90% interval reaches the floor of 0.10 (7% of its bootstrap below it). **Decided by the user (2026-11-05):** "keep the floor at 0.10".
    - **§1 switched to v2 on the wider box (user, 2026-11-05):** the household tables, calibration, heterogeneity and resolution (figure 103) are now `optionA2v2_b010`'s.
-3. **The waves experiment (simulated households).**
-   - **Models.** Train with 7 (existing), 10, 14 and about 20 waves, under v2's noise model on the box with the β strip, with everything else as v2. If the longer windows underfit (training loss still falling while held-out loss stalls), add one wider-embedder arm. That costs GPU-hours, not a regeneration. The training set is dense enough as it is (RESULTS 63.8).
-   - **No regeneration needed.** The stored panels cover ages 20–90 for every household, so longer windows can be cut from the existing shards. `optionA.py train --n_waves` exists. The window start range must leave room: start + 2 × (waves − 1) ≤ 90.
+3. **The waves experiment (simulated households). Launched 2026-11-05 (RESULTS 64), with every window inside ages 24–64 (the user's choice): 7, 10, 14 and 20 waves.**
+   - **Models.** Train with 7 (retrained on the matched range), 10, 14 and 20 waves, under v2's noise model on the box with the β strip, with everything else as v2. If the longer windows underfit (training loss still falling while held-out loss stalls), add one wider-embedder arm. That costs GPU-hours, not a regeneration. The training set is dense enough as it is (RESULTS 63.8).
+   - **No regeneration needed.** The stored panels cover ages 20–90 for every household, so longer windows are cut from the existing shards (`optionA.py train --n_waves --start_high`). Every window lies inside ages 24–64 (start ≤ 65 − 2 × waves; the user's choice, 2026-11-05); PSID's start ages run forward to 83 is the fallback.
    - **Measures, per number of waves:**
      - coverage;
      - share of prior variance removed and posterior sd;
