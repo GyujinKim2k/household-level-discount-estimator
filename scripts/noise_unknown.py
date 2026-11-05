@@ -587,11 +587,40 @@ def population(args) -> None:
         post_hat = _score(m, sim, v[4:], f"ii_{args.tag}_{it}", nd)
         at_v = lc.stat(post_hat["mean"], card, sh)
         path.append({"theta": th.tolist(), "sigma": v[4:].tolist(), "stat": at_v.tolist()})
+    refined, step_fn = None, lc.newton
+    if args.refresh:
+        # RESULTS 63.7: the Jacobian recomputed at each point; a noise level's
+        # differences rescore the centre's households, a parameter's simulate
+        def score_at(w, tag):
+            sim = lc.cached_sim(f"ii_{args.tag}_{tag}", lc.from_u(w[:4]))
+            return _score(m, sim, w[4:], f"ii_{args.tag}_{tag}", nd)
+
+        def fd_at(w, r):
+            c = lc.stencil_centre(w, step, lo_v, hi_v)
+            e = np.eye(8)
+            out = {sign: [score_at(c + f * step[k] * e[k], f"j{r}_{sign}{k}") for k in range(4)]
+                   for sign, f in (("plus", 1), ("minus", -1))}
+            centre = lc.cached_sim(f"ii_{args.tag}_j{r}_centre", lc.from_u(c[:4]))
+            for sign, f in (("plus", 1), ("minus", -1)):
+                out[sign] += [_score(m, centre, c[4:] + f * step[k] * e[k][4:],
+                                     f"ii_{args.tag}_j{r}_{sign}{k}", nd) for k in range(4, 8)]
+            return out
+
+        v, post_hat, fd, J, rpath = lc.refine(
+            v, post_hat, target, se_t, lo_v, hi_v, step, score_at, fd_at,
+            lambda p: lc.stat(p["mean"], card, sh), args.refresh)
+        at_v = lc.stat(post_hat["mean"], card, sh)
+        refined = {"n_max": args.refresh, "path": [
+            {**q, "theta": lc.from_u(np.array(q["v"][:4])).tolist(), "sigma": q.pop("v")[4:]}
+            for q in rpath], "jacobian": J.tolist()}
+
+        def step_fn(w, J_, t, a):
+            return w + lc.bounded_step(w, J_, t - a, se_t, lo_v, hi_v)
     resid = (target - at_v) / se_t
     v_raw = lc.newton(v, J, target, at_v)
-    v_hat = np.clip(v_raw, lo_v, hi_v)
+    v_hat = np.clip(step_fn(v, J, target, at_v), lo_v, hi_v)
     rng = np.random.default_rng(0)
-    boot_raw = boot8(v, fd, post_hat, pm, sh, step, rng)
+    boot_raw = boot8(v, fd, post_hat, pm, sh, step, rng, step_fn=step_fn)
     boot_raw = np.concatenate([lc.from_u(boot_raw[:, :4]), boot_raw[:, 4:]], 1)
     lo8 = np.concatenate([b_lo, np.full(4, 0.003)])
     hi8 = np.concatenate([b_hi, SIGMA_HIGH - 0.003])
@@ -619,19 +648,21 @@ def population(args) -> None:
            "converged": bool((np.abs(resid) < 0.25).all()),
            "representative": rep.tolist(),
            "representative_unclipped": np.concatenate([lc.from_u(v_raw[:4]), v_raw[4:]]).tolist(),
-           "at_box_edge": (v_raw != v_hat).tolist(), "boot_share_beyond_box": beyond.tolist(),
+           "at_box_edge": lc.at_edge(v_hat, lo_v, hi_v).tolist(),
+           "boot_share_beyond_box": beyond.tolist(),
            "representative_se": boot.std(0, ddof=1).tolist(),
            "representative_ci90": np.percentile(boot, [5, 95], axis=0).T.tolist(),
            "representative_corr": np.corrcoef(boot.T).tolist(),
            "at_laibson_stat": lc.stat(base["mean"], card, sh).tolist(),
-           "theta_estimate_per_unit_true_sigma": sens, "boot": boot.tolist()}
+           "theta_estimate_per_unit_true_sigma": sens, "boot": boot.tolist(),
+           **({"refined": refined} if refined else {})}
     args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "population.json").write_text(json.dumps(res, indent=2))
+    (args.out / args.result).write_text(json.dumps(res, indent=2))
     show_population(res)
     if args.with_arms and args.with_arms.exists():
         population_figure(res, json.loads(args.with_arms.read_text()), couples, args.figure,
                           args.title)
-        print(f"wrote {args.out / 'population.json'} and {args.figure}")
+        print(f"wrote {args.out / args.result} and {args.figure}")
 
 
 def jacobian8(fd: dict, card, share, step) -> np.ndarray:
@@ -641,10 +672,11 @@ def jacobian8(fd: dict, card, share, step) -> np.ndarray:
                        np.array([lc.stat(p["mean"], card, share) for p in fd["minus"]]), step)
 
 
-def boot8(v, fd, post_hat, psid_means, share, step, rng, n_boot=1000) -> np.ndarray:
+def boot8(v, fd, post_hat, psid_means, share, step, rng, n_boot=1000,
+          step_fn=None) -> np.ndarray:
     """``laibson_comparison.boot_theta`` with eight unknowns: resample PSID
     couples and the simulated households (paired across points), recompute
-    the Jacobian and the statistic, one Newton step from ``v``."""
+    the Jacobian and the statistic, one Newton step (``step_fn``) from ``v``."""
     from scripts import laibson_comparison as lc
 
     card = post_hat["card"]
@@ -656,8 +688,8 @@ def boot8(v, fd, post_hat, psid_means, share, step, rng, n_boot=1000) -> np.ndar
         J = lc.jacobian(np.array([lc.stat(p["mean"], card, share, idx) for p in fd["plus"]]),
                         np.array([lc.stat(p["mean"], card, share, idx) for p in fd["minus"]]),
                         step)
-        out[b] = lc.newton(v, J, psid_means[ip].mean(0), lc.stat(post_hat["mean"], card,
-                                                                share, idx))
+        out[b] = (step_fn or lc.newton)(v, J, psid_means[ip].mean(0),
+                                        lc.stat(post_hat["mean"], card, share, idx))
     return out
 
 
@@ -763,6 +795,11 @@ def main() -> None:
     q.add_argument("--out", type=Path, default=POP_OUT)
     q.add_argument("--sim_cache", type=Path, default=Path("outputs/laibson_comparison"),
                    help="laibson_comparison's simulated households (reused, and added to).")
+    q.add_argument("--refresh", type=int, default=0,
+                   help="after the fixed-Jacobian steps, up to this many Newton steps with the "
+                        "Jacobian recomputed at each point (RESULTS 63.7)")
+    q.add_argument("--result", default="population.json",
+                   help="the result's file name under --out")
     args = ap.parse_args()
     {"train": train, "sbc": sbc, "psid": psid, "population": population}[args.cmd](args)
 

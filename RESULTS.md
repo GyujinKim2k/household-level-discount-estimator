@@ -4,7 +4,7 @@
 (user). It is option A2n's model and training (§43.7–43.9) on data regenerated
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
-**Last updated:** 2026-11-04 (§63: the β strip to 0.10; §1's population estimate updated).
+**Last updated:** 2026-11-04 (§63: the β strip to 0.10; §63.10: the population fits with the Jacobian recomputed at each point; §1's population estimate updated).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -67,15 +67,20 @@ The data carry the audit's fixes (§55.1):
   | | β | δ | ρ | R_gamma |
   |---|---|---|---|---|
   | Laibson et al. (reported se; sampling-only se) | 0.5305 (0.114; 0.050) | 0.9891 (0.0051; 0.0020) | 1.94 (0.435; 0.204) | 1.05, calibrated |
-  | **PSID couples, v2, β strip (bootstrap se; §63.6)** | **0.437** (0.021) | **0.9927** (0.0006) | **1.58** (0.096) | **1.042** (0.0015) |
+  | **PSID couples, v2, β strip (bootstrap se; §63.10)** | **0.437** (0.027) | **0.9928** (0.0009) | **1.58** (0.085) | **1.042** (0.0014) |
+  | PSID couples, typical noise, β strip (§63.10) | 0.132 (0.019; 7% of the bootstrap below the floor of 0.10) | 0.9991 (0.0003) | 1.95 (0.34) | 1.038 (0.0017) |
+  | PSID couples, gross noise, β strip (§63.10) | 0.157 (0.011) | 0.9986 (0.0002) | 1.11 (0.079) | 1.036 (0.0009) |
   | PSID couples, v2, old box (superseded) | 0.531 (0.022) | 0.9901 (0.0009) | 1.44 (0.098) | 1.043 (0.0016) |
-  | PSID couples, gross, old box | 0.335 (0.031; 18% of the bootstrap below the floor) | 0.9957 (0.0007) | 1.42 (0.20) | 1.038 (0.0023) |
 
-  - **Under v2 on the wider box, couples' representative β is 0.094 below theirs,** δ 0.0036 above and ρ 0.35 below, each within their reported error (|z| ≤ 0.81) and 1.6–1.7 combined standard errors from their sampling-only one. The fit misses PSID by at most 0.32 standard errors. Our standard errors are 2.1–3.2 times smaller than their sampling-only ones (§63.6).
+  - **Under v2 on the wider box, couples' representative β is 0.094 below theirs,** δ 0.0037 above and ρ 0.35 below, each within their reported error (|z| ≤ 0.80) and 1.6–1.7 combined standard errors from their sampling-only one. The fit misses PSID by at most 0.02 standard errors. Our standard errors are 1.9–2.4 times smaller than their sampling-only ones (§63.10, with the Jacobian at the estimate; §63.6's, at their θ, gave 2.1–3.2).
   - *Withdrawn (§63.6):* "under v2, couples' representative β and δ are theirs, to within 0.001". The old box's floor at 0.3 had held up the estimates of couples near it.
-  - **ρ is lower than theirs in every arm** (1.42–1.65), not higher as the medians suggested.
-  - **R_gamma is lower than their calibrated 1.05** in every arm (1.038–1.043), not higher.
-  - **The noise assumption moves β by 0.2.** That is 6–9 of our standard errors: the error model, not sampling, is the main uncertainty. Under the typical arm, no θ in the old box fits, because β would have to fall below 0.3. On the wider box the PSID-level arms go to β 0.16–0.23, but the method does not converge there: its Jacobian, held at their θ, fails far from it (§63.7).
+  - **ρ is not higher than theirs in any arm,** as the medians suggested: lower under v2 (1.58) and gross (1.11), theirs under typical (1.95; §63.10).
+  - **R_gamma is lower than their calibrated 1.05** in every converged fit (1.036–1.042, §63.10), not higher.
+  - **The noise assumption moves β by about 0.3:** v2's 0.437 against 0.13–0.16 under PSID-level noise. That is 10–11 of v2's standard errors: the error model, not sampling, is the main uncertainty.
+    - Typical (0.132) and gross (0.157) converge, with the Jacobian recomputed at each point (§63.10).
+    - Noise-unknown stops at 0.143, because no income noise in the box matches couples.
+    - Typical's 90% interval reaches the new floor of 0.10.
+    - On the old box, no θ fitted under these arms: β had to fall below 0.3.
 - **The old headline is reversed.** There, β was 0.852, inside the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14). Under v2, 28% of couples' means are inside that band, and 50% of all 889's.
 - **β is weakly identified per couple:** held-out contraction 0.40 (§56.2).
   - PSID couples' β population piles at the box floor of 0.3 (§47.3). On the wider box, 75% of couples' 5th percentiles fall below 0.3, and no couple's or simulated household's 95th percentile does: below 0.3, one household's β is not resolved with seven waves (§63.4–63.5).
@@ -9765,9 +9770,9 @@ The households are §61.3's: 2,048 per card type at their θ, with each arm's ow
 
 ---
 
-## 63. The β strip below 0.3: under v2's noise the population β is 0.437, inside the wider box and 0.094 below theirs; one household's β below 0.3 is not resolved; the PSID-level-noise fits do not converge
+## 63. The β strip below 0.3: under v2's noise the population β is 0.437, inside the wider box and 0.094 below theirs; under PSID-level noise it is 0.13–0.16 (63.10); one household's β below 0.3 is not resolved
 
-*Launched 2026-11-02 12:39 UTC, finished 2026-11-03 22:25 UTC. 63.0–63.1 are the launch record, as committed then, with three corrections marked; the results start at 63.2.*
+*Launched 2026-11-02 12:39 UTC, finished 2026-11-03 22:25 UTC. 63.0–63.1 are the launch record, as committed then, with three corrections marked; the results start at 63.2. 63.10 (2026-11-04) refits the population with the Jacobian recomputed at each point; it supersedes 63.6's standard errors and 63.7's "do not converge".*
 
 **Decision (user, 2026-11-02).** "let's generate data including beta below 0.3 to try the models. I think v2 looks best until now." So v2 stays the reference noise arm (§1). RESULTS 62 found that every arm whose noise matches PSID's readings puts the population β at or near the box floor of 0.3:
 - gross 0.335;
@@ -9970,13 +9975,13 @@ The SBC households by true β (v2; the other arms alike):
 | | β | δ | ρ | R_γ |
 |---|---|---|---|---|
 | Laibson et al. (reported se; sampling-only se) | 0.5305 (0.114; 0.050) | 0.9891 (0.0051; 0.0020) | 1.94 (0.435; 0.204) | 1.05, calibrated |
-| **v2, β strip** (bootstrap se) | **0.437** (0.021) | **0.9927** (0.0006) | **1.58** (0.096) | **1.0423** (0.0015) |
+| **v2, β strip** (bootstrap se; superseded by 63.10's 0.027, 0.0009, 0.085, 0.0014) | **0.437** (0.021) | **0.9927** (0.0006) | **1.58** (0.096) | **1.0423** (0.0015) |
 | 90% bootstrap | 0.402–0.471 | 0.9916–0.9936 | 1.43–1.74 | 1.0401–1.0450 |
 | v2, old box (§61.4) | 0.531 (0.022) | 0.9901 (0.0009) | 1.44 (0.098) | 1.043 (0.0016) |
 
 - **It fits better than the old box's.** The last simulated point misses PSID couples by at most 0.32 of their standard errors (β −0.32, δ −0.21, ρ +0.15, R_γ +0.05; old box: 0.85).
 - **The box does not bind.** No bootstrap draw is beyond any edge.
-- **The precision comparison stands.**
+- **The precision comparison stands.** *(63.10: with the Jacobian at the estimate, the ratios are 4.3, 5.9, 5.1 and 1.9, 2.4, 2.4.)*
   - Their reported errors are 5.4, 8.1 and 4.5 times ours (β, δ, ρ), and their sampling-only errors 2.4, 3.2 and 2.1 times.
   - Old box: 5.2 / 2.3, 5.9 / 2.3, 4.4 / 2.1.
 - **Against theirs:**
@@ -10003,6 +10008,8 @@ What it still rests on is §61.4's list:
 
 ### 63.7 The PSID-level noise arms: β 0.16–0.23, and the method does not converge there
 
+*Superseded by 63.10: with the Jacobian recomputed at each point, typical and gross converge, at β 0.132 and 0.157.*
+
 | last simulated point (misfit ÷ PSID se) | β | δ | ρ | R_γ | σ income |
 |---|---|---|---|---|---|
 | typical | 0.157 (+3.5) | 0.9987 (+5.7) | 2.23 (−1.8) | 1.038 (−0.3) | |
@@ -10017,7 +10024,7 @@ What it still rests on is §61.4's list:
   - The Jacobian is held at their θ, and down the β–δ ridge (δ near 0.998) it no longer predicts the statistic.
   - Typical's last two steps were predicted to move δ's statistic by 8.5 PSID standard errors each and moved it by −0.1 and +2.8. Gross's last step: 7.0 predicted, 3.0 moved.
   - Under v2, whose steps stayed nearer their θ, the predictions were off by at most 2 standard errors on moves of up to 10, and by under 1 in the last two steps.
-- **Whether some θ fits couples under PSID-level noise is open.** A Jacobian recomputed at the last point (8 simulated points per arm, 16 for noise-unknown) would settle it.
+- **Whether some θ fits couples under PSID-level noise is open.** A Jacobian recomputed at the last point (8 simulated points per arm, 16 for noise-unknown) would settle it. *(Settled in 63.10.)*
 - **What does hold:** under every PSID-level arm, the population β goes well below v2's.
   - Households at their θ are read 0.05–0.09 higher than couples: typical 0.600 against 0.511, gross 0.611 against 0.558, noise-unknown 0.608 against 0.543.
   - Closing that gap along the β–δ ridge takes β to about 0.15–0.25 and δ to about 0.998.
@@ -10044,11 +10051,11 @@ v2 members 0 and 1 trained on half the training draws, scored with the full-data
 
 ### 63.9 Reading
 
-- **Under v2's noise model, the reference, the population estimate is a fit inside the wider box:** β 0.437 (se 0.021), δ 0.9927, ρ 1.58, R_γ 1.042.
-  - It is 2.1–3.2 times as precise as Laibson et al.'s sampling-only errors, and 4.5–8.1 times as precise as their reported ones.
+- **Under v2's noise model, the reference, the population estimate is a fit inside the wider box:** β 0.437 (se 0.027, 63.10), δ 0.9928, ρ 1.58, R_γ 1.042.
+  - It is 1.9–2.4 times as precise as Laibson et al.'s sampling-only errors, and 4.3–5.9 times as precise as their reported ones (63.10; 63.6's Jacobian at their θ gave 2.1–3.2 and 4.5–8.1).
   - It is lower in β and ρ and higher in δ than theirs, within their reported errors (|z| ≤ 0.81). Against their sampling-only errors, β, δ and ρ are each 1.6–1.7 combined standard errors away.
 - **The old box's agreement with their β was partly the floor's work.** §61.4's and §1's "replicates their β and δ to within 0.001" is superseded.
-- **Under PSID-level noise, β goes to about 0.15–0.25.** The method does not converge there, because its Jacobian, held at their θ, fails far from it. Whether a θ fits is open. The noise model still decides the population β, by 0.2 or more.
+- **Under PSID-level noise, β goes to about 0.15–0.25.** The method does not converge there, because its Jacobian, held at their θ, fails far from it. Whether a θ fits is open. The noise model still decides the population β, by 0.2 or more. *Superseded by 63.10: with the Jacobian recomputed, typical and gross fit at β 0.132 and 0.157, and the noise model moves β by about 0.3.*
 - **One household's β below 0.3 cannot be told apart** from the 0.3–0.4 range with seven waves: no household, simulated or PSID, has its 95th percentile below 0.3.
   - For the waves experiment this is the first thing to measure: whether longer panels resolve low β for one household.
   - The behaviour at the credit limit suggests that more waves of the same behaviour may add little there.
@@ -10085,3 +10092,138 @@ v2 members 0 and 1 trained on half the training draws, scored with the full-data
     # 63.2-63.8 read the chain's outputs: outputs/beta_strip/ (STATUS, learning curve, population),
     # outputs/optionA2v2_b010*/heldout_check.json and sbc/, outputs/psid_optionA2v2_b010*_{couples,all}/,
     # outputs/noise_unknown_b010/population.json, outputs/audit/{integrity,invariants}_betastrip_*.json
+
+### 63.10 The Jacobian recomputed at each point: under PSID-level noise the population β is 0.13–0.16 (typical and gross converge; noise-unknown stops there with its income noise unmatched); typical's interval reaches the new floor; v2's 0.437 holds, with β's standard error 0.027, not 0.021
+
+The user asked on 2026-11-04 for 63.7's open check: "rerun the noisy fits with the updated Jacobian".
+
+**Method** (`laibson_comparison.py --refresh 4`, `noise_unknown.py population --refresh 4`):
+- §63.6's three fixed-Jacobian steps come first, unchanged.
+- Then up to four Newton steps, each with the Jacobian recomputed by central differences at the current point. That costs 8 simulated points; noise-unknown needs 9 simulations and 8 rescorings, because a noise perturbation only rescores.
+- A step that does not lower the se-weighted sum of squared misfits is halved, twice at most. If none does, the refinement stops there.
+- A component that a step would push past its bound is held there, and the others solve se-weighted least squares.
+- The stencil's centre is moved inside the box: at the β floor it sits at 0.131, so the minus point is 0.101.
+- The unsimulated last step and the 1,000-draw bootstrap use the Jacobian at the last simulated point, not the one at their θ.
+- `--refresh 0` is §61–63.6's method: rerunning §63.6 from its cache reproduced `laibson_comparison_b010.json` exactly.
+- Tests, in `tests/test_laibson_comparison.py`:
+  - on a curved map where the fixed Jacobian stalls above 3 se, the refreshed one reaches 0.25 se;
+  - a step that overshoots is halved;
+  - a component at its bound is held, and only it is flagged as at the edge;
+  - the stencil stays inside the box.
+- Run time: the three known arms took 1 h 27 min, and noise-unknown 1 h 7 min.
+
+| representative θ (bootstrap se) | β | δ | ρ | R_γ | last simulated point's misfit ÷ PSID se |
+|---|---|---|---|---|---|
+| Laibson et al. (reported se; sampling-only se) | 0.5305 (0.114; 0.050) | 0.9891 (0.0051; 0.0020) | 1.94 (0.435; 0.204) | 1.05, calibrated | |
+| **v2** | **0.437** (0.027) | **0.9928** (0.0009) | **1.58** (0.085) | **1.0423** (0.0014) | ≤ 0.02 |
+| 90% bootstrap | 0.394–0.479 | 0.9912–0.9940 | 1.44–1.72 | 1.0402–1.0449 | |
+| **typical** | **0.132** (0.019) | **0.9991** (0.0003) | **1.95** (0.34) | **1.0382** (0.0017) | ≤ 0.18 |
+| 90% bootstrap | 0.101 (the floor)–0.165 | 0.9986–0.9995 | 1.35–2.45 | 1.0353–1.0409 | |
+| **gross** | **0.157** (0.011) | **0.9986** (0.0002) | **1.11** (0.079) | **1.0364** (0.0009) | ≤ 0.15 |
+| 90% bootstrap | 0.139–0.175 | 0.9983–0.9989 | 0.98–1.24 | 1.0348–1.0379 | |
+| noise-unknown, last simulated point (θ and noise, §62.4; no fit) | 0.143 | 0.9989 | 1.96 | 1.048 | θ ≤ 1.85; income noise 0.249, at the box top: +7.9 |
+
+**The three known arms converge.** Every target's misfit at a simulated point is under 0.25 PSID standard errors.
+- **v2.** One refreshed step took the misfit from 63.6's 0.32 se to 0.02.
+- **Typical.** It took two refreshed steps; the second was halved once.
+- **Gross.** It used all four steps. The first was quartered: the full step went to β 0.101, and the half step to 0.123, and neither lowered the misfit. The second was halved.
+
+63.7's question is answered for both arms: under PSID-level noise there is a θ that fits couples, and it lies inside the box.
+
+**Noise-unknown stops at β 0.143 without a fit.**
+- **Its path.** It took three refreshed steps; the first and third were halved. Every try at a fourth (the full step, half and quarter) raised the misfit, so it stopped there.
+- **Its misfit.** θ's statistics miss by up to 1.85 PSID standard errors: β +1.39, δ +1.85, ρ +1.17, R_γ +0.29. Consumption, liquid and illiquid noise match within 0.26.
+- **Income noise is the obstacle.** It is held at the box top (0.249) and still misses by 7.9 standard errors, as in §62.4 and 63.7.
+  - By §62.4's 3-se rule there is no fit, so figure 102 shows the point hollow.
+  - It is also what holds θ back. The bounded step's least squares weighs the income statistic, which no point in the box can match.
+  - So the second step's point (β 0.127) had θ within 1.45 se (sum of squares 2.8) and income at 8.3. The third traded θ's fit (sum of squares 6.8) for income's (7.9).
+- **Its "one more step" is not used.** The unsimulated step (β 0.132) is the fourth step, which was simulated and rejected. So neither it nor its bootstrap (21% of it below the floor) is an estimate.
+- **Where it lands.** Its β along the path, 0.127–0.143, is where typical and gross fit.
+
+**v2's point does not move:** 0.4366 against 63.6's 0.4367. Its standard errors change, because the bootstrap now uses the Jacobian at the estimate:
+
+| | β | δ | ρ | R_γ |
+|---|---|---|---|---|
+| bootstrap se, refreshed Jacobian | 0.027 | 0.0009 | 0.085 | 0.0014 |
+| bootstrap se, Jacobian at their θ (63.6) | 0.021 | 0.0006 | 0.096 | 0.0015 |
+
+- The Jacobian at the estimate is the one the sampling error goes through, so **63.6's standard errors are superseded.**
+- Their sampling-only errors are now 1.9, 2.4 and 2.4 times ours (β, δ, ρ), down from 2.4, 3.2 and 2.1.
+- Their reported errors are 4.3, 5.9 and 5.1 times ours, down from 5.4, 8.1 and 4.5.
+- Against theirs:
+  - β: z −0.80 against both errors combined, −1.65 against their sampling-only error combined with ours;
+  - δ: +0.71 / +1.66;
+  - ρ: −0.79 / −1.59.
+- R_γ is 5.3 of our standard errors below their calibrated 1.05.
+- In the bootstrap, β and δ correlate −0.94, β and ρ −0.79, and δ and ρ +0.71.
+- At card share 0.5 (linearised): β 0.429, δ 0.9931, ρ 1.69.
+
+**Under PSID-level noise, couples' representative β is 0.13–0.16, with δ 0.9986–0.9991.**
+- **β** is 0.37–0.40 below theirs. That is z −3.4 (typical) and −3.3 (gross) against their reported errors combined with ours, and −7.4 / −7.3 against their sampling-only errors combined with ours.
+- **δ** is 0.010 above theirs (z +2.0 / +1.9 against reported).
+- **ρ:** typical's 1.95 is theirs (z +0.02); gross's 1.11 is lower (z −1.9).
+- **R_γ** is 1.036–1.038.
+- **The two arms agree on β, δ and R_γ, not on ρ:** 1.95 against 1.11, 2.5 of typical's standard errors apart.
+- **β and δ trade off along one ridge** (bootstrap correlation −0.93 / −0.97). The short-run discount factor βδ is 0.13 / 0.16, against their 0.52.
+
+**Typical's interval reaches the new floor.**
+- 7.2% of its bootstrap falls below β 0.101 and is clipped there, so its 90% interval starts at the floor.
+- The point itself is 0.03 above the floor.
+- Gross's bootstrap does not reach it: its lowest draw is 0.125.
+- **Under 63.0's rule this is reported, and the floor is not extended again without the user.**
+
+**Precision under PSID-level noise:**
+- β and δ are more precise than under v2. Their sampling-only errors are 2.6 (typical) and 4.6 (gross) times ours in β, and 7.9 and 12.7 in δ.
+- **Typical's ρ is less precise than their sampling-only error:** se 0.34, against their sampling-only 0.20 (reported 0.44). Gross's ρ is 2.6 times more precise than their sampling-only error.
+
+**Why the fixed Jacobian failed (63.7).** At the fit, the β column differs most from the one at their θ. In PSID standard errors per unit of β:
+
+| | couples' mean δ estimate, at the fit | at their θ | couples' mean β estimate, at the fit | at their θ |
+|---|---|---|---|---|
+| typical | 296 | 82 | 248 | 112 |
+| gross | 423 | 84 | 312 | 115 |
+
+So couples' mean δ estimate responds to β 3.6–5.0 times as steeply as the fixed Jacobian said, and their mean β estimate 2.2–2.7 times. Those are the δ predictions 63.7 found wrong.
+
+**What it rests on**, besides §61.4's list (one θ for everyone, the first stage fixed, 85% cardholders, two misspecified models):
+- **A root, not the root.** The fit matches four statistics with four parameters, and the root was found from their θ along one path. No other start was tried, so another root elsewhere in the box is not excluded.
+- **Couples differ.** With heterogeneity, a one-θ estimate depends on the statistic matched (§61.4). Here it sits where one household's β is not resolved (63.4). The fit there rests on how the network's average reading responds to the population's θ, which the simulation measures directly; it does not rest on resolving any household.
+- **The noise model.** It now moves the population β by 0.28–0.31: v2's 0.437 against 0.13–0.16. That is 10–11 of v2's standard errors, and larger than 63.7's estimate of "0.2 or more".
+
+**Reading.**
+- **Every PSID-level noise arm puts the population β at 0.13–0.16, with δ near 0.999.** Typical and gross are fits, and noise-unknown's path ends there. The PSID-level arms are the noise that the noise-estimating network reads in couples (§62.3).
+- **Under v2's noise, the reference, the estimate is unchanged at 0.437.** It is now 1.9–2.4 times as precise as their sampling-only errors.
+- **The population claim therefore splits by noise model:**
+  - under v2's noise, within their errors and more precise;
+  - under PSID-level noise, more precise in β and δ, and 0.37–0.40 below their β (z about −3.3 against their reported errors);
+  - typical's ρ is less precise than their sampling-only error.
+- **Typical's interval reaching the floor of 0.10 is the user's call.** The floor would have to go lower for that arm's interval to be read in full.
+
+**Figures** (68/95% contours):
+- 101: Laibson et al.'s point against the refreshed fits of v2, typical and gross;
+- 102: figure 101 with noise-unknown.
+
+**Fixes after the run:**
+- **The standard-error panel's axis.** Its log axis started at 0.05 of their reported error, so typical's and gross's δ errors (0.06 and 0.04 of theirs) fell below it and showed no bar. It now starts at half the smallest ratio.
+- **Noise-unknown's `at_box_edge`** read True for all eight targets.
+  - It compared the estimate with the plain Newton step, which differs in every component once a bounded step holds one.
+  - Both scripts now flag the components that sit on a box edge (`laibson_comparison.at_edge`). Under clipping this matches the old flag, so earlier results are unchanged; the test is `test_only_the_held_component_is_flagged_at_the_edge`.
+- **Regenerated from the cached simulations.** Both result files and figures 101–102 were regenerated this way. Every number reproduced, and the only change is that flag: income noise alone is at the box edge.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python scripts/laibson_comparison.py --arms --refresh 4 \
+        --cache outputs/laibson_comparison --out outputs/beta_strip/laibson_comparison_b010_refresh.json \
+        --figure figures/101_laibson_comparison_b010_refresh.png \
+        --arm v2_b010 outputs/optionA2v2_b010 outputs/psid_optionA2v2_b010_couples \
+        --arm typical_b010 outputs/optionA2v2_b010_noise_typical outputs/psid_optionA2v2_b010_noise_typical_couples \
+        --arm gross_b010 outputs/optionA2v2_b010_noise_gross outputs/psid_optionA2v2_b010_noise_gross_couples \
+        --title "Laibson et al.'s MSM point against PSID couples' representative θ, the box with the β strip down to 0.1, the Jacobian recomputed at each Newton point (RESULTS 63.10)"
+    PYTHONPATH=. .venv/bin/python scripts/noise_unknown.py population --refresh 4 \
+        --run outputs/optionA2v2_b010_noise_unknown --tag unknown_b010 --root outputs \
+        --psid_name psid_optionA2v2_b010_noise_unknown --known v2_b010 gross_b010 \
+        --out outputs/noise_unknown_b010 --result population_refresh.json --sim_cache outputs/laibson_comparison \
+        --with_arms outputs/beta_strip/laibson_comparison_b010_refresh.json \
+        --figure figures/102_population_noise_arms_b010_refresh.png \
+        --title "Laibson et al.'s MSM point against PSID couples' representative θ under each noise arm, the box with the β strip down to 0.1, the Jacobian recomputed at each Newton point (RESULTS 63.10; unknown: θ and noise fitted together)"
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_laibson_comparison.py

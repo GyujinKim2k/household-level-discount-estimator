@@ -311,11 +311,80 @@ def newton(u: np.ndarray, J: np.ndarray, target: np.ndarray, at_u: np.ndarray) -
     return u + np.linalg.solve(J, target - at_u)
 
 
-def boot_theta(u_hat, posts_fd, post_hat, psid_means, share, step, rng, n_boot=N_BOOT):
+def bounded_step(v, J, resid, se, lo, hi) -> np.ndarray:
+    """The Newton step solving ``J d = resid``, except that a component at a
+    bound the step would push past is held there; the free components then
+    solve the misfit's least squares in PSID standard errors (RESULTS 63.7:
+    noise-unknown's income noise sits at its box's top)."""
+    d = np.linalg.solve(J, resid)
+    held = ((v <= lo + 1e-12) & (d < 0)) | ((v >= hi - 1e-12) & (d > 0))
+    if held.any():
+        w = 1 / np.asarray(se, float)
+        d = np.zeros_like(d)
+        d[~held] = np.linalg.lstsq(J[:, ~held] * w[:, None], resid * w, rcond=None)[0]
+    return d
+
+
+def refine(v, post, target, se, lo, hi, step, score_at, fd_at, stat_of, n_iter: int):
+    """RESULTS 63.7: Newton from ``v`` with the Jacobian recomputed by central
+    differences at every accepted point, rather than held at their theta.
+
+    ``score_at(v, tag)`` simulates and scores a point; ``fd_at(v, r)`` returns
+    the central-difference scorings around it ({"plus": [...], "minus": [...]},
+    one per unknown); ``stat_of`` turns a scoring into the statistic. A step
+    that does not lower the misfit's sum of squares (in PSID standard errors)
+    is halved, twice at most; if none does, the refinement stops there. The
+    point returned always carries its own Jacobian, for the last unsimulated
+    step and the bootstrap. Returns (v, post, fd, J, path)."""
+    def loss(p):
+        return float(np.sum(((target - stat_of(p)) / se) ** 2))
+
+    def jac(fd):
+        return jacobian(np.array([stat_of(p) for p in fd["plus"]]),
+                        np.array([stat_of(p) for p in fd["minus"]]), step)
+
+    fd = fd_at(v, 0)
+    J, cur, path = jac(fd), loss(post), []
+    for r in range(1, n_iter + 1):
+        resid = target - stat_of(post)
+        if (np.abs(resid) < 0.25 * se).all():
+            break
+        d = bounded_step(v, J, resid, se, lo, hi)
+        for h, tag in ((1.0, ""), (0.5, "h"), (0.25, "q")):
+            v_new = np.clip(v + h * d, lo, hi)
+            p_new = score_at(v_new, f"r{r}{tag}")
+            new = loss(p_new)
+            path.append({"v": v_new.tolist(), "stat": stat_of(p_new).tolist(),
+                         "step_fraction": h, "accepted": new < cur})
+            if new < cur:
+                break
+        if new >= cur:
+            break
+        v, post, cur = v_new, p_new, new
+        fd = fd_at(v, r)
+        J = jac(fd)
+    return v, post, fd, J, path
+
+
+def at_edge(v, lo, hi) -> np.ndarray:
+    """Which components of an estimate sit on a box edge: clipped there, or
+    held there by :func:`bounded_step` (comparing with the plain Newton step
+    flags every component once one is held)."""
+    return (v <= lo + 1e-12) | (v >= hi - 1e-12)
+
+
+def stencil_centre(v, step, lo, hi) -> np.ndarray:
+    """Where the central differences around ``v`` are taken: moved just enough
+    that every point of the stencil stays inside the box."""
+    return np.clip(v, lo + step, hi - step)
+
+
+def boot_theta(u_hat, posts_fd, post_hat, psid_means, share, step, rng, n_boot=N_BOOT,
+               step_fn=newton):
     """Bootstrap of the representative theta, linearised at ``u_hat``:
     resample PSID households, and simulated households (the same indices at
     every point, so the common random numbers stay paired), recompute the
-    Jacobian and the statistic, and take one Newton step."""
+    Jacobian and the statistic, and take one Newton step (``step_fn``)."""
     card = post_hat["card"]
     by_card = [np.flatnonzero(card == c) for c in (0, 1)]
     out = np.empty((n_boot, 4))
@@ -325,7 +394,7 @@ def boot_theta(u_hat, posts_fd, post_hat, psid_means, share, step, rng, n_boot=N
         plus = np.array([stat(p["mean"], card, share, idx) for p in posts_fd["plus"]])
         minus = np.array([stat(p["mean"], card, share, idx) for p in posts_fd["minus"]])
         J = jacobian(plus, minus, step)
-        out[b] = newton(u_hat, J, psid_means[ip].mean(0), stat(post_hat["mean"], card, share, idx))
+        out[b] = step_fn(u_hat, J, psid_means[ip].mean(0), stat(post_hat["mean"], card, share, idx))
     return out
 
 
@@ -379,12 +448,37 @@ def run(args) -> dict:
             post_hat = cached_post(arm, f"ii_{name}_{it}", s)
             at_u = stat(post_hat["mean"], card, CARD_SHARE)
             path.append({"theta": th.tolist(), "stat": at_u.tolist()})
+        refined, step_fn = None, newton
+        if args.refresh:
+            # RESULTS 63.7: far from their theta the fixed Jacobian fails
+            def score_at(v, tag, name=name, arm=arm):
+                return cached_post(arm, f"ii_{name}_{tag}",
+                                   cached_sim(f"ii_{name}_{tag}", from_u(v)))
+
+            def fd_at(v, r, lo_u=lo_u, hi_u=hi_u, score_at=score_at):
+                c = stencil_centre(v, STEP, lo_u, hi_u)
+                return {sign: [score_at(c + f * STEP[k] * np.eye(4)[k], f"j{r}_{sign}{k}")
+                               for k in range(4)]
+                        for sign, f in (("plus", 1), ("minus", -1))}
+
+            u, post_hat, fd, J, rpath = refine(
+                u, post_hat, target, se_target, lo_u, hi_u, STEP, score_at, fd_at,
+                lambda p, card=card: stat(p["mean"], card, CARD_SHARE), args.refresh)
+            at_u = stat(post_hat["mean"], card, CARD_SHARE)
+            refined = {"n_max": args.refresh, "path": [
+                {**q, "theta": from_u(np.array(q.pop("v"))).tolist()} for q in rpath],
+                "jacobian": J.tolist(),
+                "jacobian_centre": from_u(stencil_centre(u, STEP, lo_u, hi_u)).tolist()}
+
+            def step_fn(v, J_, t, a, lo_u=lo_u, hi_u=hi_u, se=se_target):
+                return v + bounded_step(v, J_, t - a, se, lo_u, hi_u)
         # the last simulated point's misfit, and one more Newton step from it
         # without a simulation: the bootstrap is centred there too
         resid_se = (target - at_u) / se_target
         u_raw = newton(u, J, target, at_u)
-        u_hat = np.clip(u_raw, lo_u, hi_u)
-        boot_raw = from_u(boot_theta(u, fd, post_hat, pm, CARD_SHARE, STEP, rng))
+        u_hat = np.clip(step_fn(u, J, target, at_u), lo_u, hi_u)
+        boot_raw = from_u(boot_theta(u, fd, post_hat, pm, CARD_SHARE, STEP, rng,
+                                     step_fn=step_fn))
         # the networks never saw theta outside the box: past an edge the
         # linear step is extrapolation, so the estimate stops at the edge and
         # the bootstrap's share beyond it is reported
@@ -422,13 +516,14 @@ def run(args) -> dict:
             "last_simulated_misfit_over_psid_se": resid_se.tolist(),
             "representative_theta": from_u(u_hat).tolist(),
             "representative_unclipped": from_u(u_raw).tolist(),
-            "at_box_edge": (u_raw != u_hat).tolist(),
+            "at_box_edge": at_edge(u_hat, lo_u, hi_u).tolist(),
             "boot_share_beyond_box": beyond.tolist(),
             "representative_se": boot.std(0, ddof=1).tolist(),
             "representative_ci90": np.percentile(boot, [5, 95], axis=0).T.tolist(),
             "representative_corr": np.corrcoef(boot.T).tolist(),
             "representative_card_share_0.5": th5.tolist(),
             "boot": boot.tolist(),
+            **({"refined": refined} if refined else {}),
         }
         print(f"{name}: representative theta {np.round(from_u(u_hat), 4).tolist()} "
               f"se {np.round(boot.std(0, ddof=1), 4).tolist()}", flush=True)
@@ -571,6 +666,9 @@ def plot(res: dict, path: Path, title: str | None = None) -> None:
                        ARM_COLOR[name]))
     xs = np.arange(3)
     width = 0.8 / len(groups)
+    # RESULTS 63.10: converged fits near delta 1 have se under 0.05 of theirs
+    ratios = np.array([np.array(v[:3], float) for _, v, _ in groups]) / np.array(se["reported"])
+    bottom = min(0.05, 0.5 * np.nanmin(ratios))
     for g, (lab, v, color) in enumerate(groups):
         ratio = np.array(v[:3]) / np.array(se["reported"])
         a.bar(xs - 0.4 + (g + 0.5) * width, ratio, width, color=color,
@@ -579,7 +677,7 @@ def plot(res: dict, path: Path, title: str | None = None) -> None:
     a.axhline(1, color="k", lw=0.6)
     a.set_yscale("log")
     a.set_xticks(xs, [hr.LABEL[n] for n in NAMES[:3]])
-    a.set(ylabel="standard error ÷ Laibson et al.'s reported", ylim=(0.05, 400))
+    a.set(ylabel="standard error ÷ Laibson et al.'s reported", ylim=(bottom, 400))
     a.legend(fontsize=6, ncol=2, loc="upper center")
     a.grid(ls=":", lw=0.5, axis="y")
     # a long title wraps rather than running off the figure's edges
@@ -607,6 +705,10 @@ def main() -> None:
     ap.add_argument("--figure", type=Path, default=FIG)
     ap.add_argument("--out", type=Path, default=OUT / "laibson_comparison.json")
     ap.add_argument("--title", default=None, help="the figure's title")
+    ap.add_argument("--refresh", type=int, default=0,
+                    help="after the fixed-Jacobian steps, up to this many Newton steps with "
+                         "the Jacobian recomputed at each point (RESULTS 63.7); 0: RESULTS 61's "
+                         "method")
     args = ap.parse_args()
     for name, run_dir, couples in args.arm:
         ARMS[name] = (run_dir, couples, None)

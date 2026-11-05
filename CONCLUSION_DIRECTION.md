@@ -19,11 +19,11 @@
 | what seven waves give one household | share of prior variance removed: β 0.40, δ 0.54, ρ 0.61, R_γ 0.53. PSID couples' median posterior sd: β 0.164, δ 0.0121, ρ 0.90, R_γ 0.0095 | RESULTS 56.2–56.3 |
 | one couple cannot be ranked against another on β or ρ | one couple's 90% interval is 1.3–1.4 times the spread of couples' estimates; 10–13% of pairs can be ordered | RESULTS 60 |
 | couples differ | their estimates spread 1.5–2 times as much as households that share θ; clearest in β | RESULTS 60 |
-| population, under v2's noise model, box extended to β 0.10 | representative θ: β 0.437 (se 0.021), δ 0.9927 (0.0006), ρ 1.58 (0.096), R_γ 1.042 (0.0015); misfit ≤ 0.32 PSID se, no bootstrap draw beyond the box. Standard errors 2.1–3.2 times smaller than their sampling-only ones, 4.5–8.1 times smaller than their reported ones. Within their reported errors (\|z\| ≤ 0.81); 1.6–1.7 combined se from their sampling-only ones. The old box's 0.531 is superseded: its floor held couples' estimates up | RESULTS 63.6 (61.4) |
+| population, under v2's noise model, box extended to β 0.10 | representative θ: β 0.437 (se 0.027), δ 0.9928 (0.0009), ρ 1.58 (0.085), R_γ 1.042 (0.0014); misfit ≤ 0.02 PSID se, no bootstrap draw beyond the box. Standard errors (Jacobian at the estimate) 1.9–2.4 times smaller than their sampling-only ones, 4.3–5.9 times smaller than their reported ones. Within their reported errors (\|z\| ≤ 0.80); 1.6–1.7 combined se from their sampling-only ones. The old box's 0.531 is superseded: its floor held couples' estimates up | RESULTS 63.10 (63.6, 61.4) |
 | more waves were already sharper in an earlier model | three-parameter model (before card types and R_γ): 10 waves gave held-out log q 5.446 against 7 waves' 5.007, both calibrated | `PSID_DATA.md` §3 |
 | households simulated at their θ | under v2, individual 90% intervals contain their θ for 99% (β), 91% (δ), 96% (ρ) and 86% (R_γ). The average posterior mean lands further away the noisier the data; without noise it is within 0.013 of their β (ρ stays 0.5 high: its long upper tail) | RESULTS 62.6 |
 | what noise PSID couples have | a network that estimates each household's noise reads couples, on average, as noisy as the gross arm or noisier, far above v2's training noise; one couple at a time, a third or fewer exclude v2's range; income reads noisier than the box allows (likely the couples' income process) | RESULTS 62.3 |
-| the population β under PSID-level noise | on the wider box, typical, gross and noise-unknown go to β 0.16–0.23 with δ near 0.998, but the method does not converge there (misfit 4–8 se): its Jacobian, held at their θ, fails far from it. Whether a θ fits is open; the noise model still moves β by 0.2 or more | RESULTS 63.7 (62.4) |
+| the population β under PSID-level noise | with the Jacobian recomputed at each point, typical and gross converge: β 0.132 (se 0.019) and 0.157 (0.011), δ 0.9991 / 0.9986, ρ 1.95 / 1.11, R_γ 1.038 / 1.036; z about −3.3 against their reported β error. Noise-unknown stops at β 0.143 (θ misfit ≤ 1.9 se), its income noise unmatched at the box top. Typical's 90% interval reaches the floor of 0.10 (7% of the bootstrap below it). The noise model moves β by about 0.3, 10–11 of v2's standard errors | RESULTS 63.10 (63.7, 62.4) |
 | one household's β below 0.3 | not resolved with seven waves: simulated households at β 0.1–0.2 average a posterior mean of 0.35; no simulated or PSID household has its 95th percentile below 0.3 | RESULTS 63.4–63.5 |
 | a denser training set | doubling the data (20k to 40k draws) leaves the share of prior variance removed unchanged (±0.011) and adds +0.19 log q; another doubling would cost about 6 GPU-days for about +0.1 log q | RESULTS 63.8 |
 
@@ -35,11 +35,13 @@
    - **Decided by the user (2026-11-02):** "let's generate data including beta below 0.3 to try the models. I think v2 looks best until now." v2 stays the reference noise model, and the β floor is extended by a strip (below).
 2. **RESULTS 63 (done, 2026-11-04): the β strip below 0.3.**
    - New draws on β ∈ [0.10, 0.30), trained with v2's main run and R_γ strip; the box is β ∈ [0.10, 1] (`scripts/run_beta_strip.sh`). Every arm is calibrated on it.
-   - Under v2 the population fit converges inside the box at β 0.437 (se 0.021), replacing 0.531.
-   - Under the PSID-level arms β goes to 0.16–0.23, but the fits do not converge. No fit reached 0.10, so the floor stays.
+   - Under v2 the population fit converges inside the box at β 0.437 (se 0.027 with the Jacobian at the estimate, RESULTS 63.10), replacing 0.531.
    - One household's β below 0.3 is not resolved with seven waves.
    - No denser dataset is needed (the learning curve).
-   - **Open, the user's call:** a Jacobian recomputed at the PSID-level arms' last points (about 1 GPU-hour) would show whether any θ fits under PSID-level noise.
+   - **The Jacobian recomputed at each point (RESULTS 63.10, 2026-11-04, user's request):**
+     - under PSID-level noise the population β is 0.13–0.16: typical and gross converge, and noise-unknown stops there with income noise unmatched;
+     - v2's 0.437 holds.
+   - **Open, the user's call:** typical's 90% interval reaches the floor of 0.10 (7% of its bootstrap below it). Under the 63.0 rule the floor is not extended again without the user.
 3. **The waves experiment (simulated households).**
    - **Models.** Train with 7 (existing), 10, 14 and about 20 waves, under v2's noise model on the box with the β strip, with everything else as v2. If the longer windows underfit (training loss still falling while held-out loss stalls), add one wider-embedder arm. That costs GPU-hours, not a regeneration. The training set is dense enough as it is (RESULTS 63.8).
    - **No regeneration needed.** The stored panels cover ages 20–90 for every household, so longer windows can be cut from the existing shards. `optionA.py train --n_waves` exists. The window start range must leave room: start + 2 × (waves − 1) ≤ 90.
@@ -57,7 +59,7 @@
 ## Caveats each claim must carry
 
 - **"Better than Laibson et al. at the population level":**
-  - it means more precise, and the location depends on the noise model (above), so the claim is made under the reference noise model, v2's (the user's choice, 2026-11-02), on the box extended to β 0.10, with the PSID-level-noise arms reported beside it;
+  - it means more precise, and the location depends on the noise model (β 0.437 under v2's, 0.13–0.16 under PSID-level noise, RESULTS 63.10), so the claim is made under the reference noise model, v2's (the user's choice, 2026-11-02), on the box extended to β 0.10, with the PSID-level-noise arms reported beside it;
   - on that box v2's β is 0.437, not their 0.53; the agreement the old box showed was partly its floor's work (RESULTS 63.6);
   - our standard errors hold the first stage (income process, demographics, credit limits) fixed, so the like-for-like comparison is their sampling-only error;
   - both estimates are one θ for everyone, though couples differ;
