@@ -10323,7 +10323,7 @@ Only the window changes. Its last wave starts by 63, so it holds the stocks at t
 All pass. Commands are under *Reproduce*.
 
 1. **Tests.**
-   - The whole suite passes with the GPU hidden: 579 passed, 37 skipped. With the card visible, the 14 files with GPU tests pass: 135.
+   - The whole suite passes with the GPU hidden: 579 passed, 37 skipped. That run had the new tests in place of `tests/test_waves.py`'s 17 wave-aggregation tests, which the first commit overwrote; restored, they pass with the new file's 14 (31). With the card visible, the 14 files with GPU tests pass: 135.
    - New: `tests/test_waves_experiment.py` (14) and the edge flag's test (§63.10).
    - **Existing runs evaluate exactly as before.**
      - v2_b010's held-out check and SBC, rerun through the new code, are identical in every field and every array.
