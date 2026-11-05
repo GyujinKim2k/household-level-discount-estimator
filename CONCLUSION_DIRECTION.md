@@ -15,10 +15,10 @@
 
 | claim | evidence | where |
 |---|---|---|
-| calibrated on simulated households | held-out 90% coverage 0.899–0.919; SBC 0.895–0.904 | RESULTS 56.2 |
-| what seven waves give one household | share of prior variance removed: β 0.40, δ 0.54, ρ 0.61, R_γ 0.53. PSID couples' median posterior sd: β 0.164, δ 0.0121, ρ 0.90, R_γ 0.0095 | RESULTS 56.2–56.3 |
-| one couple cannot be ranked against another on β or ρ | one couple's 90% interval is 1.3–1.4 times the spread of couples' estimates; 10–13% of pairs can be ordered | RESULTS 60 |
-| couples differ | their estimates spread 1.5–2 times as much as households that share θ; clearest in β | RESULTS 60 |
+| calibrated on simulated households | on the wider box (β 0.10–1), held-out 90% coverage 0.903–0.913; SBC 0.889–0.908 (old box 0.899–0.919 and 0.895–0.904) | RESULTS 63.3 (56.2) |
+| what seven waves give one household | on the wider box, share of prior variance removed: β 0.52, δ 0.46, ρ 0.53, R_γ 0.46 (not comparable with the old box's 0.40, 0.54, 0.61, 0.53: β's prior is wider and the held-out set includes the strip). PSID couples' median posterior sd: β 0.183, δ 0.0123, ρ 0.93, R_γ 0.0102 | RESULTS 63.3, 63.5 (56.2–56.3) |
+| one couple cannot be ranked against another on β or ρ | on the wider box, one couple's 90% interval is 1.07 (β) and 1.44 (ρ) times the spread of couples' estimates; 21% and 8% of pairs can be ordered | RESULTS 1 (60's method) |
+| couples differ | their estimates spread 1.4–2.0 times as much as households that share θ; clearest in β (and R_γ), which exceed both nulls | RESULTS 1 (60's method) |
 | population, under v2's noise model, box extended to β 0.10 | representative θ: β 0.437 (se 0.027), δ 0.9928 (0.0009), ρ 1.58 (0.085), R_γ 1.042 (0.0014); misfit ≤ 0.02 PSID se, no bootstrap draw beyond the box. Standard errors (Jacobian at the estimate) 1.9–2.4 times smaller than their sampling-only ones, 4.3–5.9 times smaller than their reported ones. Within their reported errors (\|z\| ≤ 0.80); 1.6–1.7 combined se from their sampling-only ones. The old box's 0.531 is superseded: its floor held couples' estimates up | RESULTS 63.10 (63.6, 61.4) |
 | more waves were already sharper in an earlier model | three-parameter model (before card types and R_γ): 10 waves gave held-out log q 5.446 against 7 waves' 5.007, both calibrated | `PSID_DATA.md` §3 |
 | households simulated at their θ | under v2, individual 90% intervals contain their θ for 99% (β), 91% (δ), 96% (ρ) and 86% (R_γ). The average posterior mean lands further away the noisier the data; without noise it is within 0.013 of their β (ρ stays 0.5 high: its long upper tail) | RESULTS 62.6 |
@@ -41,7 +41,8 @@
    - **The Jacobian recomputed at each point (RESULTS 63.10, 2026-11-04, user's request):**
      - under PSID-level noise the population β is 0.13–0.16: typical and gross converge, and noise-unknown stops there with income noise unmatched;
      - v2's 0.437 holds.
-   - **Open, the user's call:** typical's 90% interval reaches the floor of 0.10 (7% of its bootstrap below it). Under the 63.0 rule the floor is not extended again without the user.
+   - Typical's 90% interval reaches the floor of 0.10 (7% of its bootstrap below it). **Decided by the user (2026-11-05):** "keep the floor at 0.10".
+   - **§1 switched to v2 on the wider box (user, 2026-11-05):** the household tables, calibration, heterogeneity and resolution (figure 103) are now `optionA2v2_b010`'s.
 3. **The waves experiment (simulated households).**
    - **Models.** Train with 7 (existing), 10, 14 and about 20 waves, under v2's noise model on the box with the β strip, with everything else as v2. If the longer windows underfit (training loss still falling while held-out loss stalls), add one wider-embedder arm. That costs GPU-hours, not a regeneration. The training set is dense enough as it is (RESULTS 63.8).
    - **No regeneration needed.** The stored panels cover ages 20–90 for every household, so longer windows can be cut from the existing shards. `optionA.py train --n_waves` exists. The window start range must leave room: start + 2 × (waves − 1) ≤ 90.

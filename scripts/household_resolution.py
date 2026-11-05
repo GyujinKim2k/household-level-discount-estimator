@@ -56,8 +56,14 @@ ARMS = {   # arm: (members' output directory, PSID couples, PSID all 889)
     "gross": ("outputs/optionA2v2_noise_gross",
               "outputs/psid_optionA2v2_noise_gross_couples",
               "outputs/psid_optionA2v2_noise_gross_all"),
+    # RESULTS 63: v2 on the box with the beta strip below 0.3 (RESULTS 1 since 2026-11-05)
+    "v2_b010": ("outputs/optionA2v2_b010", "outputs/psid_optionA2v2_b010_couples",
+                "outputs/psid_optionA2v2_b010_all"),
 }
 SBC_SHARDS = Path("data/processed/optionA2v2_sbc16_shards")
+#: an arm's SBC sets, in the order ``sbc_optionA2 --shards`` took them, and its beta floor
+SBC_SETS = {"v2_b010": (SBC_SHARDS, Path("data/processed/optionA2v2_sbc16_betastrip_shards"))}
+BETA_LOW = {"v2_b010": 0.10}
 NAMES = ("beta", "delta", "crra", "R_gamma")
 PER_DRAW = 16
 Z90 = stats.norm.ppf(0.9)
@@ -66,7 +72,7 @@ OUT = Path("outputs/household_resolution/household_resolution.json")
 FIG = Path("figures/80_household_resolution.png")
 #: the typical gross-arm couple's weighted posterior draws (figure 76)
 COUPLE = Path("figures/76_psid_household_optionA2v2_noise_gross.npz")
-ARM_COLOR = {"v2": "#3B75AF", "typical": "#8D69B8", "gross": "#C53A32"}
+ARM_COLOR = {"v2": "#3B75AF", "typical": "#8D69B8", "gross": "#C53A32", "v2_b010": "#3B75AF"}
 LIMITS = {"beta": (0.30, 1.00), "delta": (0.85, 1.00), "crra": (0.50, 5.00)}  # the box
 VIEW = {**LIMITS, "delta": (0.88, 1.00)}
 LABEL = {"beta": r"$\beta$", "delta": r"$\delta$", "crra": r"$\rho$", "R_gamma": r"$R_\gamma$"}
@@ -79,9 +85,10 @@ def scale(th: np.ndarray) -> np.ndarray:
     return th
 
 
-def sbc_draws(npz: Path) -> dict:
+def sbc_draws(npz: Path, shard_dirs=(SBC_SHARDS,)) -> dict:
     """The SBC households grouped by draw, (draws, 16, 4), with each draw's
-    card type read from the shards and checked against the truth."""
+    card type read from the shards and checked against the truth. Several
+    sets are concatenated in ``sbc_optionA2``'s order, so draw ids match."""
     z = np.load(npz)
     order = np.argsort(z["pid"], kind="stable")
     pid = z["pid"][order].reshape(-1, PER_DRAW)
@@ -91,7 +98,7 @@ def sbc_draws(npz: Path) -> dict:
     g = {k: z[k][order].reshape(len(pid), PER_DRAW, -1) for k in ("mean", "sd", "lo", "hi")}
     g["truth"] = z["truth"][order].reshape(len(pid), PER_DRAW, -1)[:, 0]
     theta, card = [], []
-    for f in sorted(SBC_SHARDS.glob("shard_*.npz")):
+    for f in [f for d in shard_dirs for f in sorted(Path(d).glob("shard_*.npz"))]:
         s = np.load(f)
         theta.append(s["theta"])
         card.append(s["card"])
@@ -268,19 +275,25 @@ def _resample(points: np.ndarray, w: np.ndarray, n: int, seed: int) -> np.ndarra
     return points[idx]
 
 
-def _contour(ax, pts, i, j, color, label):
+def _contour(ax, pts, i, j, color, label, limits=LIMITS):
     """68% (solid) and 95% (dashed) HPD contours of ``pts`` in the (i, j)
     plane, reflected at delta = 1."""
     from hh_npe.evaluation.plots import _hpd_levels, _kde_grid
 
     a, b = NAMES[i], NAMES[j]
-    lo, hi = (LIMITS[a][0], LIMITS[b][0]), (LIMITS[a][1], LIMITS[b][1])
+    lo, hi = (limits[a][0], limits[b][0]), (limits[a][1], limits[b][1])
     X, Y, Z = _kde_grid(pts[:, i], pts[:, j], lo, hi, reflect=(a == "delta", b == "delta"))
     ax.contour(X, Y, Z, levels=_hpd_levels(Z), colors=color, linestyles=["--", "-"])
     ax.plot([], [], color=color, label=label)
 
 
-def figure(res: dict, arm: str, sim: dict, p: dict, couple: Path, path: Path) -> None:
+TITLE = ("Household resolution (RESULTS 60): one couple's posterior is wider than the "
+         "spread of all couples' estimates in β and ρ;\ncouples still differ by more "
+         "than households sharing one θ")
+
+
+def figure(res: dict, arm: str, sim: dict, p: dict, couple: Path, path: Path,
+           title: str = TITLE) -> None:
     """(a, b) One couple's posterior against the spread of couples' posterior
     means and of the posterior means of households sharing one theta;
     (c) the bounds on the share of couples' spread that is real, per arm;
@@ -298,16 +311,21 @@ def figure(res: dict, arm: str, sim: dict, p: dict, couple: Path, path: Path) ->
     null = _resample((centre + dev).reshape(-1, 4), np.repeat(w, PER_DRAW), 6000, seed=1)
     null[:, 1] = np.minimum(null[:, 1], 1 - 1e-6)
 
+    limits = {**LIMITS, "beta": (BETA_LOW.get(arm, LIMITS["beta"][0]), LIMITS["beta"][1])}
+    view = {**VIEW, "beta": limits["beta"]}
+    fig_no = couple.name.split("_")[0]
     fig, ax = plt.subplots(2, 2, figsize=(13, 11))
     for a, (i, j) in zip(ax[0], ((0, 2), (0, 1)), strict=True):
         a.scatter(p["mean"][:, i], p["mean"][:, j], s=5, color="0.6", zorder=0,
                   label=f"PSID couples' posterior means ({len(p['mean'])})")
-        _contour(a, post, i, j, "#3B75AF", f"one couple's posterior (figure 76, #{int(c['pick'])})")
-        _contour(a, p["mean"], i, j, "#EF8636", "couples' posterior means")
+        _contour(a, post, i, j, "#3B75AF",
+                 f"one couple's posterior (figure {fig_no}, #{int(c['pick'])})", limits)
+        _contour(a, p["mean"], i, j, "#EF8636", "couples' posterior means", limits)
         _contour(a, null, i, j, "#519E3E",
-                 "posterior means of households sharing one θ, placed at couples' median")
+                 "posterior means of households sharing one θ, placed at couples' median",
+                 limits)
         a.set(xlabel=LABEL[NAMES[i]], ylabel=LABEL[NAMES[j]],
-              xlim=VIEW[NAMES[i]], ylim=VIEW[NAMES[j]])
+              xlim=view[NAMES[i]], ylim=view[NAMES[j]])
         a.grid(ls=":", lw=0.5)
     ax[0, 1].legend(*ax[0, 0].get_legend_handles_labels(), fontsize=7, loc="lower left")
     ax[0, 0].set_title(f"{arm} arm: 68% (solid) / 95% (dashed)", fontsize=10)
@@ -318,7 +336,7 @@ def figure(res: dict, arm: str, sim: dict, p: dict, couple: Path, path: Path) ->
     for n_arm, name in enumerate(arms):
         color = ARM_COLOR[name]
         nl = res[name]["couples"]["null"]
-        x = xs + (n_arm - 1) * 0.22
+        x = xs + (n_arm - (len(arms) - 1) / 2) * 0.22   # centred, one arm or three
         lo = [nl[n]["share_own"] for n in NAMES]
         hi = [nl[n]["share_not_noise"] for n in NAMES]
         lo90 = [nl[n]["share_own_90"][0] for n in NAMES]
@@ -340,7 +358,7 @@ def figure(res: dict, arm: str, sim: dict, p: dict, couple: Path, path: Path) ->
         sm = res[name]["simulated"]
         plus = [sm[n]["var_means_plus_post"] / sm[n]["var_truth"] for n in NAMES]
         minus = [sm[n]["var_means_minus_post"] / sm[n]["var_truth"] for n in NAMES]
-        x = xs + (n_arm - 1) * 0.13
+        x = xs + (n_arm - (len(arms) - 1) / 2) * 0.13
         a.bar(x - 0.2, plus, 0.12, color=color, label=f"{name}: Var(means) + E[post var]")
         a.bar(x + 0.2, minus, 0.12, color=color, hatch="//", fill=False, edgecolor=color,
               label=f"{name}: Var(means) − E[post var] (RESULTS 1)")
@@ -348,14 +366,13 @@ def figure(res: dict, arm: str, sim: dict, p: dict, couple: Path, path: Path) ->
     a.axhline(0, color="k", lw=0.6)
     a.set_xticks(xs, [LABEL[n] for n in NAMES])
     a.set(ylabel="÷ the truth's variance", ylim=(-0.5, 1.6))
+    below = all(res[n]["simulated"]["beta"]["var_means_minus_post"] < 0 for n in arms)
     a.set_title("simulated households over the prior box (SBC, truth known): the identity "
-                "adds;\nRESULTS 1's test subtracts, and reads below zero for β in every arm",
-                fontsize=9)
+                "adds;\nRESULTS 1's test subtracts"
+                + (", and reads below zero for β in every arm" if below else ""), fontsize=9)
     a.legend(fontsize=6.5, ncol=2, loc="upper center")
     a.grid(ls=":", lw=0.5, axis="y")
-    fig.suptitle("Household resolution (RESULTS 60): one couple's posterior is wider than the "
-                 "spread of all couples' estimates in β and ρ;\ncouples still differ by more "
-                 "than households sharing one θ", fontsize=11)
+    fig.suptitle(title, fontsize=11)
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=130)
@@ -415,12 +432,13 @@ def main() -> None:
     ap.add_argument("--couple", type=Path, default=COUPLE,
                     help="Weighted posterior draws of one couple of --figure_arm "
                          "(plot_optionA2_households.py's .npz).")
+    ap.add_argument("--title", default=TITLE, help="the figure's title")
     args = ap.parse_args()
 
     res, keep = {}, {}
     for arm in args.arms:
         run, pc, pa = ARMS[arm]
-        sim = sbc_draws(Path(run) / "sbc" / "sbc16.npz")
+        sim = sbc_draws(Path(run) / "sbc" / "sbc16.npz", SBC_SETS.get(arm, (SBC_SHARDS,)))
         keep[arm] = (sim, psid(pc))
         flat = {k: sim[k].reshape(-1, 4) for k in ("mean", "sd", "lo", "hi")}
         r = {"simulated": simulated(sim),
@@ -438,7 +456,8 @@ def main() -> None:
     args.out.write_text(json.dumps(res, indent=2))
     print(f"\nwrote {args.out}")
     if args.figure_arm in keep and args.couple.exists():
-        figure(res, args.figure_arm, *keep[args.figure_arm], args.couple, args.figure)
+        figure(res, args.figure_arm, *keep[args.figure_arm], args.couple, args.figure,
+               args.title)
         print(f"wrote {args.figure}")
 
 

@@ -13,6 +13,13 @@ Usage::
         --pair couples outputs/psid_optionA2n_couples outputs/psid_optionA2v2_couples \\
         --pair all outputs/psid_optionA2n_all outputs/psid_optionA2v2_all \\
         --out outputs/optionA2v2/comparison.json
+
+RESULTS 1 since 2026-11-05 (v2 on the box with the beta strip, RESULTS 63)::
+
+    PYTHONPATH=. .venv/bin/python scripts/compare_regen_v2.py --labels v2 v2_b010 \\
+        --pair couples outputs/psid_optionA2v2_couples outputs/psid_optionA2v2_b010_couples \\
+        --pair all outputs/psid_optionA2v2_all outputs/psid_optionA2v2_b010_all \\
+        --out outputs/optionA2v2_b010/comparison.json
 """
 
 from __future__ import annotations
@@ -56,7 +63,8 @@ def summary(r: dict) -> dict:
 
 
 def paired(a: dict, b: dict) -> dict:
-    """b minus a, household by household, raw and over a's posterior sd."""
+    """b minus a, household by household, raw and over a's posterior sd (the
+    keys say A2n, the default first run)."""
     if not np.array_equal(a["index"], b["index"]):
         raise SystemExit("the two runs are not over the same PSID households")
     d = b["mean"] - a["mean"]
@@ -75,18 +83,22 @@ def main() -> None:
     ap.add_argument("--pair", nargs=3, action="append", required=True,
                     metavar=("NAME", "A2N_DIR", "V2_DIR"))
     ap.add_argument("--arm", default="uncorrected")
+    ap.add_argument("--labels", nargs=2, default=("A2n", "v2"), metavar=("A", "B"),
+                    help="the two runs' names in the output")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
+    la, lb = args.labels
     res = {"arm": args.arm}
     for name, a_dir, b_dir in args.pair:
         a, b = load(Path(a_dir), args.arm), load(Path(b_dir), args.arm)
-        res[name] = {"A2n": summary(a), "v2": summary(b), "v2 - A2n": paired(a, b)}
+        res[name] = {la: summary(a), lb: summary(b), f"{lb} - {la}": paired(a, b)}
         print(f"\n=== {name} (n = {len(a['mean'])}) ===   " + "".join(f"{n:>12s}" for n in NAMES))
-        for run in ("A2n", "v2"):
+        for run in (la, lb):
             for row in ("median of means", "median posterior sd"):
-                print(f"{run:4s} {row:24s}" + "".join(f"{v:12.4f}" for v in res[name][run][row]))
+                print(f"{run:8s} {row:24s}" + "".join(f"{v:12.4f}" for v in res[name][run][row]))
         for row in ("median shift", "median |shift| / A2n sd", "posterior sd ratio, median"):
-            print(f"v2 - A2n {row:20s}" + "".join(f"{v:12.4f}" for v in res[name]["v2 - A2n"][row]))
+            print(f"{lb} - {la} {row:20s}"
+                  + "".join(f"{v:12.4f}" for v in res[name][f"{lb} - {la}"][row]))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(res, indent=1))
     print(f"\nwrote {args.out}")

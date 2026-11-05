@@ -4,7 +4,8 @@
 (user). It is option A2n's model and training (§43.7–43.9) on data regenerated
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
-**Last updated:** 2026-11-04 (§63: the β strip to 0.10; §63.10: the population fits with the Jacobian recomputed at each point; §1's population estimate updated).
+Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
+**Last updated:** 2026-11-05 (§1 switched to v2 on the wider box; the β floor stays at 0.10; §63.10: the population fits with the Jacobian recomputed at each point).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -14,13 +15,16 @@ Laibson, Lee, Maxted, Repetto & Tobacman's single population MSM estimate.
 
 ## 1. Headline
 
-**Reference: v2** (§55–56; `outputs/optionA2v2/`, `scripts/run_regen_v2.sh`).
-
-**Since §63 (2026-11-04), v2 is also trained on the box extended to β 0.10** (`outputs/optionA2v2_b010/`, `scripts/run_beta_strip.sh`). That is v2's noise model, the user's choice (2026-11-02). Its population estimate supersedes the old box's (below). The household tables in this section are still the old box's; on the wider box couples' median β is 0.480 and their other medians barely move (§63.5).
+**Reference: v2 on the box extended to β 0.10** (§63; `outputs/optionA2v2_b010/`, `scripts/run_beta_strip.sh`).
+- It is v2 (§55–56; `outputs/optionA2v2/`, `scripts/run_regen_v2.sh`), with v2's noise model (the user's choice, 2026-11-02), retrained with a strip of draws on β 0.10–0.30.
+- The user decided on 2026-11-05: "change the no.1 to the wider box v2 model".
+- **The β floor stays at 0.10** (user, 2026-11-05: "keep the floor at 0.10"), although the typical-noise arm's population interval reaches it (§63.10).
+- The old box's tables are in §56; the old box's medians are kept below for comparison.
 
 The model and training:
 - the two-asset model with card-access types; the network never sees the type and marginalises over it (§26, §35);
 - initial states from a seed pool of PSID couples (§43.1);
+- the prior box β 0.10–1, with a strip of draws below 0.3 (§63.0);
 - R_gamma estimated as a fourth parameter (§32), over 1.021–1.075, with a strip of draws below 1.025 (§43.5);
 - logit β and R_gamma targets, and log(1 − δ) (§29, §39, §43.5);
 - anchor + level inputs (§28–29);
@@ -33,35 +37,40 @@ The data carry the audit's fixes (§55.1):
 - PSID's flow timing (H1);
 - R_gamma independent of the other parameters (H8).
 
-**PSID couples (409),** uncorrected arm (`compare_regen_v2.py`, `outputs/optionA2v2/comparison.json`):
+**PSID couples (409),** uncorrected arm (`compare_regen_v2.py --labels v2 v2_b010`, `outputs/optionA2v2_b010/comparison.json`):
 
 | | β | δ | ρ | R_gamma |
 |---|---|---|---|---|
-| median of means | 0.5720 | 0.9837 | 2.5473 | 1.0584 |
-| mean of means | 0.5858 | 0.9764 | 2.5324 | 1.0556 |
-| sd across households | 0.1266 | 0.0224 | 0.6351 | 0.0125 |
-| median posterior sd | 0.1638 | 0.0121 | 0.8956 | 0.0095 |
+| median of means | 0.4801 | 0.9867 | 2.5387 | 1.0571 |
+| mean of means | 0.5025 | 0.9794 | 2.5797 | 1.0546 |
+| sd across households | 0.1747 | 0.0210 | 0.6362 | 0.0118 |
+| median posterior sd | 0.1829 | 0.0123 | 0.9277 | 0.0102 |
 | Laibson et al. MSM | 0.5305 | 0.9891 | 1.9355 | 1.05, calibrated |
 | their std error | 0.1140 | 0.0051 | 0.4350 | |
-| share whose 90% interval covers their value | 0.929 | 0.743 | 0.951 | 0.660 |
+| share whose 90% interval covers their value | 0.866 | 0.760 | 0.941 | 0.751 |
+| old box (§56), median of means | 0.5720 | 0.9837 | 2.5473 | 1.0584 |
 
 **All 889:**
 
 | | β | δ | ρ | R_gamma |
 |---|---|---|---|---|
-| median of means | 0.6633 | 0.9834 | 2.4618 | 1.0560 |
-| mean of means | 0.6559 | 0.9749 | 2.4572 | 1.0540 |
-| sd across households | 0.1395 | 0.0231 | 0.6793 | 0.0116 |
-| median posterior sd | 0.1650 | 0.0149 | 0.9272 | 0.0107 |
-| share whose 90% interval covers Laibson et al.'s value | 0.866 | 0.782 | 0.958 | 0.777 |
+| median of means | 0.6010 | 0.9856 | 2.4349 | 1.0563 |
+| mean of means | 0.5910 | 0.9771 | 2.4497 | 1.0541 |
+| sd across households | 0.1865 | 0.0219 | 0.6776 | 0.0108 |
+| median posterior sd | 0.1867 | 0.0144 | 0.9529 | 0.0111 |
+| share whose 90% interval covers Laibson et al.'s value | 0.857 | 0.793 | 0.955 | 0.827 |
+| old box (§56), median of means | 0.6633 | 0.9834 | 2.4618 | 1.0560 |
 
-**Calibrated on simulated households:** held-out 90% coverage 0.899–0.919 and SBC 0.895–0.904, per parameter (§56.2).
+- **Against the old box,** couples' β estimates fall by a median of 0.079, most for couples near the old floor (§63.5). δ, ρ and R_gamma barely move: couple by couple the two boxes' means correlate 0.93 (β), 0.97 (δ), 0.88 (ρ) and 0.95 (R_gamma).
+- **Posteriors are wider in β** (median sd 0.183 against 0.164), since β's prior is wider.
+
+**Calibrated on simulated households:** held-out 90% coverage 0.903–0.913 and SBC 0.889–0.908, per parameter (§63.3; old box 0.899–0.919 and 0.895–0.904, §56.2).
 
 **Reading** (location corrected 2026-10-31, §61):
-- **Household by household, Laibson et al.'s estimate is not excluded.** Their β, δ and ρ are inside 93%, 74% and 95% of couples' 90% intervals; R_gamma = 1.05 is inside 66%.
+- **Household by household, Laibson et al.'s estimate is not excluded.** Their β, δ and ρ are inside 87%, 76% and 94% of couples' 90% intervals; R_gamma = 1.05 is inside 75%.
 - **The medians above are not population values and cannot be set against their point.**
   - Posterior means are pulled toward the prior box's centre and carry other biases.
-  - Simulated households that truly have their θ come out at β 0.591, δ 0.975, ρ 2.80 and R_gamma 1.058 under v2 (§61.3).
+  - Simulated households that truly have their θ come out at β 0.558, δ 0.977, ρ 2.85 and R_gamma 1.058 on the wider box (§63.6; old box β 0.591, §61.3).
 - **The like-for-like comparison is a representative θ** (§61.4): the single θ whose simulated households the network estimates as it estimates PSID couples.
 
   | | β | δ | ρ | R_gamma |
@@ -81,58 +90,65 @@ The data carry the audit's fixes (§55.1):
     - Noise-unknown stops at 0.143, because no income noise in the box matches couples.
     - Typical's 90% interval reaches the new floor of 0.10.
     - On the old box, no θ fitted under these arms: β had to fall below 0.3.
-- **The old headline is reversed.** There, β was 0.852, inside the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14). Under v2, 28% of couples' means are inside that band, and 50% of all 889's.
-- **β is weakly identified per couple:** held-out contraction 0.40 (§56.2).
-  - PSID couples' β population piles at the box floor of 0.3 (§47.3). On the wider box, 75% of couples' 5th percentiles fall below 0.3, and no couple's or simulated household's 95th percentile does: below 0.3, one household's β is not resolved with seven waves (§63.4–63.5).
-  - Near that floor, uniform-prior intervals undercovered on simulated populations shaped like PSID's (§47.3).
-- **ρ's posteriors are wide** (median sd 0.90). It is the parameter v2 moved most: −0.17 from A2n (§56.3).
+- **The old headline is reversed.** There, β was 0.852, inside the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14). On the wider box, 22% of couples' means are inside that band, and 40% of all 889's (old box 28% and 50%).
+- **β is weakly identified per couple:** the held-out share of prior variance removed is 0.52 (§63.3). That is not comparable with the old box's 0.40, because β's prior is now wider.
+  - On the old box, couples' β piled at the floor of 0.3 (§47.3). On the wider box, 14% of couples' means and 75% of their 5th percentiles are below 0.3, but no couple's or simulated household's 95th percentile is. Below 0.3, one household's β is not resolved with seven waves (§63.4–63.5).
+  - Households whose posterior mean β is below 0.3 are covered 0.900. Simulated households at true β 0.1–0.2 are covered 0.78, and their posterior means average 0.35 (§63.3–63.4).
+- **ρ's posteriors are wide** (median sd 0.93). It is the parameter v2 moved most: −0.17 from A2n (§56.3).
 - **Between §29 and v2 the model changed in several steps:** card-access types (§36), R_gamma estimated (§32), the couples' seed pool (§43.1–43.4), observation noise (§43.7–43.8) and the audit's fixes (§56). Each step's effect is recorded in its own section and is not re-attributed here.
 
-**Heterogeneity and resolution** (§60, `household_resolution.py`; corrected 2026-10-31).
+**Heterogeneity and resolution** (§60's method, `household_resolution.py --arms v2_b010`; corrected 2026-10-31, on the wider box since 2026-11-05).
 
 The test that stood here, `Var(true θ) = Var(means) − E[posterior var]` (§11.3), is withdrawn (§60.4). Posterior means are pulled toward the prior, so it subtracts what should be added. On simulated households whose true β spans the whole prior box, it reads β −0.009: "none detectable", although the true variance is 0.041.
 
 In its place, couples' posterior means are compared with those of simulated households. One null shares θ; the other shares one parameter and lets the other three vary over the box.
 
-| v2, PSID couples | β | δ | ρ | R_gamma |
+| v2 on the wider box, PSID couples | β | δ | ρ | R_gamma |
 |---|---|---|---|---|
-| sd of posterior means | 0.127 | 0.0224 | 0.636 | 0.0126 |
-| simulated households sharing θ | 0.073 | 0.0149 | 0.410 | 0.0064 |
-| sharing only that parameter, the other three over the box | 0.104 | 0.0207 | 0.731 | 0.0088 |
-| share of couples' spread that is real, between the two nulls | 0.32–0.67 | 0.14–0.55 | none–0.58 | 0.51–0.74 |
-| one couple's 90% interval ÷ the 5–95% range of couples' means | 1.31 | 0.47 | 1.38 | 0.75 |
-| couple pairs ordered with posterior probability ≥ 0.9 | 0.13 | 0.23 | 0.10 | 0.31 |
+| sd of posterior means | 0.175 | 0.0211 | 0.637 | 0.0118 |
+| simulated households sharing θ | 0.089 | 0.0154 | 0.441 | 0.0063 |
+| sharing only that parameter, the other three over the box | 0.146 | 0.0213 | 0.699 | 0.0087 |
+| share of couples' spread that is real, between the two nulls | 0.30–0.74 | none–0.47 | none–0.52 | 0.45–0.72 |
+| one couple's 90% interval ÷ the 5–95% range of couples' means | 1.07 | 0.53 | 1.44 | 0.84 |
+| couple pairs ordered with posterior probability ≥ 0.9 | 0.21 | 0.18 | 0.08 | 0.27 |
+| old box (§60): share real | 0.32–0.67 | 0.14–0.55 | none–0.58 | 0.51–0.74 |
 
 - **Couples are not alike.**
-  - Their means spread 1.5–2 times as much as those of households sharing θ, in every parameter.
-  - **β's spread exceeds both nulls,** for couples and for all 889 (90% bootstrap of the lower bound 0.24–0.39 and 0.38–0.47). So does R_gamma's.
-  - δ's exceeds the second null for all 889 only (0.13–0.31); couples' interval includes 0.
+  - Their means spread 1.4–2.0 times as much as those of households sharing θ, in every parameter.
+  - **β's spread exceeds both nulls,** for couples and for all 889 (90% bootstrap of the lower bound 0.22–0.37 and 0.34–0.43). So does R_gamma's.
+  - **δ's no longer exceeds the second null**, for couples or for all 889 (−0.25–0.14 and −0.02–0.20; on the old box all 889's did, 0.13–0.31). The second null is wider on the wider box: the other three include β down to 0.10.
   - ρ's spread can come from the other three parameters alone. The population layer also found ρ indistinguishable from one common value (§47.2).
 - **One couple cannot be placed against another in β or ρ.**
-  - Its 90% interval is wider than the spread of all couples' means.
-  - Only 10–13% of couple pairs can be ordered; simulated households sharing θ are falsely ordered 1% of the time.
+  - Its 90% interval is wider than the spread of all couples' means (1.07 and 1.44 times).
+  - Only 8–21% of couple pairs can be ordered in them. Simulated households sharing θ are falsely ordered 1–2% of the time.
   - δ and R_gamma do better.
-- **The β and ρ estimates are confounded.** On simulated households, a β estimate correlates 0.64 with the true β and 0.43 with the true ρ. The data mostly fix a combination of the two: both raise saving.
+- **The β and ρ estimates are confounded.** On simulated households, a β estimate correlates 0.73 with the true β and 0.41 with the true ρ. The data mostly fix a combination of the two: both raise saving.
 - **Withdrawn:** "β heterogeneity is not demonstrated" (§11.3, §20.2, and the superseded §29 headline below) and the table that stood here. Each rested on the invalid test. ρ's verdict is unchanged, now on the null comparison.
 
-**Figures:**
-- 67, the typical PSID couple, 68/95% contours;
-- 68, couples' and all 889's posterior means, v2 against A2n;
-- 66, a held-out simulated household;
-- 69, SBC;
-- 80, household resolution: one couple's posterior against the spread of couples' means and of households sharing θ (§60);
-- 81, Laibson et al.'s point and covariance against PSID couples' representative θ per arm, 68/95% (§61);
-- 99–100, the same on the box with the β strip (§63).
+**Figures** (wider box):
+- 89, the PSID couple nearest couples' median, 68/95% contours;
+- 88, a held-out simulated household;
+- 90, SBC;
+- 103, household resolution: one couple's posterior against the spread of couples' means and of households sharing θ;
+- 101–102, Laibson et al.'s point and covariance against PSID couples' representative θ per noise arm, 68/95% (§63.10).
+
+Old box: 66–69 and 80–81 (§56, §60, §61).
 
 **Reproduce.**
 
-    nohup setsid ./scripts/run_regen_v2.sh >> logs/regen_v2.log 2>&1 &     # data, members, PSID, gates, figures (§55)
-    PYTHONPATH=.:src .venv/bin/python scripts/compare_regen_v2.py \
-        --pair couples outputs/psid_optionA2n_couples outputs/psid_optionA2v2_couples \
-        --pair all outputs/psid_optionA2n_all outputs/psid_optionA2v2_all \
-        --out outputs/optionA2v2/comparison.json                         # the estimate tables above
-    PYTHONPATH=. .venv/bin/python scripts/household_resolution.py          # heterogeneity and resolution, figure 80 (§60)
-    PYTHONPATH=. .venv/bin/python scripts/laibson_comparison.py            # against Laibson et al., figure 81 (§61; GPU, ~35 min uncached)
+    nohup setsid ./scripts/run_regen_v2.sh >> logs/regen_v2.log 2>&1 &     # v2's data, members, PSID (§55)
+    nohup setsid ./scripts/run_beta_strip.sh >> logs/beta_strip.log 2>&1 & # the β strip, the wider-box members, PSID, SBC (§63)
+    PYTHONPATH=. .venv/bin/python scripts/compare_regen_v2.py --labels v2 v2_b010 \
+        --pair couples outputs/psid_optionA2v2_couples outputs/psid_optionA2v2_b010_couples \
+        --pair all outputs/psid_optionA2v2_all outputs/psid_optionA2v2_b010_all \
+        --out outputs/optionA2v2_b010/comparison.json                    # the estimate tables above
+    PYTHONPATH=. .venv/bin/python scripts/household_resolution.py --arms v2_b010 \
+        --out outputs/household_resolution/household_resolution_b010.json \
+        --figure figures/103_household_resolution_b010.png --figure_arm v2_b010 \
+        --couple figures/89_psid_household_optionA2v2_b010.npz \
+        --title "Household resolution on the box with the β strip down to 0.1 (v2, RESULTS 1): one couple's posterior is wider than the spread of all couples' estimates in β and ρ;
+    couples still differ by more than households sharing one θ"         # heterogeneity and resolution (the title has a line break)
+    # against Laibson et al., figures 101-102: §63.10's two commands
 
 ### The previous headline: §29's configuration (superseded 2026-10-24)
 
@@ -10198,6 +10214,7 @@ So couples' mean δ estimate responds to β 3.6–5.0 times as steeply as the fi
   - under PSID-level noise, more precise in β and δ, and 0.37–0.40 below their β (z about −3.3 against their reported errors);
   - typical's ρ is less precise than their sampling-only error.
 - **Typical's interval reaching the floor of 0.10 is the user's call.** The floor would have to go lower for that arm's interval to be read in full.
+  - *Decided 2026-11-05 (user): "keep the floor at 0.10".* Typical's interval is reported as clipped at the floor.
 
 **Figures** (68/95% contours):
 - 101: Laibson et al.'s point against the refreshed fits of v2, typical and gross;
