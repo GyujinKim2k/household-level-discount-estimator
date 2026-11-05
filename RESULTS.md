@@ -10316,7 +10316,7 @@ Only the window changes. Its last wave starts by 63, so it holds the stocks at t
 - **New:**
   - `scripts/waves_experiment.py` (start ages, population, measures, figures);
   - `scripts/run_waves.sh` (the chain);
-  - `tests/test_waves.py` (14 tests, 3 of them on v2's shards).
+  - `tests/test_waves_experiment.py` (14 tests, 3 of them on v2's shards).
 
 ### 64.1 Gates before launch
 
@@ -10324,7 +10324,7 @@ All pass. Commands are under *Reproduce*.
 
 1. **Tests.**
    - The whole suite passes with the GPU hidden: 579 passed, 37 skipped. With the card visible, the 14 files with GPU tests pass: 135.
-   - New: `tests/test_waves.py` (14) and the edge flag's test (§63.10).
+   - New: `tests/test_waves_experiment.py` (14) and the edge flag's test (§63.10).
    - **Existing runs evaluate exactly as before.**
      - v2_b010's held-out check and SBC, rerun through the new code, are identical in every field and every array.
      - `laibson_comparison.simulate` at their θ returns its cached output exactly. Windows recut from the panels it now also returns reproduce its windows exactly.
@@ -10353,6 +10353,6 @@ About 11–12 hours, from gate 4: about 1 h per member two at a time (v2_b010 tr
 
 **Reproduce.**
 
-    PYTHONPATH=. .venv/bin/python -m pytest tests/test_waves.py
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_waves_experiment.py
     SMOKE=<dir> ./scripts/run_waves.sh
     nohup setsid ./scripts/run_waves.sh >> logs/waves.log 2>&1 &

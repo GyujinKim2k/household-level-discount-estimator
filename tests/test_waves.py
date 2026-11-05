@@ -1,175 +1,201 @@
-"""RESULTS 64's waves experiment: per-run windows, members that know their
-window, the matched age range, and the population standard error.
-
-No GPU and no solve: panels are synthetic, as in test_windows.py.
-"""
-
-import json
+"""Tests for the observation-wave aggregation rule."""
 
 import numpy as np
 import pytest
-import torch
 
-from hh_npe.data.waves import FEATURES_TWOASSET, FEATURES_TWOASSET_AGE
-from hh_npe.data.windows import PANEL_PREFIX
-from scripts import laibson_comparison as lc
-from scripts import optionA as oa
-from scripts import waves_experiment as we
-
-T, N = 71, 64                               # ages 20..90
-AGE = FEATURES_TWOASSET_AGE.index("age")
+from hh_npe.data.waves import FEATURES, aggregate_waves
 
 
-def _shard(tmp_path, seed=0):
-    rng = np.random.default_rng(seed)
-    p = {k: rng.normal(1e5, 3e4, (N, T)) for k in FEATURES_TWOASSET}
-    p["t_age"] = np.tile(np.arange(T), (N, 1))
-    d = tmp_path / "s_shards"
-    d.mkdir(parents=True, exist_ok=True)
-    f = d / "shard_00000.npz"
-    np.savez(f, x=np.zeros((N, 5, 4), np.float32), alive=np.ones((N, 5), bool), lo=0, hi=N,
-             **{PANEL_PREFIX + k: v for k, v in p.items()})
-    return f
+def make_panel(N: int, T: int) -> dict[str, np.ndarray]:
+    """Synthetic panel with predictable values for arithmetic checks."""
+    return {
+        "income":        np.arange(N * T, dtype=float).reshape(N, T),
+        "consumption":   np.full((N, T), 0.5),
+        "liquid_assets": (np.arange(N * T, dtype=float).reshape(N, T) + 1000.0),
+        "t_age":         np.tile(np.arange(T), (N, 1)),
+    }
 
 
-@pytest.fixture
-def shard(tmp_path, monkeypatch):
-    monkeypatch.setattr(oa, "flow_lag_of", lambda paths: 1)
-    return _shard(tmp_path)
+def test_output_shape_and_dtype():
+    """Defaults are the pre-registered choice: biennial, 5 waves."""
+    panel = make_panel(N=4, T=20)
+    x, alive = aggregate_waves(panel, age_start_sim=20, start_age=30)
+    assert x.shape == (4, 5, 3)
+    assert x.dtype == np.float32
+    assert alive.shape == (4, 5)
+    assert alive.dtype == bool
 
 
-def test_the_arms_fit_the_matched_age_range():
-    assert {n: we.start_high(n) for n in we.WAVES} == {7: 51, 10: 45, 14: 37, 20: 25}
-    for n in we.WAVES:
-        assert we.start_high(n) + 2 * (n - 1) == we.LAST_WAVE_START
-    with pytest.raises(ValueError):
-        we.start_high(21)                    # would have to start at 23
+def test_features_ordering_constant():
+    assert FEATURES == ("income", "consumption", "liquid_assets")
 
 
-def test_a_members_window_is_read_back_and_old_configs_read_as_before():
-    assert oa.window_of({}) == oa.WINDOW
-    assert oa.window_of({"window": {"n_waves": 7, "flow_lag": 1}}) == oa.WINDOW
-    w = oa.window_of({"window": {**oa.WINDOW, "n_waves": 14, "start_high": 37, "flow_lag": 1}})
-    assert w == {**oa.WINDOW, "n_waves": 14, "start_high": 37}
+def test_annual_waves_read_panel_directly():
+    """wave_years=1: flows are the single year, stock is that year's value."""
+    panel = make_panel(N=2, T=20)
+    x, _ = aggregate_waves(
+        panel, age_start_sim=20, start_age=30, n_waves=10, wave_years=1
+    )
+    for w in range(10):
+        t = 10 + w  # age 30+w
+        assert x[0, w, 0] == pytest.approx(panel["income"][0, t])
+        assert x[0, w, 1] == pytest.approx(panel["consumption"][0, t])
+        assert x[0, w, 2] == pytest.approx(panel["liquid_assets"][0, t])
 
 
-def test_default_windows_are_unchanged(shard):
-    a = oa.windows_raw([shard], np.zeros((N, 4)), seed=999)
-    b = oa.windows_raw([shard], np.zeros((N, 4)), seed=999, window=oa.WINDOW)
-    c = oa.windows_raw([shard], np.zeros((N, 4)), seed=999, n_waves=7)
-    for x, y, z in zip(a, b, c, strict=True):
-        assert torch.equal(x, y) and torch.equal(x, z)
+def test_biennial_flows_default_to_the_final_year_rate():
+    """PSID reports one calendar year of income per biennial interview.
+
+    The 2011 wave carries TOTAL FAMILY INCOME-2010 -- a single year, not a
+    two-year total (PSID_DATA.md). Summing made simulated income roughly twice
+    the empirical measure, and because the embedder standardizes per feature
+    that survived as a distorted income-to-debt ratio, which is the margin beta
+    is identified from.
+    """
+    panel = make_panel(N=2, T=20)
+    x, _ = aggregate_waves(panel, age_start_sim=20, start_age=30, n_waves=2)
+    # Wave 0 = ages 30-31 = annual indices 10, 11; reference year is 11.
+    assert x[0, 0, 0] == pytest.approx(panel["income"][0, 11])
+    assert x[0, 0, 1] == pytest.approx(panel["consumption"][0, 11])
 
 
-@pytest.mark.parametrize("n", we.WAVES)
-def test_each_arms_windows_lie_inside_ages_24_to_64(shard, n):
-    win = {**oa.WINDOW, "n_waves": n, "start_high": we.start_high(n)}
-    _t, x, _p = oa.windows_raw([shard], np.zeros((N, 4)), seed=999, window=win)
-    assert x.shape[1] == n
-    age = x[..., AGE]                        # a wave's age is its second year
-    assert age[:, 0].min() >= we.START_LOW + 1 and age[:, -1].max() <= we.LAST_WAVE_START + 1
-    assert torch.equal(age[:, 1:] - age[:, :-1], torch.full_like(age[:, 1:], 2))
+def test_biennial_flows_summed_when_asked():
+    """The old behaviour is still reachable, for Phase 1-2 reproduction."""
+    panel = make_panel(N=2, T=20)
+    x, _ = aggregate_waves(panel, age_start_sim=20, start_age=30, n_waves=2,
+                           flow_agg="sum")
+    assert x[0, 0, 0] == pytest.approx(
+        panel["income"][0, 10] + panel["income"][0, 11])
+    assert x[0, 0, 1] == pytest.approx(
+        panel["consumption"][0, 10] + panel["consumption"][0, 11])
 
 
-def test_the_20_wave_arm_uses_both_start_ages(shard):
-    win = {**oa.WINDOW, "n_waves": 20, "start_high": we.start_high(20)}
-    _t, x, _p = oa.windows_raw([shard], np.zeros((N, 4)), seed=999, window=win)
-    assert set(x[:, 0, AGE].tolist()) == {25.0, 26.0}
+def test_flow_agg_modes_agree_at_annual_frequency():
+    """With one year per wave there is nothing to sum, so the modes coincide."""
+    panel = make_panel(N=2, T=20)
+    kw = dict(age_start_sim=20, start_age=30, n_waves=3, wave_years=1)
+    a, _ = aggregate_waves(panel, flow_agg="last", **kw)
+    b, _ = aggregate_waves(panel, flow_agg="sum", **kw)
+    np.testing.assert_array_equal(a, b)
 
 
-def test_a_window_outside_the_range_is_refused():
-    we.check_window({**oa.WINDOW, "n_waves": 14, "start_high": 37}, 14)
-    with pytest.raises(SystemExit):
-        we.check_window({**oa.WINDOW, "n_waves": 14}, 14)     # start_high 45 runs to 72
+def test_bad_flow_agg_raises():
+    panel = make_panel(N=1, T=20)
+    with pytest.raises(ValueError, match="flow_agg must be one of"):
+        aggregate_waves(panel, age_start_sim=20, start_age=30, flow_agg="mean")
 
 
-def _member(d, window):
-    d.mkdir(parents=True)
-    (d / "results.json").write_text(json.dumps({"_config": {"window": window, "seed": 0}}))
+def test_biennial_stock_at_end_of_window():
+    panel = make_panel(N=2, T=20)
+    x, _ = aggregate_waves(panel, age_start_sim=20, start_age=30, n_waves=2)
+    # Wave 0 end = annual index 11.
+    assert x[0, 0, 2] == pytest.approx(panel["liquid_assets"][0, 11])
+    # Wave 1 = ages 32-33 = indices 12, 13; end stock at 13.
+    assert x[0, 1, 2] == pytest.approx(panel["liquid_assets"][0, 13])
 
 
-def test_members_report_their_window_length_and_refuse_a_mix(tmp_path, monkeypatch):
-    class Fake:
-        posterior_estimator = None
-
-    monkeypatch.setattr(oa, "load_posterior", lambda path, **kw: (
-        {"posterior": Fake(), "proposal": {"parts": []}} if path.name == "posterior_14w.pt"
-        else pytest.fail(f"loaded {path.name}")))
-    w14 = {**oa.WINDOW, "n_waves": 14, "start_high": 37}
-    _member(tmp_path / "s0", w14)
-    _member(tmp_path / "s1", w14)
-    _posts, _prop, cfg = oa.load_members([tmp_path / "s0", tmp_path / "s1"])
-    assert oa.window_of(cfg)["n_waves"] == 14 and oa.window_of(cfg)["start_high"] == 37
-    _member(tmp_path / "s2", {**w14, "start_high": 45})
-    with pytest.raises(SystemExit):
-        oa.load_members([tmp_path / "s0", tmp_path / "s2"])
-    with pytest.raises(SystemExit):
-        oa.load_members([tmp_path / "s0"], n_waves=7)
+def test_alive_all_true_when_no_reset():
+    panel = make_panel(N=3, T=20)
+    _, alive = aggregate_waves(panel, age_start_sim=20, start_age=30)
+    assert alive.all()
 
 
-def test_the_population_se_is_exact_on_a_linear_map():
-    rng = np.random.default_rng(0)
-    h, n_pop, share = 4000, 409, 0.85
-    card = (np.arange(h) % 2).astype(int)
-    th0 = np.array([0.437, 0.9928, 1.58, 1.042])
-    A = np.array([[2.0, 0.1, 0.0, 0.3], [0.2, -1.5, 0.1, 0.0],
-                  [0.0, 0.3, 0.8, -0.2], [0.1, 0.0, 0.05, 1.2]])
-    centre = th0 + rng.normal(0, 1, (h, 4)) * [0.1, 0.01, 0.5, 0.01] + 0.05 * card[:, None]
-    means = {"centre": centre}
-    for k in range(4):
-        du = lc.STEP[k] * np.eye(4)[k]
-        means[f"plus{k}"] = centre + du @ A.T
-        means[f"minus{k}"] = centre - du @ A.T
-    r = we.population_se(means, card, th0, n_pop, share)
-    assert np.allclose(r["jacobian"], A)
-    w = np.where(card == 1, share / (card == 1).sum(), (1 - share) / (card == 0).sum())
-    mu = w @ centre
-    v = sum(wi * np.outer(c - mu, c - mu) for wi, c in zip(w, centre, strict=True)) / n_pop
-    ai = np.linalg.inv(A)
-    D = np.diag([1, -(1 - th0[1]), 1, 1])
-    assert np.allclose(r["cov"], D @ ai @ v @ ai.T @ D.T)
-    assert np.allclose(r["se"], np.sqrt(np.diag(r["cov"])))
+def test_alive_false_when_t_age_resets_annual():
+    panel = make_panel(N=2, T=20)
+    # Household 0 dies after index 14 and is replaced at 15.
+    panel["t_age"][0, 15] = 0
+    panel["t_age"][0, 16] = 1
+    panel["t_age"][0, 17] = 2
+    _, alive = aggregate_waves(
+        panel, age_start_sim=20, start_age=30, n_waves=10, wave_years=1
+    )
+    # Wave 5 = index 15; the 14→15 boundary check catches the reset.
+    assert not alive[0, 5]
+    # Wave 4 (index 14) and wave 6 (index 16, boundary 15→16 rises) unaffected.
+    assert alive[0, 4]
+    assert alive[0, 6]
+    assert alive[1].all()
 
 
-SHARDS = [oa.Path(p) for p in ("data/processed/couples_v2_dataset_shards",
-                               "data/processed/couples_v2_strip_dataset_shards",
-                               "data/processed/couples_v2_betastrip_dataset_shards")]
+def test_alive_false_when_t_age_resets_biennial():
+    panel = make_panel(N=2, T=20)
+    panel["t_age"][0, 15] = 0
+    panel["t_age"][0, 16] = 1
+    panel["t_age"][0, 17] = 2
+    _, alive = aggregate_waves(panel, age_start_sim=20, start_age=30, n_waves=5)
+    # Wave 2 covers ages 34-35 (indices 14-15) — reset at 15 → dead.
+    assert not alive[0, 2]
+    assert alive[0, 1]
+    # Wave 3 covers indices 16-17; pre-window check 15→16 is non-decreasing.
+    assert alive[0, 3]
+    assert alive[1].all()
 
 
-@pytest.mark.skipif(not all(p.exists() for p in SHARDS), reason="v2's shards are not here")
-@pytest.mark.parametrize("which", [0, 2, 3])        # a held-out shard of each run
-def test_every_arms_windows_are_the_stored_panels_read_by_hand(which):
-    """RESULTS 64.1 gate 2: a wave's stocks are the panel's at the start of
-    its second year, its flows the year before (flow_lag 1); every start
-    inside the arm's range, every last wave by 64."""
-    from hh_npe.data.waves import FLOWS
-    from hh_npe.data.windows import sample_start_ages
+def test_window_exceeds_simulator_range_raises():
+    panel = make_panel(N=2, T=10)  # only 10 annual periods
+    with pytest.raises(ValueError, match="exceeds"):
+        aggregate_waves(panel, age_start_sim=20, start_age=30, n_waves=5)
 
-    theta_all, _c, _tr, held_f, _p, _cfg = oa.load_shards(SHARDS)
-    f = held_f[which]
-    d = np.load(f.path)
-    lo, hi = int(d["lo"]), int(d["hi"])
-    lag = oa.flow_lag_of([f.path])
-    assert lag == 1
-    panel = {k[len(PANEL_PREFIX):]: d[k] for k in d.files if k.startswith(PANEL_PREFIX)}
-    m = len(panel["t_age"]) // (hi - lo)
-    for n in we.WAVES:
-        win = {**oa.WINDOW, "n_waves": n, "start_high": we.start_high(n)}
-        th, x, pid = oa.windows_raw([oa.Shard(f.path, f.offset)], theta_all, seed=999, window=win)
-        x, pid = x.numpy(), pid.numpy()
-        # cut_windows groups rows by start age: which panel row each one is
-        st = sample_start_ages((hi - lo) * m, 1, win["start_low"], win["start_high"],
-                               seed=999 + f.offset + lo)[:, 0]
-        order = np.concatenate([np.flatnonzero(st == v) for v in np.unique(st)])
-        assert np.array_equal(pid - f.offset, lo + order // m)
-        assert np.allclose(th.numpy(), theta_all[f.offset + lo + order // m])
-        assert set(np.unique(st)) == set(range(we.START_LOW, we.start_high(n) + 1))
-        for i in range(0, len(x), 97):
-            r, s = order[i], st[order[i]]
-            assert x[i, 0, AGE] == s + 1 and x[i, -1, AGE] <= we.LAST_WAVE_START + 1
-            for w in range(n):
-                t = s - 20 + 2 * w + 1                  # the wave's second year
-                for k, name in enumerate(FEATURES_TWOASSET_AGE):
-                    want = (20 + panel["t_age"][r, t] if name == "age"
-                            else panel[name][r, t - (lag if name in FLOWS else 0)])
-                    assert np.isclose(x[i, w, k], want, rtol=1e-6), (n, i, w, name)
+
+def test_bad_wave_years_raises():
+    panel = make_panel(N=2, T=20)
+    with pytest.raises(ValueError, match="wave_years"):
+        aggregate_waves(panel, age_start_sim=20, start_age=30, n_waves=2, wave_years=0)
+
+
+def test_works_with_simulator_panel():
+    """End-to-end sanity check with the real simulator."""
+    from hh_npe.simulator.forward import simulate_households
+    from hh_npe.simulator.lifecycle import build_lifecycle_agent, solve_lifecycle
+
+    agent = solve_lifecycle(build_lifecycle_agent(
+        delta=0.95, crra=2.0, n_income_states=5, age_start=20, age_end=40,
+    ))
+    panel = simulate_households(agent, n_households=8, seed=0)
+    x, alive = aggregate_waves(panel, age_start_sim=20, start_age=30, n_waves=5)
+    assert x.shape == (8, 5, 3)
+    # With mortality between ages 30-39 around 0.001-0.002 annual,
+    # most/all of 8 households should be fully alive.
+    assert alive.any()
+
+
+def test_twoasset_feature_set_adds_illiquid():
+    from hh_npe.data.waves import FEATURES_MVP, FEATURES_TWOASSET
+
+    assert FEATURES_MVP == ("income", "consumption", "liquid_assets")
+    assert FEATURES_TWOASSET == FEATURES_MVP + ("illiquid_assets",)
+
+    panel = make_panel(N=3, T=20)
+    panel["illiquid_assets"] = np.full((3, 20), 7.0)
+    x, _ = aggregate_waves(
+        panel, age_start_sim=20, start_age=30, features=FEATURES_TWOASSET
+    )
+    assert x.shape == (3, 5, 4)
+    # Illiquid balance is a stock: read at the end of the window, not summed.
+    assert np.all(x[:, :, 3] == 7.0)
+
+
+def test_flow_agg_separates_flows_from_stocks():
+    """Only flows change with flow_agg; stocks are read once either way."""
+    from hh_npe.data.waves import FEATURES_TWOASSET
+
+    panel = make_panel(N=1, T=20)
+    panel["illiquid_assets"] = np.full((1, 20), 5.0)
+    panel["consumption"] = np.full((1, 20), 3.0)
+    kw = dict(age_start_sim=20, start_age=30, features=FEATURES_TWOASSET)
+    x_last, _ = aggregate_waves(panel, flow_agg="last", **kw)
+    x_sum, _ = aggregate_waves(panel, flow_agg="sum", **kw)
+    assert x_last[0, 0, 1] == pytest.approx(3.0)  # consumption: one year
+    assert x_sum[0, 0, 1] == pytest.approx(6.0)   # consumption: 2 x 3.0
+    assert x_last[0, 0, 3] == pytest.approx(5.0)  # illiquid: stock, unchanged
+    assert x_sum[0, 0, 3] == pytest.approx(5.0)
+
+
+def test_missing_feature_raises():
+    from hh_npe.data.waves import FEATURES_TWOASSET
+
+    panel = make_panel(N=2, T=20)  # no illiquid_assets key
+    with pytest.raises(KeyError, match="illiquid_assets"):
+        aggregate_waves(
+            panel, age_start_sim=20, start_age=30, features=FEATURES_TWOASSET
+        )
