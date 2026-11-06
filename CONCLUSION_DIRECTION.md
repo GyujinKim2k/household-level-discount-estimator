@@ -26,6 +26,10 @@
 | the population β under PSID-level noise | with the Jacobian recomputed at each point, typical and gross converge: β 0.132 (se 0.019) and 0.157 (0.011), δ 0.9991 / 0.9986, ρ 1.95 / 1.11, R_γ 1.038 / 1.036; z about −3.3 against their reported β error. Noise-unknown stops at β 0.143 (θ misfit ≤ 1.9 se), its income noise unmatched at the box top. Typical's 90% interval reaches the floor of 0.10 (7% of the bootstrap below it). The noise model moves β by about 0.3, 10–11 of v2's standard errors | RESULTS 63.10 (63.7, 62.4) |
 | one household's β below 0.3 | not resolved with seven waves: simulated households at β 0.1–0.2 average a posterior mean of 0.35; no simulated or PSID household has its 95th percentile below 0.3 | RESULTS 63.4–63.5 |
 | a denser training set | doubling the data (20k to 40k draws) leaves the share of prior variance removed unchanged (±0.011) and adds +0.19 log q; another doubling would cost about 6 GPU-days for about +0.1 log q | RESULTS 63.8 |
+| more waves sharpen one household (simulated) | 7, 10, 14 and 20 waves inside ages 24–64, all calibrated (SBC 0.888–0.912): share of prior variance removed β 0.50 → 0.70 (all four 0.47–0.52 → 0.65–0.70), 2.1–2.3 times the information for 2.9 times the waves, not levelled off; β's corr with truth 0.71 → 0.84; pairs ordered at p ≥ 0.9 26% → 44% (97–98% right) | RESULTS 64.4–64.5 |
+| more waves do not resolve β below 0.3 | at true β 0.1–0.2 the mean posterior mean goes 0.36 → 0.31; corr below 0.3 stays 0.22–0.25; 1.4% have their 95th percentile below 0.3 at 20 waves | RESULTS 64.6 |
+| the population with more waves | households sharing θ₀: se at 20 waves 0.28–0.47 of 7 waves'. PSID couples: β se 0.027 → 0.007 if their extra spread shrinks like noise, → 0.022 if it is couples differing (63% of β's variance at 7 waves is that remainder); more couples, not more waves, narrow the latter. Under both, more precise than Laibson et al.'s sampling-only se (0.53 of it at 7 waves, 0.15–0.44 at 20) | RESULTS 64.8 |
+| the 7-wave arm on the matched range reproduces PSID | couples' medians within 0.003 (β), ρ +0.15 (a sixth of a posterior sd); couple-by-couple corr 0.93–0.96 | RESULTS 64.7 |
 
 ## Still to do, in order
 
@@ -43,7 +47,9 @@
      - v2's 0.437 holds.
    - Typical's 90% interval reaches the floor of 0.10 (7% of its bootstrap below it). **Decided by the user (2026-11-05):** "keep the floor at 0.10".
    - **§1 switched to v2 on the wider box (user, 2026-11-05):** the household tables, calibration, heterogeneity and resolution (figure 103) are now `optionA2v2_b010`'s.
-3. **The waves experiment (simulated households). Launched 2026-11-05 (RESULTS 64), with every window inside ages 24–64 (the user's choice): 7, 10, 14 and 20 waves.**
+3. **The waves experiment (simulated households). Done 2026-11-06 (RESULTS 64), with every window inside ages 24–64 (the user's choice): 7, 10, 14 and 20 waves.**
+   - **Results:** every arm is calibrated. One household's precision grows steadily without levelling off by 20 waves (2.1–2.3 times the information, 44% of pairs ordered instead of 26%). β below 0.3 is not resolved at any length (a flat curve, the model's behaviour at the credit limit). PSID couples' population se falls by 19–72% at 20 waves, depending on how much of it is couples differing (two cases, 64.8). No arm is short of capacity (64.9), so no wider-embedder arm was needed. Nothing looked odd, so the run-forward fallback was not run.
+   - **Open, proposed (needs the user):** a simulated population whose θ differ as couples' do, to measure the two population cases directly (a few GPU-hours).
    - **Models.** Train with 7 (retrained on the matched range), 10, 14 and 20 waves, under v2's noise model on the box with the β strip, with everything else as v2. If the longer windows underfit (training loss still falling while held-out loss stalls), add one wider-embedder arm. That costs GPU-hours, not a regeneration. The training set is dense enough as it is (RESULTS 63.8).
    - **No regeneration needed.** The stored panels cover ages 20–90 for every household, so longer windows are cut from the existing shards (`optionA.py train --n_waves --start_high`). Every window lies inside ages 24–64 (start ≤ 65 − 2 × waves; the user's choice, 2026-11-05); PSID's start ages run forward to 83 is the fallback.
    - **Measures, per number of waves:**
@@ -67,8 +73,8 @@
   - both models share their income process, whose transitory variance absorbs PSID's income measurement error;
   - their model fails its own overidentification test (p = 7×10⁻¹⁵).
 - **"More waves would predict much more precisely":**
-  - a hypothesis until the waves experiment measures it;
-  - even then it is measured on simulated households under our model;
+  - measured on simulated households under our model (RESULTS 64): true for one household's posterior and for telling households apart; not for β below 0.3; for the population of 409 couples, only partly, since couples' differences do not shrink with waves;
+  - the per-household gain is steady but less than proportional (each wave beyond the seventh adds 0.60–0.72 of an average first-seven wave);
   - real longer panels also bring attrition, changes of household head and more measurement error.
 - **"Only seven waves" is PSID's limit, not our choice** (`PSID_DATA.md` §3, verified against PSID's codebooks):
   - PSID is biennial from 1999, so 13 waves exist in calendar terms;
@@ -80,7 +86,7 @@
 
 ## How this guides the next plans
 
-- **Every next step should serve the story above.** After RESULTS 63, the waves experiment comes first.
+- **Every next step should serve the story above.** After RESULTS 64, items 4 (PSID framed by the experiment) and 5 (the write-up) remain.
 - **The parked model changes become limitations and future work** unless they bear on the conclusion:
   - durables and housing in the illiquid asset;
   - the couples' income process;

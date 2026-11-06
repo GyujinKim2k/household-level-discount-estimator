@@ -131,6 +131,32 @@ def test_the_population_se_is_exact_on_a_linear_map():
     assert np.allclose(r["se"], np.sqrt(np.diag(r["cov"])))
 
 
+def test_psid_scale_holds_the_remainder_only_in_case_b():
+    rng = np.random.default_rng(1)
+    L = rng.normal(size=(4, 4))
+    v_hom = L @ L.T * 1e-4
+    M = rng.normal(size=(4, 4))
+    v_psid = v_hom + M @ M.T * 1e-4
+    same = we.psid_scale(v_psid, v_hom, np.ones(4))
+    assert np.allclose(same["a"], v_psid) and np.allclose(same["b"], v_psid)
+    none = we.psid_scale(v_psid, v_hom, np.zeros(4))
+    assert np.allclose(none["a"], 0) and np.allclose(none["b"], v_psid - v_hom)
+    half = we.psid_scale(v_psid, v_hom, np.full(4, 0.5))
+    assert np.allclose(half["a"], v_psid / 4)
+    assert np.allclose(half["b"], v_psid - v_hom + v_hom / 4)
+    assert (np.diag(half["b"]) >= np.diag(half["a"])).all()
+
+
+def test_outside_95_counts_parameters_per_household():
+    u = np.array([[0.5, 0.5, 0.5, 0.5], [0.01, 0.5, 0.5, 0.5], [0.99, 0.02, 0.5, 0.5],
+                  [0.025, 0.975, 0.5, 0.5]])
+    assert we.outside_95(u) == {"at_least_1": 0.5, "at_least_2": 0.25}
+    calibrated = np.random.default_rng(0).uniform(size=(200_000, 4))
+    r = we.outside_95(calibrated)
+    assert abs(r["at_least_1"] - (1 - 0.95**4)) < 0.003
+    assert abs(r["at_least_2"] - (1 - 0.95**4 - 4 * 0.05 * 0.95**3)) < 0.001
+
+
 SHARDS = [oa.Path(p) for p in ("data/processed/couples_v2_dataset_shards",
                                "data/processed/couples_v2_strip_dataset_shards",
                                "data/processed/couples_v2_betastrip_dataset_shards")]

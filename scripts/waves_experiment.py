@@ -28,7 +28,9 @@ Commands:
 ``measures``
     Per arm: calibration (held-out and SBC), one household's precision,
     telling households apart (SBC, truth known), low beta (RESULTS 63.4's
-    table) and the population; the RESULTS tables.
+    table) and the population, with PSID couples' 7-wave standard error
+    scaled to each length in two cases (:func:`psid_scale`); the underfitting
+    check; the RESULTS tables.
 
 ``figures``
     104 (precision against waves), 105 (one simulated household under each
@@ -190,6 +192,25 @@ def population_se(means: dict, card: np.ndarray, th0: np.ndarray, n_pop: int = N
             "cov": v_th.tolist(), "se": np.sqrt(np.diag(v_th)).tolist()}
 
 
+def psid_scale(v_psid, v_hom, ratio) -> dict:
+    """PSID couples' 7-wave covariance of the representative theta, scaled to
+    n waves in two cases. ``v_hom`` is the same arm's covariance on households
+    sharing theta0, ``ratio`` the homogeneous se at n waves over 7 waves'.
+
+    The remainder v_psid - v_hom is what households sharing theta0 lack:
+    mostly couples' differences (RESULTS 60), which, to first order, enter the
+    representative theta as their own spread in theta, and more waves do not
+    change that spread.
+      (a) the remainder shrinks like the noise: D v_psid D (the launch plan's
+          projection);
+      (b) the remainder is held: (v_psid - v_hom) + D v_hom D;
+    with D = diag(ratio). Both are v_psid at ratio 1."""
+    v_psid, v_hom = np.asarray(v_psid, float), np.asarray(v_hom, float)
+    D = np.diag(np.asarray(ratio, float))
+    rem = v_psid - v_hom
+    return {"remainder": rem, "a": D @ v_psid @ D, "b": rem + D @ v_hom @ D}
+
+
 def population(args) -> None:
     from scripts import laibson_comparison as lc
     from scripts import optionA as oa
@@ -267,13 +288,25 @@ def sbc_measures(run: Path) -> dict:
             "interval_vs_range": hr.interval_vs_range(flat),
             "pairs_box": hr.pairs(**flat, truth=truth),
             "pairs_same_theta": hr._same_theta_pairs(sim),
-            "low_beta": low_beta(flat, truth)}
+            "low_beta": low_beta(flat, truth),
+            "outside_95": outside_95(np.load(run / "sbc" / "sbc16.npz")["u"])}
+
+
+def outside_95(u: np.ndarray) -> dict:
+    """Shares of SBC households with at least one, and at least two, of the
+    four parameters outside their central 95% interval (rank u below 0.025
+    or above 0.975); 0.185 and 0.014 if calibrated and independent."""
+    k = ((u < 0.025) | (u > 0.975)).sum(1)
+    return {"at_least_1": float((k >= 1).mean()), "at_least_2": float((k >= 2).mean())}
 
 
 def underfit(run: Path, tail: int = 5) -> dict:
     """Per member: the last epochs' slope of training and validation loss
     (``optionA.py train``'s training_summary.json). Training still falling
-    while validation has stopped is underfitting by capacity, not by data."""
+    while validation has stopped is the early-stopping point: the network
+    fits its training households better than new ones, so the training data
+    bind, not its capacity. A network short of capacity would end with both
+    losses flat and no gap between them."""
     out = {}
     for d in members_of(run):
         f = d / "training_summary.json"
@@ -337,10 +370,33 @@ def measures(args) -> None:
     lai = json.loads(REFERENCE.read_text())
     res["laibson_se"] = lai["laibson_se"]
     res["psid_se_7_waves"] = lai["arms"][PSID_ARM]["representative_se"]
+    if "psid_arm_population" in res:
+        ref = lai["arms"][PSID_ARM]
+        se = np.array(ref["representative_se"])
+        v_psid = np.outer(se, se) * np.array(ref["representative_corr"])
+        v_hom = np.array(res["psid_arm_population"]["cov"])
+        base = np.array(res["arms"][args.waves[0]]["population"]["se"])
+        for n in args.waves:
+            s = psid_scale(v_psid, v_hom, np.array(res["arms"][n]["population"]["se"]) / base)
+            res["arms"][n]["psid_scale"] = {
+                "cov_a": s["a"].tolist(), "cov_b": s["b"].tolist(),
+                "se_a": np.sqrt(np.diag(s["a"])).tolist(),
+                "se_b": np.sqrt(np.diag(s["b"])).tolist()}
+        rem = s["remainder"]
+        res["psid_remainder"] = {"cov_psid": v_psid.tolist(), "cov": rem.tolist(),
+                                 "se": np.sqrt(np.diag(rem)).tolist(),
+                                 "share_of_psid_variance": (np.diag(rem) / se**2).tolist(),
+                                 "eigenvalues": np.linalg.eigvalsh(rem).tolist()}
     out = args.root / "waves_experiment.json"
     out.write_text(json.dumps(res, indent=1))
     report(res)
     print(f"\nwrote {out}")
+
+
+def _info(share_removed: float) -> float:
+    """Posterior precision from the data in units of the prior's, if both
+    were Gaussian: 1 - posterior var / prior var = s gives s / (1 - s)."""
+    return share_removed / (1 - share_removed)
 
 
 def report(res: dict) -> None:
@@ -364,6 +420,12 @@ def report(res: dict) -> None:
     for j, p in enumerate(NAMES):
         row(f"{p}: share of prior variance removed", lambda r, j=j: r["heldout"]["contraction"][j])
     for j, p in enumerate(NAMES):
+        row(f"{p}: the data's information ÷ 7 waves' (Gaussian reading, s/(1-s))",
+            lambda r, j=j: _info(r["heldout"]["contraction"][j])
+            / _info(a[ns[0]]["heldout"]["contraction"][j]))
+    for j, p in enumerate(NAMES):
+        row(f"{p}: corr(posterior mean, truth), held-out", lambda r, j=j: r["heldout"]["corr"][j])
+    for j, p in enumerate(NAMES):
         row(f"{p}: median posterior sd (SBC)", lambda r, j=j: r["sbc"]["median_posterior_sd"][j],
             "{:.4f}")
     print("\ntelling households apart (SBC households, truth known)\n" + hdr)
@@ -378,6 +440,10 @@ def report(res: dict) -> None:
     for p in NAMES:
         row(f"{p}: sharing θ, falsely ordered",
             lambda r, p=p: r["sbc"]["pairs_same_theta"][p]["ordered_p90"])
+    row("households with ≥ 1 of 4 parameters outside their central 95%",
+        lambda r: r["sbc"]["outside_95"]["at_least_1"])
+    row("households with ≥ 2 of 4 parameters outside their central 95%",
+        lambda r: r["sbc"]["outside_95"]["at_least_2"])
     print("\nlow beta, by true beta (SBC)\n" + hdr)
     for b, (lo, hi) in enumerate(BETA_BINS):
         cells = []
@@ -395,13 +461,40 @@ def report(res: dict) -> None:
     base = np.array(a[ns[0]]["population"]["se"])
     for j, p in enumerate(NAMES[:3]):
         row(f"{p}: se ÷ {ns[0]} waves'", lambda r, j=j: r["population"]["se"][j] / base[j])
-    for j, p in enumerate(NAMES[:3]):
-        row(f"{p}: households to match their sampling-only se",
-            lambda r, j=j: N_POP * (r["population"]["se"][j] / ss[j]) ** 2, "{:.0f}")
-    psid = np.array(res["psid_se_7_waves"])
-    for j, p in enumerate(NAMES[:3]):
-        row(f"{p}: PSID's 7-wave se × that ratio (projection)",
-            lambda r, j=j: psid[j] * r["population"]["se"][j] / base[j], "{:.4f}")
+    if "psid_remainder" in res:
+        print(f"\nPSID couples ({N_POP}) at n waves, from their 7-wave se: (a) the remainder "
+              "shrinks like the noise, (b) it is held\n" + hdr)
+
+        def pair(label, f, fmt):
+            print(f"| {label} | " + " | ".join(
+                f"{fmt.format(f(a[n], 'a'))} / {fmt.format(f(a[n], 'b'))}" for n in ns) + " |")
+
+        for j, p in enumerate(NAMES[:3]):
+            pair(f"{p}: se, (a) / (b)", lambda r, c, j=j: r["psid_scale"][f"se_{c}"][j],
+                 "{:.4f}")
+        for j, p in enumerate(NAMES[:3]):
+            pair(f"{p}: couples to match their sampling-only se, (a) / (b)",
+                 lambda r, c, j=j: N_POP * (r["psid_scale"][f"se_{c}"][j] / ss[j]) ** 2, "{:.0f}")
+        rem = res["psid_remainder"]
+        print("\nthe remainder (PSID couples' 7-wave covariance less households sharing "
+              f"theta0, {PSID_ARM}): se " + "  ".join(
+                  f"{p} {v:.4f}" for p, v in zip(NAMES, rem["se"], strict=True))
+              + "; share of PSID's variance " + "  ".join(
+                  f"{p} {v:.2f}" for p, v in zip(NAMES, rem["share_of_psid_variance"],
+                                                 strict=True))
+              + f"; smallest eigenvalue {min(rem['eigenvalues']):.2e}")
+    print("\nunderfitting: each arm's 5 members (training_summary.json)\n" + hdr)
+    uf = {n: list(a[n]["underfit"].values()) for n in ns}
+    print("| epochs | " + " | ".join(
+        f"{min(m['epochs'] for m in uf[n])}–{max(m['epochs'] for m in uf[n])}" for n in ns)
+        + " |")
+    for key, lab in (("train_slope_last", "training loss, slope over the last 5 epochs"),
+                     ("val_slope_last", "validation loss, slope over the last 5 epochs"),
+                     ("train_minus_val_end", "training − validation loss at the end"),
+                     ("best_val", "best validation loss"),
+                     ("minutes", "minutes per member")):
+        print(f"| {lab} (mean) | " + " | ".join(
+            f"{np.mean([m[key] for m in uf[n]]):.3f}" for n in ns) + " |")
     if "psid_arm_population" in res:
         print(f"\n{PSID_ARM} (7 waves, PSID's start ages 24-45) on the same households: se "
               + "  ".join(f"{p} {v:.4f}" for p, v in
@@ -433,21 +526,44 @@ def figures(args) -> None:
                lambda n, j: a[n]["sbc"]["median_posterior_sd"][j]
                / a[ns[0]]["sbc"]["median_posterior_sd"][j], False),
               ("household pairs ordered at p ≥ 0.9 (SBC)",
-               lambda n, j: a[n]["sbc"]["pairs_box"][NAMES[j]]["ordered_p90"], False),
-              ("population se (409 households sharing θ₀)\n÷ Laibson et al.'s sampling-only se",
-               lambda n, j: a[n]["population"]["se"][j] / res["laibson_se"]["sampling only"][j],
-               True)]
-    for axi, (title, f, log) in zip(ax.ravel(), panels, strict=True):
-        for j, p in enumerate(NAMES if "Laibson" not in title else NAMES[:3]):
+               lambda n, j: a[n]["sbc"]["pairs_box"][NAMES[j]]["ordered_p90"], False)]
+    for axi, (_title, f, _log) in zip(ax.ravel()[:3], panels, strict=True):
+        for j, p in enumerate(NAMES):
             axi.plot(ns, [f(n, j) for n in ns], "o-", label=label[p])
+    # (d) the population: PSID couples' 7-wave se scaled in the two cases
+    # (psid_scale), and households sharing theta0
+    from matplotlib.lines import Line2D
+
+    axi = ax[1, 1]
+    ss = res["laibson_se"]["sampling only"]
+    for j, _p in enumerate(NAMES[:3]):
+        c = f"C{j}"
+        axi.plot(ns, [a[n]["population"]["se"][j] / ss[j] for n in ns], "o:", color=c,
+                 lw=1, ms=3)
+        if "psid_scale" in a[ns[0]]:
+            sa = [a[n]["psid_scale"]["se_a"][j] / ss[j] for n in ns]
+            sb = [a[n]["psid_scale"]["se_b"][j] / ss[j] for n in ns]
+            axi.fill_between(ns, sa, sb, color=c, alpha=0.15, lw=0)
+            axi.plot(ns, sb, "o-", color=c)
+            axi.plot(ns, sa, "o--", color=c, ms=4)
+    axi.set_yscale("log")
+    axi.axhline(1, color="k", lw=0.6)
+    axi.legend(handles=[Line2D([], [], color=f"C{j}", label=label[p])
+                        for j, p in enumerate(NAMES[:3])]
+               + [Line2D([], [], color="0.3", ls="-", label="PSID couples, remainder held (b)"),
+                  Line2D([], [], color="0.3", ls="--",
+                         label="PSID couples, remainder shrinks (a)"),
+                  Line2D([], [], color="0.3", ls=":", label="409 households sharing θ₀")],
+               fontsize=7)
+    panels.append(("population se ÷ Laibson et al.'s sampling-only se\n"
+                   "(409 households, from PSID couples' 7-wave se)", None, True))
+    for axi, (title, _f, _log) in zip(ax.ravel(), panels, strict=True):
         axi.axvline(7, color="0.4", ls=":", lw=1)
         axi.text(7.2, axi.get_ylim()[1], "PSID: 7 waves", va="top", fontsize=8, color="0.3")
-        if log:
-            axi.set_yscale("log")
-            axi.axhline(1, color="k", lw=0.6)
         axi.set(xlabel="waves (biennial, inside ages 24–64)", title=title, xticks=ns)
         axi.grid(ls=":", lw=0.5)
-        axi.legend(fontsize=8)
+        if axi is not ax[1, 1]:
+            axi.legend(fontsize=8)
     fig.suptitle("The waves experiment (RESULTS 64): v2 on the box with the β strip, every "
                  "window inside ages 24–64", fontsize=11)
     fig.tight_layout()
@@ -479,13 +595,19 @@ def figures(args) -> None:
         for n in ns:
             ellipse(axi, th0, a[n]["population"]["cov"], i, j, COLOR[n], ("-", "--"),
                     f"{n} waves, 409 households sharing θ₀")
+        if "psid_remainder" in res:
+            ellipse(axi, th0, res["psid_remainder"]["cov_psid"], i, j, "#7B3294", ("-", "--"),
+                    f"PSID couples, {ns[0]} waves (RESULTS 63.10)")
+            ellipse(axi, th0, a[ns[-1]]["psid_scale"]["cov_b"], i, j, "#8C510A", ("-.", "-."),
+                    f"PSID couples at {ns[-1]} waves, remainder held (b)")
         axi.plot(*th0[[i, j]], "o", color="0.2", ms=4)
         axi.set(xlabel=label[NAMES[i]], ylabel=label[NAMES[j]])
         axi.grid(ls=":", lw=0.5)
     axs[0].legend(fontsize=7)
-    fig.suptitle("The population by waves (RESULTS 64): 68% (solid) / 95% (dashed) regions of "
-                 "the representative θ for 409 households sharing θ₀ = v2's PSID estimate; "
-                 "couples differ, so PSID's own regions are wider", fontsize=10)
+    fig.suptitle("The population by waves (RESULTS 64): 68% / 95% regions of the "
+                 "representative θ for 409 households sharing θ₀ = v2's PSID estimate, and "
+                 "for PSID's 409 couples, who differ, at 7 waves and projected to "
+                 f"{ns[-1]} (case b)", fontsize=10)
     fig.tight_layout()
     fig.savefig(args.fig_dir / "106_waves_population.png", dpi=130)
     plt.close(fig)
@@ -532,12 +654,15 @@ def one_household(args, ns, label) -> None:
         torch.manual_seed(0)
         dr, lwt = weighted_draws(members.nets, xt, lc.N_DRAWS, spec.flow_box(), inv, lw)
         drawn[n] = hr._resample(dr, np.exp(lwt - lwt.max()), 6000, seed=0)
+        print(f"{n} waves: the truth's rank in the posterior "
+              + "  ".join(f"{p} {v:.3f}" for p, v in
+                          zip(NAMES, (drawn[n] < truth).mean(0), strict=True)), flush=True)
     for axi, (i, j) in zip(axs, ((0, 2), (0, 1), (1, 2)), strict=True):
         for n in ns:
             hr._contour(axi, drawn[n], i, j, COLOR[n], f"{n} waves", LIMITS)
         axi.plot(*truth[[i, j]], "k*", ms=11, label="truth")
         axi.set(xlabel=label[NAMES[i]], ylabel=label[NAMES[j]],
-                xlim=LIMITS[NAMES[i]], ylim=LIMITS[NAMES[j]] if NAMES[j] != "delta" else (0.9, 1.0))
+                xlim=LIMITS[NAMES[i]], ylim=LIMITS[NAMES[j]])
         axi.grid(ls=":", lw=0.5)
     axs[0].legend(fontsize=8)
     fig.suptitle(f"One held-out simulated household (draw {lo + pick}, nearest θ₀), its panel "

@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-05 (§1 switched to v2 on the wider box; the β floor stays at 0.10; §63.10: the population fits with the Jacobian recomputed at each point; §64: the waves experiment launched).
+**Last updated:** 2026-11-06 (§64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -92,8 +92,12 @@ The data carry the audit's fixes (§55.1):
     - On the old box, no θ fitted under these arms: β had to fall below 0.3.
 - **The old headline is reversed.** There, β was 0.852, inside the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14). On the wider box, 22% of couples' means are inside that band, and 40% of all 889's (old box 28% and 50%).
 - **β is weakly identified per couple:** the held-out share of prior variance removed is 0.52 (§63.3). That is not comparable with the old box's 0.40, because β's prior is now wider.
-  - On the old box, couples' β piled at the floor of 0.3 (§47.3). On the wider box, 14% of couples' means and 75% of their 5th percentiles are below 0.3, but no couple's or simulated household's 95th percentile is. Below 0.3, one household's β is not resolved with seven waves (§63.4–63.5).
+  - On the old box, couples' β piled at the floor of 0.3 (§47.3). On the wider box, 14% of couples' means and 75% of their 5th percentiles are below 0.3, but no couple's or simulated household's 95th percentile is. Below 0.3, one household's β is not resolved with seven waves (§63.4–63.5), nor with twenty (§64.6).
   - Households whose posterior mean β is below 0.3 are covered 0.900. Simulated households at true β 0.1–0.2 are covered 0.78, and their posterior means average 0.35 (§63.3–63.4).
+- **More waves, on simulated households (§64):** from 7 to 20 waves inside ages 24–64, one household's data carry 2.1–2.3 times the information, and 44% of household pairs can be ordered instead of 26%; every arm is calibrated.
+  - β below 0.3 stays unresolved.
+  - PSID couples' population se for β would fall from 0.027 to between 0.007 and 0.022, depending on how much of it is couples differing, which more waves do not narrow.
+  - The 7-wave arm on the matched age range reproduces the PSID results above.
 - **ρ's posteriors are wide** (median sd 0.93). It is the parameter v2 moved most: −0.17 from A2n (§56.3).
 - **Between §29 and v2 the model changed in several steps:** card-access types (§36), R_gamma estimated (§32), the couples' seed pool (§43.1–43.4), observation noise (§43.7–43.8) and the audit's fixes (§56). Each step's effect is recorded in its own section and is not re-attributed here.
 
@@ -10245,9 +10249,9 @@ So couples' mean δ estimate responds to β 3.6–5.0 times as steeply as the fi
         --title "Laibson et al.'s MSM point against PSID couples' representative θ under each noise arm, the box with the β strip down to 0.1, the Jacobian recomputed at each Newton point (RESULTS 63.10; unknown: θ and noise fitted together)"
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_laibson_comparison.py
 
-## 64. The waves experiment: 7, 10, 14 and 20 waves inside one age range (launch record)
+## 64. The waves experiment: from 7 to 20 waves one household's data carry 2.1–2.3 times the information and 44% of pairs can be ordered instead of 26%, all calibrated; β below 0.3 stays unresolved; PSID couples' population standard error falls by 19–72% depending on how much of it is couples differing
 
-*Launch record, written before the run. The results will follow from 64.2.*
+*64.0–64.1 are the launch record, written before the run; the results are 64.2–64.11.*
 
 **Decisions (user, 2026-11-05).**
 - "let's plan the waves experiment with plan mode." The plan was approved as it stands here.
@@ -10294,8 +10298,8 @@ Only the window changes. Its last wave starts by 63, so it holds the stocks at t
 - **The population:** the representative θ's standard error for 409 households at θ₀, v2_b010's PSID estimate (0.437, 0.9928, 1.58, 1.042), with 85% cardholders.
   - It uses §61/63.10's statistic and a Jacobian by central differences at θ₀, with common random numbers: 9 simulations, each keeping its annual panels, from which every arm cuts its own windows.
   - The households share θ₀, so this understates PSID's standard error (couples differ, §60). The ratio across waves is the result.
-  - v2_b010 is scored on the same households too, to scale PSID's 7-wave standard error into a projection.
-- **Underfitting:** each member's loss curves (new `training_summary.json`). If training loss is still falling while validation has stopped, I report it and ask before adding a wider-embedder arm.
+  - v2_b010 is scored on the same households too, to scale PSID's 7-wave standard error into a projection. *Corrected in 64.8:* the single projection assumed that couples' differences shrink with waves; two cases are reported.
+- **Underfitting:** each member's loss curves (new `training_summary.json`). If training loss is still falling while validation has stopped, I report it and ask before adding a wider-embedder arm. *Corrected in 64.9:* that is what every early-stopped run looks like; the test of capacity is whether the two losses end flat with no gap.
 
 **Figures** (68/95% contours on every estimate):
 - 104: precision against waves;
@@ -10335,7 +10339,7 @@ All pass. Commands are under *Reproduce*.
 3. **Smoke run of the whole chain** (`SMOKE=<dir> scripts/run_waves.sh`: 1 member per arm, 1 epoch on one shard per run, 500 draws).
    - Every stage ran to `DONE` in 29 minutes, and every table and figure 104–110 filled.
    - The 9 population simulations it made at θ₀ are kept for the run; they are the same simulations by construction.
-   - In it, v2_b010's 7-wave population se on households sharing θ₀ was 0.016 against PSID couples' 0.027. That 1.65 is what heterogeneity adds (couples spread about twice as much as households sharing θ, §1), which is why the ratio across waves is the result.
+   - In it, v2_b010's 7-wave population se on households sharing θ₀ was 0.016 against PSID couples' 0.027. That 1.65 is what couples' differences, and anything else the simulation lacks, add (couples spread 1.4–2.0 times as much as households sharing θ, §1). 64.8 splits it out.
 4. **Timing**, one epoch per arm on the full training data (`optionA.py train --max_epochs 1`), alone on the card.
    - 58–63 s per epoch at every length: the cost does not grow with the window.
    - Peak GPU memory 0.9–1.7 GB.
@@ -10356,3 +10360,193 @@ About 11–12 hours, from gate 4: about 1 h per member two at a time (v2_b010 tr
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_waves_experiment.py
     SMOKE=<dir> ./scripts/run_waves.sh
     nohup setsid ./scripts/run_waves.sh >> logs/waves.log 2>&1 &
+
+### 64.2 The run
+
+`run_waves.sh` ran from 2026-11-05 05:59 to 18:09 UTC and reached `DONE`; no stage failed (`outputs/waves/STATUS`).
+- **Training:** 20 members in 11.7 h, two at a time. Each stopped on validation loss after 43–71 epochs, 51–93 minutes. Longer windows train more epochs before stopping (64.9).
+- **Evaluation:** per arm, the held-out check (2,048 draws) and SBC (1,312 draws, 16 households each: 20,992 households); for w07, PSID couples and all 889. Then the population (9 simulations at θ₀, 5 arms × 9 scorings), the measures and figures 104–110.
+- `waves_experiment.py measures` and `figures` were rerun after the chain, from its outputs, with the additions of 64.8–64.10 (`logs/waves_measures_2.log`). Every number the chain printed is unchanged.
+
+### 64.3 Calibration: every arm passes
+
+| 90% coverage, held-out / SBC | 7 waves | 10 waves | 14 waves | 20 waves |
+|---|---|---|---|---|
+| β | 0.900 / 0.904 | 0.917 / 0.907 | 0.914 / 0.908 | 0.922 / 0.912 |
+| δ | 0.902 / 0.894 | 0.908 / 0.901 | 0.892 / 0.895 | 0.912 / 0.902 |
+| ρ | 0.910 / 0.904 | 0.918 / 0.901 | 0.906 / 0.903 | 0.908 / 0.906 |
+| R_γ | 0.906 / 0.888 | 0.902 / 0.894 | 0.897 / 0.893 | 0.907 / 0.896 |
+
+- **SBC coverage is 0.888–0.912 in every arm,** inside the 0.88–0.92 band.
+- **Held-out coverage is 0.892–0.922.** One cell is outside the band: β at 20 waves, 0.922 (2,048 draws, binomial se 0.007). It errs on the wide side, so if anything 20 waves' precision is understated.
+- **SBC rank tests,** one household per draw: KS p 0.30–1.00 (β), 0.058–0.87 (δ), 0.47–0.93 (ρ).
+  - R_γ's are 0.0003, 0.099, 0.002 and 0.004. As in §63.5, R_γ is shared by the 16 draws of a block, so its ranks are not independent and the test overstates its evidence.
+  - R_γ's coverage interval contains 0.90 in every arm (0.849–0.925).
+  - R_γ's rank ECDF touches the one-per-draw band at 7 waves and crosses it at 20 (−0.049 against ±0.038, figures 107 and 110), under the same caveat.
+- **At the box's edge,** households with true β ≥ 0.95 are covered 0.60, 0.64, 0.68 and 0.70. Coverage by true value need not be 0.90 (§62.6); it rises as the prior pulls less.
+
+### 64.4 One household: precision grows steadily and has not levelled off by 20 waves
+
+| | 7 waves | 10 waves | 14 waves | 20 waves |
+|---|---|---|---|---|
+| held-out log q | 3.648 | 4.410 | 4.985 | 5.690 |
+| share of prior variance removed: β / δ / ρ / R_γ | 0.504 / 0.469 / 0.523 / 0.470 | 0.578 / 0.542 / 0.592 / 0.552 | 0.627 / 0.607 / 0.639 / 0.608 | 0.695 / 0.652 / 0.704 / 0.675 |
+| the data's information ÷ 7 waves' (Gaussian reading) | 1 | 1.32–1.39 | 1.62–1.75 | 2.12–2.34 |
+| corr(posterior mean, truth): β / δ / ρ / R_γ | 0.714 / 0.689 / 0.735 / 0.687 | 0.787 / 0.754 / 0.792 / 0.743 | 0.808 / 0.780 / 0.807 / 0.781 | 0.842 / 0.817 / 0.843 / 0.824 |
+| median posterior sd (SBC): β | 0.181 | 0.168 | 0.154 | 0.138 |
+| δ | 0.0327 | 0.0298 | 0.0263 | 0.0233 |
+| ρ | 0.888 | 0.826 | 0.763 | 0.692 |
+| R_γ | 0.0097 | 0.0083 | 0.0067 | 0.0053 |
+
+- **Every measure improves at every step, for every parameter.** Held-out log q gains 2.0 nats from 7 to 20 waves (the same held-out θ draws in every arm). β's correlation with the truth rises from 0.71 to 0.84.
+- **The information grows almost in proportion to the waves.**
+  - Read as Gaussian, a share s of prior variance removed means the data carry s/(1 − s) times the prior's precision. From 7 to 20 waves (2.9 times the waves) that grows 2.24 (β), 2.12 (δ), 2.17 (ρ) and 2.34 (R_γ) times.
+  - So each wave beyond the seventh adds 0.60–0.72 of what an average one of the first seven does.
+  - Per wave, the last step (14 to 20) adds 15–23% less than the first (7 to 10) for β, ρ and R_γ, and half as much for δ. The gain is slowing, but it has not stopped.
+- **The posterior sd falls more slowly** than the information grows: β by 24%, ρ by 22%, δ by 29%, R_γ by 45%. The sd goes with the square root of the total precision, which includes the prior's: at 7 waves the prior holds half of it, at 20 a third. For β the Gaussian reading gives 0.78 for the 0.76 measured.
+
+### 64.5 Telling households apart
+
+SBC households, truth known; they span the whole prior box, wider than PSID couples do.
+
+| | 7 waves | 10 waves | 14 waves | 20 waves |
+|---|---|---|---|---|
+| one 90% interval ÷ 5–95% range of means: β / δ / ρ / R_γ | 1.09 / 1.06 / 1.03 / 0.84 | 0.96 / 0.92 / 0.92 / 0.68 | 0.85 / 0.79 / 0.82 / 0.53 | 0.72 / 0.68 / 0.70 / 0.40 |
+| pairs ordered at p ≥ 0.9: β / δ / ρ / R_γ | 0.26 / 0.25 / 0.26 / 0.24 | 0.32 / 0.31 / 0.32 / 0.30 | 0.37 / 0.37 / 0.37 / 0.37 | 0.44 / 0.43 / 0.43 / 0.45 |
+| of which right | 0.95–0.97 | 0.96–0.97 | 0.96–0.97 | 0.97–0.98 |
+| households sharing θ falsely ordered: β / δ / ρ / R_γ | 0.014 / 0.026 / 0.009 / 0.045 | 0.028 / 0.037 / 0.017 / 0.050 | 0.036 / 0.049 / 0.023 / 0.062 | 0.046 / 0.059 / 0.035 / 0.076 |
+| households with ≥ 1 / ≥ 2 of 4 parameters outside their central 95% | 0.173 / 0.035 | 0.163 / 0.038 | 0.162 / 0.040 | 0.153 / 0.039 |
+
+- **At 20 waves, 43–45% of pairs can be ordered, against 24–26% at 7,** and the ordered pairs are right more often (97–98%).
+- **One household's interval becomes narrower than the spread of households:** β's from 1.09 times the 5–95% range of means to 0.72.
+- **Households sharing θ are falsely ordered more often** (β: 1.4% to 4.6%). That is what calibrated posteriors do as the prior pulls less.
+  - Two households with the same θ have posterior means that differ by noise. When the prior shrinks those means less, the gap reaches p ≥ 0.9 more often.
+  - With no prior at all, in a Gaussian model, 20% of such pairs would. The rising share of ordered pairs that are right shows the orderings remain trustworthy.
+- **The joint tail does not grow with length:** 3.5–4.0% of households have two or more parameters outside their 95% interval in every arm. That is 1.4% if the four were independent; posterior errors correlate across parameters (β with ρ, §1).
+
+### 64.6 Low β: still not resolved for one household at 20 waves
+
+| true β: mean posterior mean / 90% coverage / share whose 95th percentile is below 0.3 | 7 waves | 10 waves | 14 waves | 20 waves |
+|---|---|---|---|---|
+| 0.1–0.2 | 0.359 / 0.752 / 0.000 | 0.343 / 0.781 / 0.000 | 0.329 / 0.788 / 0.002 | 0.307 / 0.815 / 0.014 |
+| 0.2–0.3 | 0.393 / 0.937 / 0.000 | 0.372 / 0.935 / 0.000 | 0.359 / 0.940 / 0.001 | 0.338 / 0.951 / 0.004 |
+| 0.3–0.4 | 0.439 / 0.941 / 0 | 0.420 / 0.952 / 0 | 0.409 / 0.951 / 0 | 0.386 / 0.963 / 0 |
+| 0.4–0.6 | 0.515 / 0.969 / 0 | 0.503 / 0.955 / 0 | 0.502 / 0.948 / 0 | 0.484 / 0.949 / 0 |
+| 0.6–0.8 | 0.626 / 0.955 / 0 | 0.635 / 0.942 / 0 | 0.646 / 0.929 / 0 | 0.650 / 0.915 / 0 |
+| 0.8–1.0 | 0.735 / 0.830 / 0 | 0.762 / 0.851 / 0 | 0.787 / 0.868 / 0 | 0.808 / 0.874 / 0 |
+| corr(mean, truth) below β 0.3 | 0.239 | 0.222 | 0.239 | 0.254 |
+
+- **This is the flat curve.** Forty years of one household's data do not tell β 0.15 from 0.35.
+  - Below 0.3, posterior means correlate 0.22–0.25 with the truth at every length.
+  - At true β 0.1–0.2, the mean posterior mean falls only from 0.36 to 0.31, and 1.4% of households have their 95th percentile below 0.3 at 20 waves (none at 7).
+- **It is a property of the model, not of the panel's length.** §63.4 traced it to behaviour at the credit limit: below 0.3, cardholders sit at the limit and households without a card live hand to mouth, so many (β, δ, ρ) give the same panel. More waves of the same behaviour add little. CONCLUSION_DIRECTION item 3 anticipated this, and the conclusion says so.
+- **Above 0.3 the means follow the truth more closely with length:** at true β 0.8–1.0 they rise from 0.74 to 0.81. Coverage at both ends rises (0.75 to 0.82 at 0.1–0.2; 0.83 to 0.87 at 0.8–1.0) as the pull to the box's centre weakens.
+
+### 64.7 PSID: the 7-wave arm on the matched range agrees with v2_b010
+
+w07 (start 24–51) and v2_b010 (start 24–45, §1) on the same PSID panels, uncorrected:
+
+| | β | δ | ρ | R_γ |
+|---|---|---|---|---|
+| couples (409): median of means, v2_b010 / w07 | 0.4801 / 0.4832 | 0.9867 / 0.9877 | 2.539 / 2.685 | 1.0571 / 1.0573 |
+| couples: correlation of means, couple by couple | 0.950 | 0.960 | 0.928 | 0.957 |
+| couples: median posterior sd, v2_b010 / w07 | 0.183 / 0.185 | 0.0123 / 0.0113 | 0.928 / 0.956 | 0.0102 / 0.0101 |
+| all 889: median of means, v2_b010 / w07 | 0.6010 / 0.6019 | 0.9856 / 0.9860 | 2.435 / 2.535 | 1.0563 / 1.0544 |
+| all 889: correlation of means | 0.956 | 0.951 | 0.941 | 0.942 |
+
+- **The wider start range leaves PSID's seven waves where §1 put them.**
+  - Medians move by at most 0.003 in β, 0.001 in δ and 0.002 in R_γ.
+  - ρ moves by +0.15 for couples and +0.10 for all 889, a sixth of a posterior sd.
+  - Posterior widths are the same.
+- **So w07 is a fair 7-wave anchor for the curve,** and PSID's couples sit at its left end (figure 104).
+- On households sharing θ₀, the two give the same population se (β 0.0158 and 0.0163, 64.8).
+
+### 64.8 The population: households sharing θ₀ gain a lot; PSID couples gain less
+
+**409 households sharing θ₀** (85% cardholders; `waves_experiment.py population`):
+
+| | 7 waves | 10 waves | 14 waves | 20 waves |
+|---|---|---|---|---|
+| se: β | 0.0158 | 0.0119 | 0.0074 | 0.0044 |
+| δ | 0.0005 | 0.0004 | 0.0003 | 0.0002 |
+| ρ | 0.060 | 0.042 | 0.032 | 0.024 |
+| R_γ | 0.0009 | 0.0006 | 0.0005 | 0.0004 |
+| se ÷ 7 waves': β / δ / ρ / R_γ | 1 | 0.75 / 0.80 / 0.70 / 0.71 | 0.47 / 0.57 / 0.54 / 0.61 | 0.28 / 0.41 / 0.40 / 0.47 |
+
+- **At 20 waves the standard error is 0.28–0.47 of 7 waves'.** That is a much faster fall than one household's posterior sd, for two reasons, both in `population.json`:
+  - one household's posterior mean scatters less (β's sd 0.122 to 0.071);
+  - the mean of the posterior means follows θ more closely as the prior pulls less, so less is lost in inverting it. The Jacobian's diagonal for ρ rises from 0.72 to 1.19, and for R_γ from 0.49 to 0.99.
+- **v2_b010 on the same households** gives 0.0163 (β), 0.0006, 0.065 and 0.0009, against w07's 0.0158, 0.0005, 0.060 and 0.0009. The matched range changes nothing at 7 waves.
+
+**Correction to the launch plan's projection.** PSID couples' 7-wave standard error (§63.10: β 0.0269) is larger than households sharing θ₀ give (0.0163). The difference is the remainder, `V_PSID − V_hom(v2_b010)`.
+- **It is positive definite** (smallest eigenvalue 1.9×10⁻⁸). It carries 63% of β's variance, 58% of δ's, 41% of ρ's and 63% of R_γ's.
+- **It is what simulated households sharing θ₀ lack:** chiefly couples' differences (they spread 1.4–2.0 times as much as households sharing θ, §1), and possibly noise beyond v2's model (§62.3).
+- **Couples' differences do not shrink with waves.** To first order they enter the representative θ as their own spread in θ, which more waves do not narrow. That holds exactly if each couple's posterior mean follows its own θ as the population's does (the Jacobian).
+- **The plan's projection,** PSID's se times the homogeneous ratio, assumes the remainder shrinks like noise. Both cases are now reported (`waves_experiment.psid_scale`):
+  - (a) the remainder shrinks like the noise;
+  - (b) the remainder is held at its 7-wave size.
+
+| PSID couples (409), se (a) / (b) | 7 waves | 10 waves | 14 waves | 20 waves |
+|---|---|---|---|---|
+| β | 0.0269 | 0.0201 / 0.0246 | 0.0126 / 0.0227 | 0.0074 / 0.0219 |
+| δ | 0.0009 | 0.0007 / 0.0008 | 0.0005 / 0.0007 | 0.0004 / 0.0007 |
+| ρ | 0.085 | 0.059 / 0.071 | 0.046 / 0.064 | 0.034 / 0.060 |
+| couples to match Laibson et al.'s sampling-only se: β / δ / ρ | 117 / 73 / 70 | 66–98 / 46–62 / 35–49 | 26–84 / 23–52 / 20–41 | 9–77 / 12–48 / 11–35 |
+
+- **At 20 waves, couples' β se falls by 72% under (a) and by 19% under (b).** δ falls by 59% or 19%, ρ by 60% or 29%.
+- **Case (b) is the nearer one if the remainder is mostly couples' differences,** as §1's heterogeneity table suggests for β and R_γ. It is first-order; measuring it directly needs a simulated population whose θ differ as couples' do (64.11).
+- **So for the population, more waves help less than the households-sharing-θ curve suggests.**
+  - With 409 couples, the precision of the representative θ is limited by how much couples differ, and only more couples reduce that. More waves mainly sharpen each household.
+  - Under both cases the estimate stays more precise than Laibson et al.'s. Couples' β se is 0.53 of their sampling-only se at 7 waves, and 0.15 (a) to 0.44 (b) at 20.
+- **Figure 106** shows PSID couples' 7-wave region (§63.10) and its 20-wave region under (b), beside the households sharing θ₀. Couples' region barely shrinks.
+
+### 64.9 Training: no arm is short of capacity
+
+| each arm's 5 members | 7 waves | 10 waves | 14 waves | 20 waves |
+|---|---|---|---|---|
+| epochs | 43–50 | 46–61 | 49–65 | 58–71 |
+| training loss, slope over the last 5 epochs (mean) | −0.011 | −0.011 | −0.010 | −0.010 |
+| validation loss, slope over the last 5 epochs (mean) | +0.005 | +0.005 | +0.002 | +0.009 |
+| training − validation loss at the end (mean) | −0.55 | −0.64 | −0.59 | −0.71 |
+| best validation loss (mean) | 3.28 | 2.65 | 1.98 | 1.24 |
+| minutes per member (mean) | 56 | 66 | 69 | 82 |
+
+- **Every member stopped on validation loss** with training loss still falling, ending 0.55–0.71 below validation.
+- **The launch plan's test was mis-stated.** "Training loss still falling while validation has stopped" is what every early-stopped run looks like, and every member of every arm meets it.
+  - A network short of capacity would end with both losses flat and no gap. These end with a gap: the networks fit their training households better than new ones, so capacity is not the limit.
+  - No wider-embedder arm is indicated. `underfit`'s docstring, which carried the same mistake, is corrected.
+- **The gap grows a little with length** (0.55 at 7 waves, 0.71 at 20). So the longer arms may gain a little more from more training data than §63.8 measured at 7 waves (+0.19 log q per doubling). If anything, 20 waves' precision is slightly understated.
+
+### 64.10 One household (figure 105)
+
+The held-out household nearest θ₀ (draw 31833, picked by a rule fixed before the run), with its panel from age 24 under each arm and the noise drawn once.
+- **Its regions move, not only narrow.** At 7 and 10 waves the truth is inside every marginal. At 14 and 20 waves its rank is 0.018 and 0.035 in ρ, and 0.004 and 0.001 in R_γ (δ 0.988 at 20; printed by `figures`). Its later waves, ages 38–63, pull ρ and R_γ up.
+- **That is the 4% tail, not a defect.** Across SBC households, 3.5–4.0% have two or more parameters outside their 95% interval at every length (64.5). The household is kept as chosen.
+- The δ axis now shows the whole box (0.85–1) in both panels; the chain's version had cut the β–δ panel at 0.90.
+
+### 64.11 Reading
+
+- **One household: more waves sharpen every parameter, steadily, and the curve has not levelled off at 20 waves.**
+  - From 7 to 20 waves the data carry 2.1–2.3 times the information, the share of pairs that can be ordered rises from 26% to 44%, and every arm stays calibrated.
+  - This supports CONCLUSION_DIRECTION's "with more waves it might predict much more precisely", measured on simulated households under our model.
+- **Except for β below 0.3:** that curve is flat. It is the model's behaviour at the credit limit, not the panel length.
+- **The population gains less than households sharing θ suggest.** With 409 couples their differences dominate: β's se falls from 0.027 to 0.022 at 20 waves under (b), or to 0.007 under (a). More couples, not more waves, is what narrows it. Under both cases the population estimate stays more precise than Laibson et al.'s.
+- **None of this looks odd, so the run-forward fallback is not needed.**
+  - The curves are smooth and monotone, every arm is calibrated, and w07 reproduces §1's PSID results.
+  - The fallback (PSID's start ages, run forward to 83) remains available if the curve is wanted at PSID's own ages.
+- **Caveats (CONCLUSION_DIRECTION):** these are simulated households under our model. Real longer panels also bring attrition, changes of household head and more measurement error.
+- **Proposed, not run:** a simulated population whose θ differ as PSID couples' do, scored by each arm. It would measure case (a) against (b) directly.
+  - It needs about 409 lifecycle solves, a few GPU-hours.
+  - It also needs a choice of how to spread θ, for example couples' posterior means (too narrow) or one posterior draw per couple (too wide), as a bracket.
+
+**Figures:**
+- 104: precision against waves; panel (d) shows PSID couples' population se in both cases against the households sharing θ₀;
+- 105: one held-out household under each arm, 68/95%;
+- 106: the population's 68/95% regions against Laibson et al.'s;
+- 107–110: SBC ranks per arm.
+
+**Reproduce** (from the chain's outputs):
+
+    PYTHONPATH=. .venv/bin/python scripts/waves_experiment.py measures      # the tables of 64.3-64.9
+    PYTHONPATH=. .venv/bin/python scripts/waves_experiment.py figures       # 104-106, and 105's ranks
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_waves_experiment.py tests/test_waves.py
