@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-06 (§64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-07 (§64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -92,10 +92,10 @@ The data carry the audit's fixes (§55.1):
     - On the old box, no θ fitted under these arms: β had to fall below 0.3.
 - **The old headline is reversed.** There, β was 0.852, inside the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14). On the wider box, 22% of couples' means are inside that band, and 40% of all 889's (old box 28% and 50%).
 - **β is weakly identified per couple:** the held-out share of prior variance removed is 0.52 (§63.3). That is not comparable with the old box's 0.40, because β's prior is now wider.
-  - On the old box, couples' β piled at the floor of 0.3 (§47.3). On the wider box, 14% of couples' means and 75% of their 5th percentiles are below 0.3, but no couple's or simulated household's 95th percentile is. Below 0.3, one household's β is not resolved with seven waves (§63.4–63.5), nor with twenty (§64.6).
+  - On the old box, couples' β piled at the floor of 0.3 (§47.3). On the wider box, 14% of couples' means and 75% of their 5th percentiles are below 0.3, but no couple's or simulated household's 95th percentile is. That is because one household's 90% interval for β is 0.5–0.6 wide anywhere in the box at seven waves, not because β below 0.3 is worse resolved: it is resolved as well as any band 0.2 wide (§64.12, correcting §63.4 and §64.6).
   - Households whose posterior mean β is below 0.3 are covered 0.900. Simulated households at true β 0.1–0.2 are covered 0.78, and their posterior means average 0.35 (§63.3–63.4).
 - **More waves, on simulated households (§64):** from 7 to 20 waves inside ages 24–64, one household's data carry 2.1–2.3 times the information, and 44% of household pairs can be ordered instead of 26%; every arm is calibrated.
-  - β below 0.3 stays unresolved.
+  - β below 0.3 gains less than the rest of the box: by 20 waves its 90% interval narrows 16%, against 32% at the top, because those households spend most years at the borrowing limit (§64.12).
   - PSID couples' population se for β would fall from 0.027 to between 0.007 and 0.022, depending on how much of it is couples differing, which more waves do not narrow.
   - The 7-wave arm on the matched age range reproduces the PSID results above.
 - **ρ's posteriors are wide** (median sd 0.93). It is the parameter v2 moved most: −0.17 from A2n (§56.3).
@@ -9945,6 +9945,8 @@ Held-out: 2,048 draws (1,024 main, 512 R_γ strip, 512 β strip), weighted to th
 
 ### 63.4 One household's β below 0.3 is not resolved
 
+*Corrected in 64.12 (2026-11-07). The table stands; the reading does not. At seven waves β below 0.3 is resolved as well as any band of the box 0.2 wide: corr 0.20–0.24 in every such band, posterior sd 0.16–0.19. The 0.25 against 0.73 below compared a narrow band with the whole box. No household anywhere has an interval narrow enough to put its 95th percentile below 0.3; at the top, 0.9% have their 5th percentile above 0.8. Cardholders below 0.3 are at the limit in 66–79% of years, not all of them, and behaviour keeps moving with β.*
+
 The SBC households by true β (v2; the other arms alike):
 
 | true β | households | mean of posterior means | median posterior sd | 90% coverage | 95th percentile below 0.3 |
@@ -9960,7 +9962,7 @@ The SBC households by true β (v2; the other arms alike):
   - Below 0.3, posterior means correlate 0.25 with the truth (0.73 over the whole box).
   - No simulated household in any arm, at any β, has its 95th percentile below 0.3 (0 of 20,992 per arm).
   - Households at true β 0.1–0.2 have their interval cover the truth 0.72–0.78 of the time. Coverage by true value need not be 0.90 (§62.6); the average is.
-- **This is gate 2's behaviour seen through the network.** Below 0.3, cardholders sit at the credit limit and households without a card live hand to mouth, so many (β, δ, ρ) combinations give the same panel.
+- **This is gate 2's behaviour seen through the network.** Below 0.3, cardholders sit at the credit limit and households without a card live hand to mouth, so many (β, δ, ρ) combinations give the same panel. *(Withdrawn, 64.12: gate 2 was one θ at β 0.10; across the strip behaviour keeps moving with β.)*
 - **Populations are another matter.** A mean over hundreds of households still moves with β, which is what 63.6 uses.
 
 ### 63.5 PSID couples
@@ -10079,6 +10081,7 @@ v2 members 0 and 1 trained on half the training draws, scored with the full-data
 - **One household's β below 0.3 cannot be told apart** from the 0.3–0.4 range with seven waves: no household, simulated or PSID, has its 95th percentile below 0.3.
   - For the waves experiment this is the first thing to measure: whether longer panels resolve low β for one household.
   - The behaviour at the credit limit suggests that more waves of the same behaviour may add little there.
+  - *Corrected in 64.12: at seven waves this band is no worse resolved than any other band 0.2 wide. With more waves it gains less than the rest, because those households spend most years at the limit.*
 - **The data are dense enough** (63.8). The waves experiment can train on this box as it is.
 - **Calibration holds in every arm on the wider box,** so the new box costs nothing in validity. In δ and R_γ it costs some precision for low-β households.
 
@@ -10249,9 +10252,9 @@ So couples' mean δ estimate responds to β 3.6–5.0 times as steeply as the fi
         --title "Laibson et al.'s MSM point against PSID couples' representative θ under each noise arm, the box with the β strip down to 0.1, the Jacobian recomputed at each Newton point (RESULTS 63.10; unknown: θ and noise fitted together)"
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_laibson_comparison.py
 
-## 64. The waves experiment: from 7 to 20 waves one household's data carry 2.1–2.3 times the information and 44% of pairs can be ordered instead of 26%, all calibrated; β below 0.3 stays unresolved; PSID couples' population standard error falls by 19–72% depending on how much of it is couples differing
+## 64. The waves experiment: from 7 to 20 waves one household's data carry 2.1–2.3 times the information and 44% of pairs can be ordered instead of 26%, all calibrated; β below 0.3 gains less than the rest of the box (64.12); PSID couples' population standard error falls by 19–72% depending on how much of it is couples differing
 
-*64.0–64.1 are the launch record, written before the run; the results are 64.2–64.11.*
+*64.0–64.1 are the launch record, written before the run; the results are 64.2–64.11; 64.12 corrects the reading of low β (2026-11-07).*
 
 **Decisions (user, 2026-11-05).**
 - "let's plan the waves experiment with plan mode." The plan was approved as it stands here.
@@ -10426,6 +10429,8 @@ SBC households, truth known; they span the whole prior box, wider than PSID coup
 
 ### 64.6 Low β: still not resolved for one household at 20 waves
 
+*Corrected in 64.12 (2026-11-07). The table stands. The correlation below 0.3 is a within-band correlation; every band 0.2 wide has a similar one. Measured like for like, β below 0.3 is resolved as well as the rest of the box at seven waves. With more waves it gains less: its 90% interval narrows 16% by 20 waves, against 32% at the top. The curve is slower, not flat.*
+
 | true β: mean posterior mean / 90% coverage / share whose 95th percentile is below 0.3 | 7 waves | 10 waves | 14 waves | 20 waves |
 |---|---|---|---|---|
 | 0.1–0.2 | 0.359 / 0.752 / 0.000 | 0.343 / 0.781 / 0.000 | 0.329 / 0.788 / 0.002 | 0.307 / 0.815 / 0.014 |
@@ -10436,10 +10441,10 @@ SBC households, truth known; they span the whole prior box, wider than PSID coup
 | 0.8–1.0 | 0.735 / 0.830 / 0 | 0.762 / 0.851 / 0 | 0.787 / 0.868 / 0 | 0.808 / 0.874 / 0 |
 | corr(mean, truth) below β 0.3 | 0.239 | 0.222 | 0.239 | 0.254 |
 
-- **This is the flat curve.** Forty years of one household's data do not tell β 0.15 from 0.35.
+- **This is the flat curve.** Forty years of one household's data do not tell β 0.15 from 0.35. *(Withdrawn, 64.12: the network ranks β 0.1–0.2 against 0.3–0.4 the right way round 0.70 of the time at 7 waves and 0.74 at 20.)*
   - Below 0.3, posterior means correlate 0.22–0.25 with the truth at every length.
   - At true β 0.1–0.2, the mean posterior mean falls only from 0.36 to 0.31, and 1.4% of households have their 95th percentile below 0.3 at 20 waves (none at 7).
-- **It is a property of the model, not of the panel's length.** §63.4 traced it to behaviour at the credit limit: below 0.3, cardholders sit at the limit and households without a card live hand to mouth, so many (β, δ, ρ) give the same panel. More waves of the same behaviour add little. CONCLUSION_DIRECTION item 3 anticipated this, and the conclusion says so.
+- **It is a property of the model, not of the panel's length.** §63.4 traced it to behaviour at the credit limit: below 0.3, cardholders sit at the limit and households without a card live hand to mouth, so many (β, δ, ρ) give the same panel. More waves of the same behaviour add little. CONCLUSION_DIRECTION item 3 anticipated this, and the conclusion says so. *(Corrected, 64.12: what holds is that cardholders mostly at the limit barely sharpen with more waves, sd 0.179 → 0.160 against 0.177 → 0.109 for those rarely there, and below 0.3 that is 63–67% of them.)*
 - **Above 0.3 the means follow the truth more closely with length:** at true β 0.8–1.0 they rise from 0.74 to 0.81. Coverage at both ends rises (0.75 to 0.82 at 0.1–0.2; 0.83 to 0.87 at 0.8–1.0) as the pull to the box's centre weakens.
 
 ### 64.7 PSID: the 7-wave arm on the matched range agrees with v2_b010
@@ -10529,7 +10534,9 @@ The held-out household nearest θ₀ (draw 31833, picked by a rule fixed before 
 - **One household: more waves sharpen every parameter, steadily, and the curve has not levelled off at 20 waves.**
   - From 7 to 20 waves the data carry 2.1–2.3 times the information, the share of pairs that can be ordered rises from 26% to 44%, and every arm stays calibrated.
   - This supports CONCLUSION_DIRECTION's "with more waves it might predict much more precisely", measured on simulated households under our model.
-- **Except for β below 0.3:** that curve is flat. It is the model's behaviour at the credit limit, not the panel length.
+- **β below 0.3 gains less than the rest of the box** (64.12; this read "that curve is flat").
+  - At seven waves it is resolved as well as anywhere.
+  - By 20 waves its 90% interval has narrowed 16%, against 32% at the top, because those households spend most years at the borrowing limit.
 - **The population gains less than households sharing θ suggest.** With 409 couples their differences dominate: β's se falls from 0.027 to 0.022 at 20 waves under (b), or to 0.007 under (a). More couples, not more waves, is what narrows it. Under both cases the population estimate stays more precise than Laibson et al.'s.
 - **None of this looks odd, so the run-forward fallback is not needed.**
   - The curves are smooth and monotone, every arm is calibrated, and w07 reproduces §1's PSID results.
@@ -10550,3 +10557,118 @@ The held-out household nearest θ₀ (draw 31833, picked by a rule fixed before 
     PYTHONPATH=. .venv/bin/python scripts/waves_experiment.py measures      # the tables of 64.3-64.9
     PYTHONPATH=. .venv/bin/python scripts/waves_experiment.py figures       # 104-106, and 105's ranks
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_waves_experiment.py tests/test_waves.py
+
+### 64.12 Correction: at seven waves, one household's β below 0.3 is resolved like the rest of the box; with more waves it gains less, because those households spend most years at the borrowing limit
+
+**Asked by the user (2026-11-06):** "the beta below 0.3 is not predictable even its just simulated data? are the kodels not able to learn below 0.3 beta?" `scripts/low_beta_check.py` checks the reading of 63.4 and 64.6 on each arm's SBC households. The truth is known and the prior is uniform on the box. It runs on CPU, with no new training.
+
+**What 63.4 and 64.6 said, and what was wrong with it:**
+- **"Below 0.3, posterior means correlate 0.25 with the truth (0.73 over the whole box)."** That compares a correlation inside a band 0.2 wide with one over a box 0.9 wide. Any band 0.2 wide gives 0.20–0.24 at seven waves (table below).
+- **"No household has its 95th percentile below 0.3."** With a 90% interval 0.5–0.6 wide, that is near zero anywhere. At the top, 0.9% of households at true β 0.9–1.0 have their 5th percentile above 0.8.
+- **"Cardholders sit at the credit limit and households without a card live hand to mouth, so many (β, δ, ρ) give the same panel."** This generalised from gate 2's single θ at β 0.10 (δ 0.95, ρ 2.0). Across the strip, behaviour keeps moving with β.
+- **"The flat curve."** The correlation inside the band does stay at 0.22–0.25. But the band's intervals narrow and its ranking improves with waves, only more slowly than higher up.
+
+**Bands of true β, 0.2 wide** (SBC households, 4,600 or more per band; corr(posterior mean, truth) / median posterior sd / median 90% width):
+
+| true β | 7 waves | 10 waves | 14 waves | 20 waves |
+|---|---|---|---|---|
+| 0.1–0.3 | 0.239 / 0.186 / 0.590 | 0.222 / 0.176 / 0.558 | 0.239 / 0.169 / 0.534 | 0.254 / 0.157 / 0.498 |
+| 0.3–0.5 | 0.230 / 0.188 / 0.600 | 0.239 / 0.177 / 0.567 | 0.286 / 0.166 / 0.531 | 0.314 / 0.151 / 0.485 |
+| 0.5–0.7 | 0.203 / 0.183 / 0.588 | 0.236 / 0.171 / 0.552 | 0.267 / 0.155 / 0.504 | 0.324 / 0.142 / 0.462 |
+| 0.7–0.9 | 0.196 / 0.172 / 0.556 | 0.242 / 0.155 / 0.500 | 0.278 / 0.138 / 0.446 | 0.336 / 0.122 / 0.397 |
+| 0.8–1.0 | 0.236 / 0.160 / 0.509 | 0.261 / 0.141 / 0.448 | 0.288 / 0.124 / 0.396 | 0.370 / 0.108 / 0.347 |
+
+**The network's ranking of bands 0.2 apart:** the probability that a household from the higher band has the higher posterior mean. 0.5 is a coin flip.
+
+| bands | 7 waves | 10 waves | 14 waves | 20 waves |
+|---|---|---|---|---|
+| 0.1–0.2 vs 0.3–0.4 | 0.696 | 0.707 | 0.723 | 0.740 |
+| 0.3–0.4 vs 0.5–0.6 | 0.695 | 0.717 | 0.739 | 0.771 |
+| 0.5–0.6 vs 0.7–0.8 | 0.708 | 0.738 | 0.769 | 0.811 |
+| 0.7–0.8 vs 0.9–1.0 | 0.725 | 0.764 | 0.797 | 0.846 |
+| edge yardstick: true β 0.1–0.2 with 95th percentile below 0.3 / true β 0.9–1.0 with 5th percentile above 0.8 | 0.000 / 0.009 | 0.000 / 0.029 | 0.002 / 0.068 | 0.014 / 0.133 |
+
+- **At seven waves, β below 0.3 is resolved as well as anywhere in the box.**
+  - Its ranking is 0.70, against 0.70–0.73 for the other bands.
+  - Its posterior sd is 0.186, against 0.160–0.188.
+- **More waves help it less.** From 7 to 20 waves its ranking rises by 0.044 and its 90% interval narrows by 16%. At the top of the box the figures are 0.12 and 32%.
+
+**Behaviour below 0.3 keeps moving with β.** These are the SBC sets' annual panels, noise-free, ages 24–64, while the original head is alive. Each household's mean over its years, then the mean across households. All δ; 59 draws or more per row.
+
+| true β | cardholders: years at the limit | years in debt | debt / limit | illiquid / mean income | no card: years with no wealth | illiquid / mean income |
+|---|---|---|---|---|---|---|
+| 0.1–0.2 | 0.786 | 0.898 | 0.844 | 0.13 | 0.776 | 0.25 |
+| 0.2–0.3 | 0.655 | 0.826 | 0.742 | 0.31 | 0.641 | 0.62 |
+| 0.3–0.4 | 0.534 | 0.737 | 0.634 | 0.88 | 0.569 | 0.91 |
+| 0.4–0.6 | 0.417 | 0.649 | 0.531 | 1.11 | 0.413 | 1.27 |
+| 0.6–0.8 | 0.245 | 0.489 | 0.359 | 2.11 | 0.272 | 1.86 |
+| 0.8–1.0 | 0.119 | 0.372 | 0.234 | 2.22 | 0.140 | 2.83 |
+
+- **Below 0.3, cardholders are at the limit in 66–79% of years, not in all of them.**
+  - The share falls by 0.12–0.13 per 0.1 of β up to 0.4, and by 0.06–0.09 per 0.1 above that.
+  - So it moves more steeply below 0.3, not less.
+- **Households without a card are not all hand to mouth either:** they have no wealth in 78% and 64% of years.
+- **With δ ≥ 0.95, where PSID couples sit, the pattern is the same** (in the json). That subset has 19–60 draws per row, so it is noisier: 0.354 against 0.362 at β 0.3–0.4 and 0.4–0.6.
+- *(These panels carry no measurement noise; the network's windows do. The next table uses the windows as scored.)*
+
+**The network uses that signal, and simple summaries add nothing to it.**
+- **The summaries:** nine per household, from the windows as each arm scored them (same rows, same noise; also noise-free):
+  - shares of waves at the limit and in debt;
+  - liquid wealth / mean income, mean and minimum;
+  - illiquid wealth / mean income, mean and slope;
+  - consumption / income, mean and sd;
+  - income / mean income.
+- **The method:** out-of-fold AUC, with five folds grouped by draw, since a draw's 16 households share θ.
+- **The table:** the network's β mean (no fitting); a logistic regression on the network's four posterior means; a spline logistic regression on the summaries; the same on noise-free summaries; a logistic regression on the network's means plus the summaries.
+
+| | 0.1–0.2 vs 0.3–0.4 | 0.3–0.4 vs 0.5–0.6 | 0.5–0.6 vs 0.7–0.8 | 0.7–0.8 vs 0.9–1.0 |
+|---|---|---|---|---|
+| 7 waves: network β mean / network's means / summaries / noise-free / network + summaries | 0.696 / 0.697 / 0.670 / 0.676 / 0.703 | 0.695 / 0.685 / 0.617 / 0.612 / 0.679 | 0.708 / 0.670 / 0.567 / 0.569 / 0.665 | 0.725 / 0.697 / 0.595 / 0.591 / 0.688 |
+| 20 waves: the same | 0.740 / 0.751 / 0.683 / 0.683 / 0.754 | 0.771 / 0.765 / 0.620 / 0.624 / 0.762 | 0.811 / 0.787 / 0.576 / 0.573 / 0.780 | 0.846 / 0.834 / 0.595 / 0.594 / 0.831 |
+
+- **Summaries alone rank the low band at 0.67–0.68,** below the network's 0.70–0.75, and the other bands far lower (0.56–0.63).
+  - Below 0.3 the signal is mostly in levels (debt, years at the limit), which summaries capture.
+  - Higher up, the network reads more than levels.
+- **Added to the network's means, the summaries gain at most 0.006** in any band at any length, the low band included, and 0.006 noise-free. In the other bands they lose up to 0.009, which is fitting noise.
+- **Gradient boosting, the flexible check, is too noisy to resolve a gain that small.** Under grouped folds it loses up to 0.12 even on the network's own means. On the summaries it reaches 0.64–0.67 in the low band; the network plus summaries moves by −0.005 to +0.026 against the network's means alone (in the json).
+- **This does not prove the network extracts everything.** It shows that nothing simple is left over, below 0.3 or anywhere else.
+
+**Why more waves help less below 0.3: years at the limit.** Cardholders' median posterior sd of β, by the share of their window's waves at the limit (noise-free window):
+
+| true β, share of waves at the limit | households (7 / 20 waves) | 7 waves | 10 waves | 14 waves | 20 waves |
+|---|---|---|---|---|---|
+| 0.1–0.3, under ⅓ | 485 / 351 | 0.177 | 0.151 | 0.130 | 0.109 |
+| 0.1–0.3, ⅓–⅔ | 276 / 507 | 0.184 | 0.153 | 0.139 | 0.118 |
+| 0.1–0.3, over ⅔ | 1,543 / 1,446 | 0.179 | 0.171 | 0.168 | 0.160 |
+| 0.3–0.5, under ⅓ | 744 / 698 | 0.179 | 0.163 | 0.144 | 0.125 |
+| 0.3–0.5, ⅓–⅔ | 286 / 482 | 0.185 | 0.162 | 0.151 | 0.131 |
+| 0.3–0.5, over ⅔ | 858 / 708 | 0.182 | 0.175 | 0.171 | 0.162 |
+
+- **At seven waves the three groups are equally wide.** By 20 waves, in both bands:
+  - households rarely at the limit narrow by 30–38% (0.177 → 0.109 below 0.3);
+  - households mostly at the limit narrow by 11%.
+- **So it is the limit, not β itself.** In a year at a binding limit the limit, not the household's choice, sets its borrowing, so that year says little about preferences.
+- **Below 0.3, 63–67% of cardholders spend most of their window at the limit,** against 38–45% at β 0.3–0.5. That is why the band gains less with length.
+- **This is an association:** households at the limit also differ in δ and ρ.
+
+**Reading.**
+- **The networks learn β below 0.3.** What no arm can do, anywhere in the box, is place one household's β inside a band 0.2 wide: at seven waves its 90% interval is 0.5–0.6 wide everywhere.
+- **More waves help less below 0.3 because those households spend most years at the borrowing limit.** That is a property of the model's data, not of training. The slower gain is real; "flat" was wrong.
+- **The population results are untouched.** They never rested on resolving one household (63.10).
+- **Corrected in place:**
+  - RESULTS: 63.4, 63.9, 64.6 and 64.11 (with notes), §1, and the heading of §64;
+  - CONCLUSION_DIRECTION: the evidence rows, items 2–3 and the more-waves caveat.
+
+**Figure 111:**
+- (a) the network's ranking of bands 0.2 apart against waves;
+- (b) one household's 90% interval by band;
+- (c) the edge yardstick at both ends;
+- (d) behaviour by true β;
+- (e) the network against simple summaries;
+- (f) cardholders' posterior sd by years at the limit.
+
+**Reproduce** (CPU, about 15 minutes, from the chain's SBC outputs and the SBC sets):
+
+    PYTHONPATH=. .venv/bin/python scripts/low_beta_check.py              # outputs/waves/low_beta_check.json, figure 111
+    PYTHONPATH=. .venv/bin/python scripts/low_beta_check.py --from_json  # the tables and figure from the json
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_low_beta_check.py
