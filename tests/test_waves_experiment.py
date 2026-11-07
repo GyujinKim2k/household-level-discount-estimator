@@ -46,6 +46,65 @@ def test_the_arms_fit_the_matched_age_range():
         we.start_high(21)                    # would have to start at 23
 
 
+def test_the_annual_arms_read_only_ages_24_to_64():
+    """RESULTS 65: an annual wave at age s reads its stock at s and its flows
+    at s - 1, so annual windows start at 25; biennial ranges are unchanged."""
+    assert we.start_low() == we.START_LOW == 24 and we.start_low(1) == 25
+    assert {n: we.start_high(n, 1) for n in (14, 20)} == {14: 51, 20: 45}
+    assert all(we.start_high(n) == we.start_high(n, 2) == 65 - 2 * n for n in we.WAVES)
+    with pytest.raises(ValueError):
+        we.start_high(41, 1)                 # would have to start at 24, its flows at 23
+
+
+def test_arm_labels_round_trip():
+    assert we.arm_label(14) == "w14" and we.arm_label(14, 1) == "a14"
+    assert we.parse_arm("a20") == (20, 1) and we.parse_arm(we.arm_label(7)) == (7, 2)
+    assert we.arm_dir(14) == we.ROOT / "w14" and we.arm_dir("a14") == we.ROOT / "a14"
+    for bad in ("x14", "a", "w1x"):
+        with pytest.raises(ValueError):
+            we.parse_arm(bad)
+
+
+def test_an_annual_window_is_checked_as_annual():
+    a14 = {**oa.WINDOW, "n_waves": 14, "start_low": 25, "start_high": 51, "wave_years": 1}
+    we.check_window(a14, 14, 1)
+    with pytest.raises(SystemExit):
+        we.check_window(a14, 14)                                # not the biennial w14
+    with pytest.raises(SystemExit):
+        we.check_window({**a14, "start_low": 24}, 14, 1)        # flows at 23
+
+
+@pytest.mark.parametrize("n", (14, 20))
+def test_annual_windows_lie_inside_ages_24_to_64(shard, n):
+    win = {**oa.WINDOW, "n_waves": n, "start_low": we.start_low(1),
+           "start_high": we.start_high(n, 1), "wave_years": 1}
+    _t, x, _p = oa.windows_raw([shard], np.zeros((N, 4)), seed=999, window=win)
+    assert x.shape[1] == n
+    age = x[..., AGE]                        # an annual wave's age is its own year
+    assert age[:, 0].min() == 25 and age[:, -1].max() == 64
+    assert torch.equal(age[:, 1:] - age[:, :-1], torch.ones_like(age[:, 1:]))
+
+
+def _sim(seed=0):
+    rng = np.random.default_rng(seed)
+    sim = {"panel_" + k: rng.normal(1e5, 3e4, (N, T)) for k in FEATURES_TWOASSET}
+    sim["panel_t_age"] = np.tile(np.arange(T), (N, 1))
+    sim["panel_age"] = 20 + sim["panel_t_age"]        # as laibson_comparison.simulate stores
+    sim["ids"] = np.arange(N)
+    return sim
+
+
+@pytest.mark.parametrize("label", ["w14", "a14", "a20"])
+def test_the_populations_starts_keep_the_biennial_seeds(label):
+    n, wy = we.parse_arm(label)
+    win = {**oa.WINDOW, "n_waves": n, "start_low": we.start_low(wy),
+           "start_high": we.start_high(n, wy), "wave_years": wy}
+    x = we.cut(_sim(), win, flow_lag=1)
+    seed = we.POP_SEED + n + (0 if wy == 2 else 1000)
+    s = np.random.default_rng(seed).integers(win["start_low"], win["start_high"] + 1, N)
+    assert np.array_equal(x[:, 0, AGE], s + wy - 1)        # the first wave's stock year
+
+
 def test_a_members_window_is_read_back_and_old_configs_read_as_before():
     assert oa.window_of({}) == oa.WINDOW
     assert oa.window_of({"window": {"n_waves": 7, "flow_lag": 1}}) == oa.WINDOW
@@ -165,9 +224,10 @@ SHARDS = [oa.Path(p) for p in ("data/processed/couples_v2_dataset_shards",
 @pytest.mark.skipif(not all(p.exists() for p in SHARDS), reason="v2's shards are not here")
 @pytest.mark.parametrize("which", [0, 2, 3])        # a held-out shard of each run
 def test_every_arms_windows_are_the_stored_panels_read_by_hand(which):
-    """RESULTS 64.1 gate 2: a wave's stocks are the panel's at the start of
-    its second year, its flows the year before (flow_lag 1); every start
-    inside the arm's range, every last wave by 64."""
+    """RESULTS 64.1 gate 2 (and 65's annual arms): a wave's stocks are the
+    panel's at the start of its last year, its flows the year before
+    (flow_lag 1); every start inside the arm's range, every year read inside
+    24-64."""
     from hh_npe.data.waves import FLOWS
     from hh_npe.data.windows import sample_start_ages
 
@@ -179,8 +239,10 @@ def test_every_arms_windows_are_the_stored_panels_read_by_hand(which):
     assert lag == 1
     panel = {k[len(PANEL_PREFIX):]: d[k] for k in d.files if k.startswith(PANEL_PREFIX)}
     m = len(panel["t_age"]) // (hi - lo)
-    for n in we.WAVES:
-        win = {**oa.WINDOW, "n_waves": n, "start_high": we.start_high(n)}
+    for label in [we.arm_label(n) for n in we.WAVES] + ["a14", "a20"]:
+        n, wy = we.parse_arm(label)
+        win = {**oa.WINDOW, "n_waves": n, "start_low": we.start_low(wy),
+               "start_high": we.start_high(n, wy), "wave_years": wy}
         th, x, pid = oa.windows_raw([oa.Shard(f.path, f.offset)], theta_all, seed=999, window=win)
         x, pid = x.numpy(), pid.numpy()
         # cut_windows groups rows by start age: which panel row each one is
@@ -189,13 +251,14 @@ def test_every_arms_windows_are_the_stored_panels_read_by_hand(which):
         order = np.concatenate([np.flatnonzero(st == v) for v in np.unique(st)])
         assert np.array_equal(pid - f.offset, lo + order // m)
         assert np.allclose(th.numpy(), theta_all[f.offset + lo + order // m])
-        assert set(np.unique(st)) == set(range(we.START_LOW, we.start_high(n) + 1))
+        assert set(np.unique(st)) == set(range(win["start_low"], win["start_high"] + 1))
         for i in range(0, len(x), 97):
             r, s = order[i], st[order[i]]
-            assert x[i, 0, AGE] == s + 1 and x[i, -1, AGE] <= we.LAST_WAVE_START + 1
+            assert x[i, 0, AGE] == s + wy - 1 and x[i, -1, AGE] <= we.LAST_AGE
+            assert x[i, 0, AGE] - lag >= we.FIRST_AGE   # the first flow year
             for w in range(n):
-                t = s - 20 + 2 * w + 1                  # the wave's second year
+                t = s - 20 + wy * w + wy - 1            # the wave's last year
                 for k, name in enumerate(FEATURES_TWOASSET_AGE):
                     want = (20 + panel["t_age"][r, t] if name == "age"
                             else panel[name][r, t - (lag if name in FLOWS else 0)])
-                    assert np.isclose(x[i, w, k], want, rtol=1e-6), (n, i, w, name)
+                    assert np.isclose(x[i, w, k], want, rtol=1e-6), (label, i, w, name)

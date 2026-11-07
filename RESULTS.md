@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-07 (§64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-07 (§65: annual waves launched, 14 and 20 one-year waves against the biennial arms; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -10672,3 +10672,91 @@ The held-out household nearest θ₀ (draw 31833, picked by a rule fixed before 
     PYTHONPATH=. .venv/bin/python scripts/low_beta_check.py              # outputs/waves/low_beta_check.json, figure 111
     PYTHONPATH=. .venv/bin/python scripts/low_beta_check.py --from_json  # the tables and figure from the json
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_low_beta_check.py
+
+## 65. Annual waves: 14 and 20 one-year waves against the biennial arms (launch record)
+
+*65.0–65.1 are the launch record, written before the run.*
+
+**Decision (user, 2026-11-07).** "also is it able to test with 1-year unit wave data? currently we are using per 2 year data to match with PSID."
+- It needs no new data: the stored panels are annual (ages 20–90), `aggregate_waves` takes `wave_years=1`, and each arm's transformer sizes its positional embedding to its own window.
+- The user chose "two arms with 14, 20 annual waves", and approved the plan as it stands here.
+
+### 65.0 Design
+
+| arm | waves | start ages | years read | the same number of waves | about the same years |
+|---|---|---|---|---|---|
+| a14 | 14 annual | 25–51 | 15 | w14 (14 biennial, 28 years) | w07 (14 years; a14 reads those and one more) |
+| a20 | 20 annual | 25–45 | 21 | w20 (20 biennial, 40 years) | w10 (20 years; a20 reads those and one more) |
+
+- **Every year a window reads lies inside ages 24–64,** the user's rule of RESULTS 64.
+  - An annual wave at age s reads its stocks at the start of s and its flows of s − 1 (flow_lag 1, PSID's timing), as a biennial wave's second year does.
+  - So annual windows start at 25 (`waves_experiment.start_low(1)`) and end with the stock at 64 (`start_high(n, 1)` = 65 − n).
+  - Biennial ranges are unchanged.
+- **Two comparisons**, against RESULTS 64's arms on the same held-out and SBC households:
+  - **the same number of waves** (a14 against w14, a20 against w20): more years against more frequent observations;
+  - **about the same years** (a14 against w07, a20 against w10): what the years between biennial waves add.
+- **Everything else is v2_b010, as in RESULTS 64:**
+  - the box β 0.10–1, logit β and R_γ, v2's noise;
+  - the main run, R_γ strip and β strip;
+  - five members, seeds 0–4;
+  - the same held-out and SBC sets.
+- **Measures:**
+  - 64's tables per arm, beside the biennial arms: calibration, one household, telling households apart, the population at 409 households sharing θ₀ and PSID couples' cases (a) and (b), training;
+  - 64.12's bands for low β;
+  - the comparisons above.
+- **Figures** (68/95% contours on every estimate):
+  - 112: precision against waves and against years read;
+  - 113–114: SBC ranks;
+  - 115: figure 105's household under the six arms.
+- **Caveats the results will carry:**
+  - The noise model draws fresh error every wave, so an annual window gets twice as many independent errors. Real survey errors persist from year to year, so the simulated annual gain is an upper bound.
+  - There is no PSID counterpart: PSID was annual until 1997, but records card debt on its own only from 2011.
+  - a14 reads w07's years and one more (a20, w10's), so the same-years comparison is close, not exact.
+- **Code:**
+  - `optionA.py train --start_low --wave_years`. The defaults are `WINDOW`'s, so every earlier config is unchanged.
+  - `waves_experiment.py`:
+    - arm labels (`w14` biennial, `a14` annual: `arm_label`, `parse_arm`, `arm_dir`);
+    - `start_low` and `start_high(n, wave_years)`, and `check_window` with the wave length;
+    - `population --arms --out`, with the annual arms' window starts on their own seeds;
+    - `arm_measures`, `psid_cov` and `psid_cases`, moved out of `measures` so both experiments share them.
+  - New: `scripts/annual_waves.py` (measures, figures 112 and 115) and `scripts/run_annual.sh`.
+  - Tests: in `tests/test_waves_experiment.py` and the new `tests/test_annual_waves.py`.
+
+### 65.1 Gates before launch
+
+All pass.
+1. **Tests.**
+   - The whole suite passes with the GPU hidden: 621 passed, 37 skipped. With the card visible, the 16 files with GPU tests pass: 150.
+   - New tests:
+     - the annual ranges (25–51, 25–45), with the biennial ones unchanged;
+     - a window that reads before 24 is refused;
+     - arm labels round-trip;
+     - an annual window is checked as annual;
+     - annual windows read only ages 24–64 and step one year;
+     - the population's biennial seeds are unchanged;
+     - the years each arm reads, and which biennial arm each annual one is compared with.
+   - **RESULTS 64 reproduces from the new code:**
+     - w07's held-out check, rerun, is identical in every key;
+     - the population for the four biennial arms and v2_b010, recomputed from the cache, is identical, with nothing re-scored;
+     - `waves_experiment.py measures` writes the identical json.
+2. **The windows against the stored panels, by hand,** on a held-out shard of each run (64.1's gate-2 test, extended to a14 and a20):
+   - an annual wave's stocks are the panel's at the start of its year, and its flows the year before;
+   - every start is inside the arm's range;
+   - the first flow year is 24 or later, and the last stock 64 or earlier.
+3. **The smoke chain** (`SMOKE=<dir> scripts/run_annual.sh`) ran every stage to DONE in 11 minutes. RESULTS 64's arms and population scorings were linked in read-only, and nothing was written into `outputs/waves`.
+4. **Timing.** One full-data epoch per arm, both training at once as in the chain:
+   - a14 took 64–93 s and a20 63–77 s per epoch, against 75 and 77 s for w14's and w20's members in RESULTS 64. The window lengths are the same.
+   - That is about 69 and 82 minutes per member, so training takes about 6.3 h and the chain about 6.5 h.
+   - Peak GPU memory with both training was 3.0 GB of 16.
+
+**The chain** (`scripts/run_annual.sh`):
+1. training, two members at a time;
+2. per arm, the held-out check (no PSID) and SBC (figures 113–114);
+3. the population, the six arms and v2_b010, to `population_annual.json`. The biennial scorings come from RESULTS 64's cache;
+4. `annual_waves.py` measures, then figures 112 and 115.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_waves_experiment.py tests/test_annual_waves.py
+    SMOKE=<dir> ./scripts/run_annual.sh
+    nohup setsid ./scripts/run_annual.sh >> logs/annual.log 2>&1 &

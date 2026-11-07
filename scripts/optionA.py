@@ -615,9 +615,11 @@ def train(args) -> None:
                 hashlib.sha256(Path(args.mask_patterns).read_bytes()).hexdigest())
     spec = Spec(box=box_of(cfg), beta_transform=args.beta_transform,
                 rgamma_transform=args.rgamma_transform, obs_noise=noise, imputation_mask=mask)
-    # RESULTS 64: the start range is set per run (longer windows start earlier)
-    win = {**WINDOW, "n_waves": args.n_waves,
-           **({"start_high": args.start_high} if args.start_high is not None else {})}
+    # RESULTS 64: the start range is set per run (longer windows start earlier);
+    # RESULTS 65: so is the wave length (annual waves)
+    win = {**WINDOW, "n_waves": args.n_waves}
+    win.update({k: getattr(args, k) for k in ("start_low", "start_high", "wave_years")
+                if getattr(args, k) is not None})
     th, x, pid, feats = windows(train_f, theta_all, seed=0, noise=spec.obs_noise,
                                 mask=spec.mask_patterns(), window=win)
     drawn = np.unique(pid.numpy())
@@ -1089,6 +1091,12 @@ def main() -> None:
                    help=f"Latest window start age (default {WINDOW['start_high']}). RESULTS "
                         "64 matches the age range across window lengths: the last wave "
                         "starts by 63, so 65 - 2 * n_waves.")
+    t.add_argument("--start_low", type=int, default=None,
+                   help=f"Earliest window start age (default {WINDOW['start_low']}). RESULTS "
+                        "65's annual windows start at 25, so their first flow year is 24.")
+    t.add_argument("--wave_years", type=int, default=None,
+                   help=f"Years per wave (default {WINDOW['wave_years']}, PSID's biennial "
+                        "waves); 1 for RESULTS 65's annual waves.")
     t.add_argument("--obs_noise", nargs="*", default=[], metavar="FEATURE=LOW:HIGH",
                    help="Observation noise on the simulated windows, per dollar feature: "
                         "each household's sigma uniform on [LOW, HIGH], or a fixed SIGMA "

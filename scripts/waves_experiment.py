@@ -24,6 +24,8 @@ Commands:
     storing its annual panels, from which every arm cuts its own windows. The
     population shares one theta, so it understates PSID's standard error
     (couples differ, RESULTS 60); the ratio across waves is the result.
+    ``--arms`` takes labels: w14 is 14 biennial waves, a14 14 annual ones
+    (RESULTS 65, ``annual_waves.py``).
 
 ``measures``
     Per arm: calibration (held-out and SBC), one household's precision,
@@ -59,6 +61,12 @@ START_LOW = 24
 #: the last wave starts by 63, so its two years are 63-64 (RESULTS 64.0)
 LAST_WAVE_START = 63
 WAVE_YEARS = 2
+#: every year a window reads lies inside these ages (RESULTS 64; 65 for annual
+#: waves): a wave reads its stocks at the start of its last year and its flows
+#: the year before (flow_lag 1)
+FIRST_AGE, LAST_AGE, FLOW_LAG = 24, 64, 1
+#: arm labels: w14 is 14 biennial waves, a14 14 annual ones (RESULTS 65)
+ARM_PREFIX = {2: "w", 1: "a"}
 #: v2_b010's representative theta (RESULTS 63.10)
 REFERENCE = Path("outputs/beta_strip/laibson_comparison_b010_refresh.json")
 #: PSID couples' 7-wave populations: the arm and its representative theta's se
@@ -73,30 +81,53 @@ COLOR = {7: "#3B75AF", 10: "#519E3E", 14: "#EF8636", 20: "#C53A32"}
 FIG = Path("figures")
 
 
-def start_high(n_waves: int) -> int:
-    """The latest start age whose last wave starts by ``LAST_WAVE_START``."""
-    h = LAST_WAVE_START - WAVE_YEARS * (n_waves - 1)
-    if h < START_LOW:
-        raise ValueError(f"{n_waves} waves do not fit between {START_LOW} and "
-                         f"{LAST_WAVE_START + WAVE_YEARS - 1}")
+def start_low(wave_years: int = WAVE_YEARS) -> int:
+    """The earliest start age whose first flow year is ``FIRST_AGE``: 24 for
+    biennial waves (flows read in the wave's first year), 25 for annual ones
+    (flows read the year before the wave)."""
+    return FIRST_AGE + FLOW_LAG - (wave_years - 1)
+
+
+def start_high(n_waves: int, wave_years: int = WAVE_YEARS) -> int:
+    """The latest start age whose last stock is read by ``LAST_AGE``; for
+    biennial waves, the last wave starts by ``LAST_WAVE_START``."""
+    h = LAST_AGE + 1 - wave_years * n_waves
+    if h < start_low(wave_years):
+        raise ValueError(f"{n_waves} waves of {wave_years} years do not fit between "
+                         f"{FIRST_AGE} and {LAST_AGE}")
     return h
 
 
-def arm_dir(n: int, root: Path = ROOT) -> Path:
-    return root / f"w{n:02d}"
+def arm_label(n_waves: int, wave_years: int = WAVE_YEARS) -> str:
+    return f"{ARM_PREFIX[wave_years]}{n_waves:02d}"
+
+
+def parse_arm(label: str) -> tuple[int, int]:
+    """``(n_waves, wave_years)`` of an arm label."""
+    years = {v: k for k, v in ARM_PREFIX.items()}
+    if label[:1] not in years or not label[1:].isdigit():
+        raise ValueError(f"arm label {label!r}: expected w<N> or a<N>")
+    return int(label[1:]), years[label[0]]
+
+
+def arm_dir(n: int | str, root: Path = ROOT) -> Path:
+    """An arm's directory, by biennial wave count or by label."""
+    return root / (n if isinstance(n, str) else arm_label(n))
 
 
 def members_of(run: Path) -> list[Path]:
     return sorted(Path(run).glob("s[0-9]*"))
 
 
-def check_window(window: dict, n: int) -> None:
-    """Refuse an arm whose members were not trained on RESULTS 64's window."""
-    want = {"n_waves": n, "start_low": START_LOW, "start_high": start_high(n),
-            "wave_years": WAVE_YEARS}
+def check_window(window: dict, n: int, wave_years: int = WAVE_YEARS) -> None:
+    """Refuse an arm whose members were not trained on RESULTS 64's window
+    (65's, for annual waves)."""
+    want = {"n_waves": n, "start_low": start_low(wave_years),
+            "start_high": start_high(n, wave_years), "wave_years": wave_years}
     got = {k: window.get(k) for k in want}
     if got != want:
-        raise SystemExit(f"{n}-wave arm: members' window {got}, expected {want}")
+        raise SystemExit(f"{arm_label(n, wave_years)} arm: members' window {got}, "
+                         f"expected {want}")
 
 
 # ------------------------------------------------------------------ population
@@ -144,7 +175,8 @@ def cut(sim: dict, window: dict, flow_lag: int) -> np.ndarray:
 
     panel = {k.removeprefix("panel_"): v for k, v in sim.items() if k.startswith("panel_")}
     m = len(sim["ids"])
-    starts = np.random.default_rng(POP_SEED + window["n_waves"]).integers(
+    annual = 0 if window["wave_years"] == WAVE_YEARS else 1000    # RESULTS 65's own seeds
+    starts = np.random.default_rng(POP_SEED + annual + window["n_waves"]).integers(
         window["start_low"], window["start_high"] + 1, m)
     _t, x, ids = cut_windows(panel, np.zeros((m, 1)), np.arange(m), starts[:, None],
                              window["n_waves"], window["wave_years"], FEATURES_TWOASSET_AGE,
@@ -226,7 +258,7 @@ def population(args) -> None:
         if not np.array_equal(s["card"], card):
             raise SystemExit("simulated households are not aligned across points")
     flow_lag = json.loads((lc.MAIN / "solver_config.json").read_text())["flow_lag"]
-    runs = {f"w{n:02d}": arm_dir(n, args.root) for n in args.waves}
+    runs = {a: arm_dir(a, args.root) for a in (args.arms or [arm_label(n) for n in args.waves])}
     if args.with_psid_arm:
         runs[PSID_ARM] = Path(lc.ARMS[PSID_ARM][0])
     res = {"theta0": th0.tolist(), "n_households": N_POP, "card_share": lc.CARD_SHARE,
@@ -236,7 +268,7 @@ def population(args) -> None:
         spec = oa.spec_of(members.cfg)
         win = members.window
         if name != PSID_ARM:
-            check_window(win, int(name[1:]))
+            check_window(win, *parse_arm(name))
         means = {}
         for t in POINTS:
             f = cache / f"post_{name}_{t}.npz"
@@ -252,7 +284,7 @@ def population(args) -> None:
         se = res["arms"][name]["se"]
         print(f"{name}: se " + "  ".join(f"{n} {v:.4f}" for n, v in zip(NAMES, se, strict=True)),
               flush=True)
-    out = args.root / "population.json"
+    out = args.out or args.root / "population.json"
     out.write_text(json.dumps(res, indent=1))
     print(f"wrote {out}")
 
@@ -348,22 +380,50 @@ def psid_check(root: Path) -> dict:
     return out
 
 
-def measures(args) -> None:
-    res = {"waves": list(args.waves), "arms": {}}
-    pop = json.loads((args.root / "population.json").read_text())
-    for n in args.waves:
-        run = arm_dir(n, args.root)
-        held = json.loads((run / "heldout_check.json").read_text())["ensemble"]
-        sbc = json.loads((run / "sbc" / "sbc16.json").read_text())
-        res["arms"][n] = {
-            "start_high": start_high(n),
-            "heldout": {"log_q": held["log_q_weighted"],
+def arm_measures(run: Path) -> dict:
+    """One arm's held-out check, SBC measures and training (RESULTS 64; 65)."""
+    held = json.loads((run / "heldout_check.json").read_text())["ensemble"]
+    sbc = json.loads((run / "sbc" / "sbc16.json").read_text())
+    return {"heldout": {"log_q": held["log_q_weighted"],
                         **{k: [held[p][k] for p in NAMES]
                            for k in ("cov90", "contraction", "corr", "mae_over_prior_sd")}},
             "sbc_coverage_90": [sbc["sbc"]["coverage_90"][p]["rate"] for p in NAMES],
             "sbc": sbc_measures(run),
-            "population": pop["arms"][f"w{n:02d}"],
             "underfit": underfit(run)}
+
+
+def psid_cov() -> tuple[np.ndarray, np.ndarray]:
+    """PSID couples' 7-wave covariance of the representative theta under
+    v2_b010 (RESULTS 63.10), and its standard errors."""
+    ref = json.loads(REFERENCE.read_text())["arms"][PSID_ARM]
+    se = np.array(ref["representative_se"])
+    return np.outer(se, se) * np.array(ref["representative_corr"]), se
+
+
+def psid_cases(se_by_arm: dict, base: str, v_hom) -> tuple[dict, dict]:
+    """:func:`psid_scale` for each arm, its homogeneous se over ``base``'s
+    as the ratio; and the remainder."""
+    v_psid, se = psid_cov()
+    b = np.array(se_by_arm[base])
+    out = {}
+    for name, s_n in se_by_arm.items():
+        s = psid_scale(v_psid, v_hom, np.array(s_n) / b)
+        out[name] = {"cov_a": s["a"].tolist(), "cov_b": s["b"].tolist(),
+                     "se_a": np.sqrt(np.diag(s["a"])).tolist(),
+                     "se_b": np.sqrt(np.diag(s["b"])).tolist()}
+    rem = s["remainder"]
+    return out, {"cov_psid": v_psid.tolist(), "cov": rem.tolist(),
+                 "se": np.sqrt(np.diag(rem)).tolist(),
+                 "share_of_psid_variance": (np.diag(rem) / se**2).tolist(),
+                 "eigenvalues": np.linalg.eigvalsh(rem).tolist()}
+
+
+def measures(args) -> None:
+    res = {"waves": list(args.waves), "arms": {}}
+    pop = json.loads((args.root / "population.json").read_text())
+    for n in args.waves:
+        res["arms"][n] = {"start_high": start_high(n), **arm_measures(arm_dir(n, args.root)),
+                          "population": pop["arms"][arm_label(n)]}
     if PSID_ARM in pop["arms"]:
         res["psid_arm_population"] = pop["arms"][PSID_ARM]
     res["psid_check"] = psid_check(args.root)
@@ -371,22 +431,11 @@ def measures(args) -> None:
     res["laibson_se"] = lai["laibson_se"]
     res["psid_se_7_waves"] = lai["arms"][PSID_ARM]["representative_se"]
     if "psid_arm_population" in res:
-        ref = lai["arms"][PSID_ARM]
-        se = np.array(ref["representative_se"])
-        v_psid = np.outer(se, se) * np.array(ref["representative_corr"])
-        v_hom = np.array(res["psid_arm_population"]["cov"])
-        base = np.array(res["arms"][args.waves[0]]["population"]["se"])
+        cases, res["psid_remainder"] = psid_cases(
+            {n: res["arms"][n]["population"]["se"] for n in args.waves}, args.waves[0],
+            np.array(res["psid_arm_population"]["cov"]))
         for n in args.waves:
-            s = psid_scale(v_psid, v_hom, np.array(res["arms"][n]["population"]["se"]) / base)
-            res["arms"][n]["psid_scale"] = {
-                "cov_a": s["a"].tolist(), "cov_b": s["b"].tolist(),
-                "se_a": np.sqrt(np.diag(s["a"])).tolist(),
-                "se_b": np.sqrt(np.diag(s["b"])).tolist()}
-        rem = s["remainder"]
-        res["psid_remainder"] = {"cov_psid": v_psid.tolist(), "cov": rem.tolist(),
-                                 "se": np.sqrt(np.diag(rem)).tolist(),
-                                 "share_of_psid_variance": (np.diag(rem) / se**2).tolist(),
-                                 "eigenvalues": np.linalg.eigvalsh(rem).tolist()}
+            res["arms"][n]["psid_scale"] = cases[n]
     out = args.root / "waves_experiment.json"
     out.write_text(json.dumps(res, indent=1))
     report(res)
@@ -681,6 +730,9 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("start_high", help="The latest start age for N waves.")
     s.add_argument("n_waves", type=int)
+    s.add_argument("--wave_years", type=int, default=WAVE_YEARS)
+    s = sub.add_parser("start_low", help="The earliest start age.")
+    s.add_argument("--wave_years", type=int, default=WAVE_YEARS)
     for name, fn in (("population", population), ("measures", measures), ("figures", figures)):
         p = sub.add_parser(name, help=fn.__doc__.splitlines()[0] if fn.__doc__ else None)
         p.add_argument("--root", type=Path, default=ROOT)
@@ -693,6 +745,11 @@ def main() -> None:
     sub.choices["population"].add_argument(
         "--with_psid_arm", action="store_true",
         help=f"also score {PSID_ARM} (7 waves, PSID's start ages), to scale the projection")
+    sub.choices["population"].add_argument(
+        "--arms", nargs="+", default=None,
+        help="arm labels (w14 biennial, a14 annual); default the --waves biennial arms")
+    sub.choices["population"].add_argument(
+        "--out", type=Path, default=None, help="default <root>/population.json")
     sub.choices["figures"].add_argument("--fig_dir", type=Path, default=FIG)
     sub.choices["figures"].add_argument(
         "--shards", type=Path, nargs="+",
@@ -701,7 +758,10 @@ def main() -> None:
                  Path("data/processed/couples_v2_betastrip_dataset_shards")])
     args = ap.parse_args()
     if args.cmd == "start_high":
-        print(start_high(args.n_waves))
+        print(start_high(args.n_waves, args.wave_years))
+        return
+    if args.cmd == "start_low":
+        print(start_low(args.wave_years))
         return
     args.fn(args)
 
