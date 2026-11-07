@@ -103,6 +103,7 @@ def test_the_populations_starts_keep_the_biennial_seeds(label):
     seed = we.POP_SEED + n + (0 if wy == 2 else 1000)
     s = np.random.default_rng(seed).integers(win["start_low"], win["start_high"] + 1, N)
     assert np.array_equal(x[:, 0, AGE], s + wy - 1)        # the first wave's stock year
+    assert np.array_equal(we.pop_starts(win, N), s)
 
 
 def test_a_members_window_is_read_back_and_old_configs_read_as_before():

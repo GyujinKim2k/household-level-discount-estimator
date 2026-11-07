@@ -22,6 +22,13 @@ Commands:
     population at 409 households sharing theta0 and PSID couples' two cases,
     training; the comparisons; the RESULTS tables.
 
+``population_check``
+    The population se's 90% interval (households resampled within card type,
+    paired across arms, so the ratios have intervals too); the share of
+    beta's variance that comes through each statistic in J^-1; cardholders'
+    posterior spread at theta0 by window start age (RESULTS 65.6). CPU, from
+    the cached scorings.
+
 ``figures``
     112 (precision against waves and against years read), 115 (one held-out
     household under the six arms, 68/95% contours).
@@ -29,6 +36,7 @@ Commands:
 Usage::
 
     PYTHONPATH=. .venv/bin/python scripts/annual_waves.py measures
+    PYTHONPATH=. .venv/bin/python scripts/annual_waves.py population_check
     PYTHONPATH=. .venv/bin/python scripts/annual_waves.py figures
 """
 
@@ -188,6 +196,114 @@ def report(res: dict) -> None:
                   f"; population se {' '.join(f'{v:.2f}' for v in se)}")
 
 
+# ------------------------------------------------------------ population check
+
+START_GROUPS = ((24, 31), (32, 37), (38, 44), (45, 51))
+
+
+def beta_through(J: np.ndarray, v_stat: np.ndarray) -> dict:
+    """Beta's variance in the representative theta, V_u[0, 0] = r V r' with r
+    J^-1's beta row: the share each statistic's own variance contributes,
+    and the rest (their covariances)."""
+    r = np.linalg.inv(J)[0]
+    total = r @ v_stat @ r
+    own = r ** 2 * np.diag(v_stat) / total
+    return {"j_inv_beta_row": r.tolist(), "own_share": own.tolist(),
+            "cross_share": float(1 - own.sum())}
+
+
+def by_start(mean: np.ndarray, sd: np.ndarray, starts: np.ndarray, card: np.ndarray) -> list:
+    """Cardholders at theta0's centre by window start age: the spread of one
+    household's posterior mean across households and the median posterior
+    sd, for beta and delta."""
+    rows = []
+    for lo, hi in START_GROUPS:
+        s = (starts >= lo) & (starts <= hi) & (card == 1)
+        if s.sum() < 30:
+            continue
+        rows.append({"start": [lo, hi], "n": int(s.sum()),
+                     "mean_sd_across": mean[s, :2].std(0).tolist(),
+                     "median_posterior_sd": np.median(sd[s, :2], 0).tolist()})
+    return rows
+
+
+def population_check(args) -> None:
+    """The population se's precision (households resampled within card type,
+    paired across arms), where beta's variance comes from, and one
+    household's spread by window start (annual_population_check.json)."""
+    from scripts import laibson_comparison as lc
+
+    pop = json.loads((args.root / POPULATION).read_text())
+    cache = args.root / "population"
+    card = np.load(cache / "sim_centre.npz")["card"]
+    th0 = np.array(pop["theta0"])
+    means, sds = {}, {}
+    for a in args.arms:
+        post = {t: np.load(cache / f"post_{a}_{t}.npz") for t in we.POINTS}
+        means[a] = {t: p["mean"] for t, p in post.items()}
+        sds[a] = post["centre"]["sd"]
+        se = we.population_se(means[a], card, th0, we.N_POP, lc.CARD_SHARE)["se"]
+        if not np.allclose(se, pop["arms"][a]["se"]):
+            raise SystemExit(f"{a}: the cached scorings do not give {POPULATION}'s se")
+    rng = np.random.default_rng(args.seed)
+    i1, i0 = np.flatnonzero(card == 1), np.flatnonzero(card == 0)
+    boot = {a: [] for a in args.arms}
+    for _ in range(args.n_boot):
+        idx = np.concatenate([rng.choice(i1, len(i1)), rng.choice(i0, len(i0))])
+        for a in args.arms:
+            m = {t: v[idx] for t, v in means[a].items()}
+            boot[a].append(we.population_se(m, card[idx], th0, we.N_POP, lc.CARD_SHARE)["se"])
+    boot = {a: np.array(v) for a, v in boot.items()}
+    res = {"n_boot": args.n_boot, "seed": args.seed, "arms": {}, "ratios": {}}
+    for a in args.arms:
+        st = {t: lc.stat(v, card, lc.CARD_SHARE) for t, v in means[a].items()}
+        J = lc.jacobian(np.array([st[f"plus{k}"] for k in range(4)]),
+                        np.array([st[f"minus{k}"] for k in range(4)]), lc.STEP)
+        w = np.where(card == 1, lc.CARD_SHARE / (card == 1).sum(),
+                     (1 - lc.CARD_SHARE) / (card == 0).sum())
+        d = means[a]["centre"] - w @ means[a]["centre"]
+        v_stat = (d * w[:, None]).T @ d / we.N_POP
+        starts = we.pop_starts(pop["arms"][a]["window"], len(card))
+        res["arms"][a] = {"se": pop["arms"][a]["se"],
+                          "se_ci90": np.percentile(boot[a], [5, 95], axis=0).T.tolist(),
+                          "beta_through": beta_through(J, v_stat),
+                          "by_start": by_start(means[a]["centre"], sds[a], starts, card)}
+    for an, bi in SAME_COUNT + SAME_YEARS:
+        if an in boot and bi in boot:
+            r = boot[an] / boot[bi]
+            res["ratios"][f"{an}/{bi}"] = {
+                "ratio": (np.array(pop["arms"][an]["se"]) / pop["arms"][bi]["se"]).tolist(),
+                "ci90": np.percentile(r, [5, 95], axis=0).T.tolist()}
+    out = args.root / "annual_population_check.json"
+    out.write_text(json.dumps(res, indent=1))
+    population_report(res)
+    print(f"\nwrote {out}")
+
+
+def population_report(res: dict) -> None:
+    print(f"\npopulation se, with a 90% interval from {res['n_boot']} resamplings of households")
+    for a, r in res["arms"].items():
+        print(f"{a}: " + "  ".join(f"{p} {s:.4f} [{lo:.4f}, {hi:.4f}]" for p, s, (lo, hi)
+                                   in zip(we.NAMES, r["se"], r["se_ci90"], strict=True)))
+    print("\nse ratios, paired resamplings: ratio [90% interval]")
+    for k, r in res["ratios"].items():
+        print(f"{k}: " + "  ".join(f"{p} {v:.2f} [{lo:.2f}, {hi:.2f}]" for p, v, (lo, hi)
+                                   in zip(we.NAMES, r["ratio"], r["ci90"], strict=True)))
+    print("\nbeta's variance through J^-1: each statistic's own share (beta, delta, crra, "
+          "R_gamma), and the covariances'")
+    for a, r in res["arms"].items():
+        b = r["beta_through"]
+        print(f"{a}: J^-1 beta row {np.round(b['j_inv_beta_row'], 2).tolist()}; shares "
+              f"{np.round(b['own_share'], 2).tolist()}, covariances {b['cross_share']:.2f}")
+    print("\ncardholders at theta0 by window start: spread of posterior means across "
+          "households / median posterior sd, beta and delta")
+    for a, r in res["arms"].items():
+        print(f"{a}: " + ";  ".join(
+            f"{g['start'][0]}-{g['start'][1]} (n {g['n']}): β {g['mean_sd_across'][0]:.3f} / "
+            f"{g['median_posterior_sd'][0]:.3f}, δ {g['mean_sd_across'][1]:.4f} / "
+            f"{g['median_posterior_sd'][1]:.4f}" for g in r["by_start"]))
+
+
 # --------------------------------------------------------------------- figures
 
 def figures(args) -> None:
@@ -324,12 +440,15 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, fn in (("measures", measures), ("figures", figures)):
+    for name, fn in (("measures", measures), ("population_check", population_check),
+                     ("figures", figures)):
         p = sub.add_parser(name, help=fn.__doc__.splitlines()[0] if fn.__doc__ else None)
         p.add_argument("--root", type=Path, default=we.ROOT)
         p.add_argument("--arms", nargs="+", default=list(ARMS))
         p.add_argument("--device", default="cuda" if torch.cuda.is_available() else None)
         p.set_defaults(fn=fn)
+    sub.choices["population_check"].add_argument("--n_boot", type=int, default=1000)
+    sub.choices["population_check"].add_argument("--seed", type=int, default=0)
     sub.choices["figures"].add_argument("--fig_dir", type=Path, default=we.FIG)
     sub.choices["figures"].add_argument(
         "--shards", type=Path, nargs="+",

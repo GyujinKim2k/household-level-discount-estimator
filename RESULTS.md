@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-07 (§65: annual waves launched, 14 and 20 one-year waves against the biennial arms; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-07 (§65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -98,6 +98,10 @@ The data carry the audit's fixes (§55.1):
   - β below 0.3 gains less than the rest of the box: by 20 waves its 90% interval narrows 16%, against 32% at the top, because those households spend most years at the borrowing limit (§64.12).
   - PSID couples' population se for β would fall from 0.027 to between 0.007 and 0.022, depending on how much of it is couples differing, which more waves do not narrow.
   - The 7-wave arm on the matched age range reproduces the PSID results above.
+  - **Annual waves (§65):** in about the same years, every year instead of every other carries 1.9 times the information on one household's β. That is an upper bound, because the simulated noise is fresh every wave.
+    - At the same number of waves, annual beats biennial for β and ρ (1.07–1.17 times) and loses for R_γ (0.81).
+    - For the population at θ₀, the longer biennial span gives the smaller se for β and δ.
+    - PSID couples' population β se stays at 0.023–0.024 under §64.8's case (b).
 - **ρ's posteriors are wide** (median sd 0.93). It is the parameter v2 moved most: −0.17 from A2n (§56.3).
 - **Between §29 and v2 the model changed in several steps:** card-access types (§36), R_gamma estimated (§32), the couples' seed pool (§43.1–43.4), observation noise (§43.7–43.8) and the audit's fixes (§56). Each step's effect is recorded in its own section and is not re-attributed here.
 
@@ -10673,9 +10677,9 @@ The held-out household nearest θ₀ (draw 31833, picked by a rule fixed before 
     PYTHONPATH=. .venv/bin/python scripts/low_beta_check.py --from_json  # the tables and figure from the json
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_low_beta_check.py
 
-## 65. Annual waves: 14 and 20 one-year waves against the biennial arms (launch record)
+## 65. Annual waves: in about the same years, one household's data carry 1.9 times the information on β (an upper bound: fresh noise every wave); at the same number of waves annual beats biennial for β and ρ but not R_γ, and the longer biennial span gives the population the smaller se for β and δ
 
-*65.0–65.1 are the launch record, written before the run.*
+*65.0–65.1 are the launch record, written before the run; 65.2–65.9 are the results (2026-11-07).*
 
 **Decision (user, 2026-11-07).** "also is it able to test with 1-year unit wave data? currently we are using per 2 year data to match with PSID."
 - It needs no new data: the stored panels are annual (ages 20–90), `aggregate_waves` takes `wave_years=1`, and each arm's transformer sizes its positional embedding to its own window.
@@ -10760,3 +10764,172 @@ All pass.
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_waves_experiment.py tests/test_annual_waves.py
     SMOKE=<dir> ./scripts/run_annual.sh
     nohup setsid ./scripts/run_annual.sh >> logs/annual.log 2>&1 &
+
+### 65.2 The run
+
+`run_annual.sh` ran from 2026-11-07 03:07 to 12:13 UTC and reached `DONE`; no stage failed (`outputs/waves/STATUS_annual`).
+- **Training:** 10 members in 8.9 h, two at a time. Each stopped on validation loss: a14 after 68–78 epochs (84–95 minutes), a20 after 79–105 (101–132 minutes).
+  - That is longer than gate 4's 6.3 h. Epochs took the 74 s it measured; the annual members trained more of them before stopping (65.7).
+- **Evaluation:** per arm, the held-out check (2,048 draws, no PSID) and SBC (1,312 draws, 16 households each). Then the population (two new arms × 9 scorings; the biennial ones from RESULTS 64's cache), the measures and figures 112–115.
+- **After the chain,** `annual_waves.py population_check` (CPU, from the cached scorings): the population se's intervals and where β's comes from (65.6; `logs/annual_population_check.log`).
+
+### 65.3 Calibration: both arms pass
+
+| 90% coverage, held-out / SBC | a14 | a20 |
+|---|---|---|
+| β | 0.914 / 0.909 | 0.918 / 0.913 |
+| δ | 0.910 / 0.900 | 0.917 / 0.903 |
+| ρ | 0.918 / 0.901 | 0.919 / 0.907 |
+| R_γ | 0.899 / 0.893 | 0.909 / 0.893 |
+
+- **SBC coverage is 0.893–0.913 and held-out coverage 0.899–0.919,** inside the 0.88–0.92 band. The biennial arms are in 64.3.
+- **SBC rank tests,** one household per draw: KS p for a14 is 0.93 (β), 0.58 (δ), 0.54 (ρ) and 0.12 (R_γ); for a20 it is 0.18, 0.34, 0.91 and 0.073. R_γ is shared within blocks of 16 draws, so its test overstates its evidence (64.3). Every rank ECDF stays inside the one-per-draw band (figures 113–114).
+- **At the box's edge,** households with true β ≥ 0.95 are covered 0.70 (a14) and 0.78 (a20), against 0.68 (w14) and 0.70 (w20).
+
+### 65.4 One household: the years between biennial waves add almost a full wave each for β; at the same number of waves, annual beats biennial for β and ρ, not for R_γ
+
+| | w07 | a14 | w14 | w10 | a20 | w20 |
+|---|---|---|---|---|---|---|
+| waves × years each | 7 × 2 | 14 × 1 | 14 × 2 | 10 × 2 | 20 × 1 | 20 × 2 |
+| years read | 14 | 15 | 28 | 20 | 21 | 40 |
+| held-out log q | 3.648 | 5.346 | 4.985 | 4.410 | 6.165 | 5.690 |
+| share of prior variance removed: β / δ / ρ / R_γ | 0.504 / 0.469 / 0.523 / 0.470 | 0.663 / 0.595 / 0.656 / 0.556 | 0.627 / 0.607 / 0.639 / 0.608 | 0.578 / 0.542 / 0.592 / 0.552 | 0.727 / 0.666 / 0.728 / 0.626 | 0.695 / 0.652 / 0.704 / 0.675 |
+| the data's information ÷ w07's: β / δ / ρ / R_γ | 1 | 1.93 / 1.67 / 1.74 / 1.41 | 1.66 / 1.75 / 1.62 / 1.75 | 1.34 / 1.34 / 1.32 / 1.39 | 2.62 / 2.26 / 2.44 / 1.89 | 2.24 / 2.12 / 2.17 / 2.34 |
+| corr(posterior mean, truth): β / δ / ρ / R_γ | 0.714 / 0.689 / 0.735 / 0.687 | 0.830 / 0.781 / 0.815 / 0.731 | 0.808 / 0.780 / 0.807 / 0.781 | 0.787 / 0.754 / 0.792 / 0.743 | 0.865 / 0.822 / 0.866 / 0.782 | 0.842 / 0.817 / 0.843 / 0.824 |
+| median posterior sd (SBC): β | 0.181 | 0.147 | 0.154 | 0.168 | 0.124 | 0.138 |
+| δ | 0.0327 | 0.0267 | 0.0263 | 0.0298 | 0.0224 | 0.0233 |
+| ρ | 0.888 | 0.742 | 0.763 | 0.826 | 0.652 | 0.692 |
+| R_γ | 0.0097 | 0.0078 | 0.0067 | 0.0083 | 0.0059 | 0.0053 |
+
+**About the same years** (a14 against w07, a20 against w10): what the years between biennial waves add.
+- **The information grows 1.93 and 1.95 times for β,** 1.67–1.69 for δ, 1.74–1.85 for ρ and 1.36–1.41 for R_γ. Held-out log q gains 1.70 and 1.76 nats.
+- **So each in-between wave adds, for β, 0.93–0.95 of what an average wave of the biennial arm does;** for ρ 0.74–0.85, δ 0.67–0.69, R_γ 0.36–0.41.
+  - Extending the span instead (w07 to w14, w10 to w20) adds 0.66–0.67 per wave for β, 0.62–0.64 for ρ, 0.58–0.75 for δ and 0.69–0.75 for R_γ (64.4).
+  - So for β and ρ a year in between is worth more than a year further on, and for R_γ less. δ is mixed: 0.67 against 0.75 from seven waves, 0.69 against 0.58 from ten.
+- **This is an upper bound** (65.0's first caveat): every wave draws fresh observation error, so an annual window gets twice as many independent errors, and errors that persist from year to year would cut the gain.
+
+**The same number of waves** (a14 against w14, a20 against w20): every year against every other year over twice the span.
+- **Annual beats biennial for β and ρ:** information 1.17 and 1.17 times (β), 1.07 and 1.13 (ρ). β's correlation with the truth is 0.830 against 0.808, and 0.865 against 0.842. Held-out log q gains 0.36 and 0.48 nats.
+- **δ is about even** (0.95 and 1.07).
+- **R_γ needs the span:** 0.81 times at both lengths, and its correlation falls (0.731 against 0.781; 0.782 against 0.824).
+
+### 65.5 Telling households apart, and low β
+
+| | w07 | a14 | w14 | w10 | a20 | w20 |
+|---|---|---|---|---|---|---|
+| one 90% interval ÷ 5–95% range of means: β / δ / ρ / R_γ | 1.09 / 1.06 / 1.03 / 0.84 | 0.79 / 0.79 / 0.79 / 0.63 | 0.85 / 0.79 / 0.82 / 0.53 | 0.96 / 0.92 / 0.92 / 0.68 | 0.63 / 0.64 / 0.66 / 0.46 | 0.72 / 0.68 / 0.70 / 0.40 |
+| pairs ordered at p ≥ 0.9: β / δ / ρ / R_γ | 0.26 / 0.25 / 0.26 / 0.24 | 0.41 / 0.35 / 0.38 / 0.32 | 0.37 / 0.37 / 0.37 / 0.37 | 0.32 / 0.31 / 0.32 / 0.30 | 0.48 / 0.42 / 0.45 / 0.39 | 0.44 / 0.43 / 0.43 / 0.45 |
+| of which right | 0.95–0.97 | 0.97–0.98 | 0.96–0.97 | 0.96–0.97 | 0.97–0.98 | 0.97–0.98 |
+| households with ≥ 2 of 4 parameters outside their central 95% | 0.035 | 0.040 | 0.040 | 0.038 | 0.042 | 0.039 |
+| β 90% width (median), true β 0.1–0.3 | 0.590 | 0.533 | 0.534 | 0.558 | 0.488 | 0.498 |
+| β 90% width (median), true β 0.8–1.0 | 0.509 | 0.360 | 0.396 | 0.448 | 0.289 | 0.347 |
+| ranking, β 0.1–0.2 against 0.3–0.4 | 0.696 | 0.719 | 0.723 | 0.707 | 0.741 | 0.740 |
+| ranking, β 0.7–0.8 against 0.9–1.0 | 0.725 | 0.824 | 0.797 | 0.764 | 0.876 | 0.846 |
+
+- **At 20 annual waves, 48% of pairs can be ordered on β,** against 44% at 20 biennial waves and 26% at seven. The ordering follows 65.4: annual leads for β and ρ, biennial for R_γ (0.39 against 0.45).
+- **The joint tail does not grow:** 4.0–4.2% of households have two or more parameters outside their 95% interval, as in every biennial arm.
+- **Below β 0.3, what counts is the number of waves, not their spacing** (64.12's bands).
+  - a14 and w14 give the same interval width (0.533 against 0.534) and ranking (0.719 against 0.723); a20 and w20 nearly so (0.488 against 0.498; 0.741 against 0.740).
+  - At the top of the box, annual waves gain more: width 0.360 against 0.396, and 0.289 against 0.347.
+  - So the gap 64.12 found widens. By 20 annual waves the low band's interval is 17% narrower than at seven biennial waves, the top's 43% (20 biennial: 16% and 32%).
+  - That fits 64.12's mechanism: a household that sits at the limit shows much the same in the next year as two years on.
+
+### 65.6 The population: in the same years annual waves cut the se; at the same number of waves the longer biennial span gives the smaller se for β and δ
+
+**409 households sharing θ₀** (`waves_experiment.py population`, the six arms; 90% intervals from 1,000 resamplings of households within card type, paired across arms, `annual_waves.py population_check`):
+
+| se [90% interval] | w07 | a14 | w14 | w10 | a20 | w20 |
+|---|---|---|---|---|---|---|
+| β | 0.0158 [0.0145, 0.0175] | 0.0103 [0.0095, 0.0113] | 0.0074 [0.0070, 0.0079] | 0.0119 [0.0109, 0.0129] | 0.0073 [0.0068, 0.0080] | 0.0044 [0.0041, 0.0046] |
+| δ | 0.0005 | 0.0004 | 0.0003 | 0.0004 | 0.0003 | 0.0002 |
+| ρ | 0.060 [0.055, 0.067] | 0.029 [0.028, 0.031] | 0.032 [0.031, 0.034] | 0.042 [0.040, 0.045] | 0.023 [0.022, 0.024] | 0.024 [0.024, 0.025] |
+| R_γ | 0.0009 | 0.0005 | 0.0005 | 0.0006 | 0.0004 | 0.0004 |
+
+| se ratio [90% interval] | β | δ | ρ | R_γ |
+|---|---|---|---|---|
+| about the same years: a14 ÷ w07 | 0.65 [0.57, 0.73] | 0.83 [0.74, 0.93] | 0.49 [0.44, 0.54] | 0.53 [0.49, 0.56] |
+| a20 ÷ w10 | 0.62 [0.56, 0.68] | 0.83 [0.74, 0.92] | 0.55 [0.51, 0.59] | 0.62 [0.59, 0.64] |
+| the same number of waves: a14 ÷ w14 | 1.39 [1.27, 1.53] | 1.47 [1.33, 1.61] | 0.91 [0.86, 0.96] | 0.86 [0.83, 0.91] |
+| a20 ÷ w20 | 1.68 [1.55, 1.84] | 1.63 [1.46, 1.84] | 0.95 [0.91, 1.00] | 0.92 [0.88, 0.96] |
+
+- **In about the same years, annual waves cut the se** by 35–38% for β, 17% for δ, 45–51% for ρ and 38–47% for R_γ. Every interval is below 1.
+- **At the same number of waves, the biennial arm gives the smaller se for β and δ** (annual 1.39–1.68 times). Annual gives the smaller one for ρ and R_γ (0.86–0.95).
+  - That is the opposite of one household's β, where annual leads (65.4). The resampling intervals exclude 1, so it is not the 409 households' sampling noise.
+
+**Why, for β** (`annual_population_check.json`). Two reasons:
+1. **Where the windows sit.** Under the rule that every year read lies inside 24–64, a14's 15-year windows start anywhere from 25 to 51, while w14's 28-year windows all start by 37.
+   - At θ₀, later windows give more scattered β means in every arm. Among cardholders, the spread of one household's posterior mean across households rises from 0.099 (starts 24–31) to 0.137 (45–51) at w07, and from 0.075 to 0.135 at a14.
+   - On the starts both arms share (24–37), a14 scatters less than w14: 0.075–0.079 against 0.091–0.106. a14's se is raised by its later windows (38–51, half of its households), which never see the years before 38.
+2. **δ.** The representative β is solved jointly with δ (J⁻¹), and with annual windows more of β's variance comes through δ's mean.
+   - δ's own variance carries 31% and 37% of β's variance at a14 and a20, against 19% and 9% at w14 and w20. The rest is β's own (43%, 33% against 58%, 76%) and the covariances.
+   - δ is pinned worse by the shorter span: among cardholders starting 24–37, δ's means spread 0.012–0.014 at a14 against 0.010–0.011 at w14. δ's population se is 1.47–1.63 times.
+- **So for the representative β at θ₀ the 28 or 40 years matter more than seeing every year;** for one household over the whole box, every year matters more.
+  - The two measures differ in θ (one point, δ 0.993, near the top of δ's box, against the whole box) and in what they weight, as in 64.8.
+  - Both comparisons also differ in which ages are read, which the same-count design cannot separate from the spacing.
+
+**PSID couples (409), scaled from their 7-wave se** (64.8's cases: (a) the remainder shrinks like the noise, (b) it is held):
+
+| se, (a) / (b) | w07 | a14 | w14 | w10 | a20 | w20 |
+|---|---|---|---|---|---|---|
+| β | 0.0269 | 0.0176 / 0.0239 | 0.0126 / 0.0227 | 0.0201 / 0.0246 | 0.0125 / 0.0227 | 0.0074 / 0.0219 |
+| δ | 0.0009 | 0.0007 / 0.0008 | 0.0005 / 0.0007 | 0.0007 / 0.0008 | 0.0006 / 0.0008 | 0.0004 / 0.0007 |
+| ρ | 0.085 | 0.041 / 0.063 | 0.046 / 0.064 | 0.059 / 0.071 | 0.033 / 0.060 | 0.034 / 0.060 |
+| β ÷ Laibson et al.'s sampling-only se, (a) / (b) | 0.53 | 0.35 / 0.48 | 0.25 / 0.45 | 0.40 / 0.49 | 0.25 / 0.45 | 0.15 / 0.44 |
+
+- **These are hypothetical:** PSID has no annual counterpart (65.0), and the scaling is first-order (64.8).
+- **Under (b), couples' β se stays at 0.022–0.025 in every arm,** annual or biennial. As in 64.8, with 409 couples their differences dominate. Neither more waves nor more frequent ones narrow that; more couples would.
+
+### 65.7 Training: no arm is short of capacity
+
+| each arm's 5 members | a14 | a20 | w14 (64.9) | w20 (64.9) |
+|---|---|---|---|---|
+| epochs | 68–78 | 79–105 | 49–65 | 58–71 |
+| training loss, slope over the last 5 epochs (mean) | −0.009 | −0.007 | −0.010 | −0.010 |
+| validation loss, slope over the last 5 epochs (mean) | +0.002 | +0.007 | +0.002 | +0.009 |
+| training − validation loss at the end (mean) | −0.64 | −0.78 | −0.59 | −0.71 |
+| best validation loss (mean) | 1.69 | 0.85 | 1.98 | 1.24 |
+| minutes per member (mean) | 90 | 112 | 69 | 82 |
+
+- **Every member stopped on validation loss with a gap** (64.9's criterion), so capacity is not the limit.
+- **Annual members train 30% (a14) and 42% (a20) more epochs on average than w14's and w20's, and end with a wider gap.** a20's −0.78 is the widest of any arm, so it may gain a little more from more training data than the biennial arms. If anything, its precision is understated.
+
+### 65.8 One household (figure 115)
+
+Figure 105's household (held-out draw 31833, nearest θ₀; true β 0.477, δ 0.989, ρ 1.21, R_γ 1.041).
+- Its biennial panel runs from 24 with figure 105's noise, its annual panel from 25 with its own noise draw. Each row compares about the same years against the same waves: w07, a14, w14; then w10, a20, w20.
+- **The biennial ranks reproduce 64.10 exactly:** ρ 0.018 and 0.035, R_γ 0.004 and 0.001 at 14 and 20 waves.
+- **The annual arms do not show that pull.** At a20 the truth is inside every marginal 95% (ranks 0.34–0.97). At a14, δ's rank is 0.981, just outside.
+  - 64.10 traced the pull to the biennial windows' later waves, ages 38–63. The annual windows end with the stock at 38 and 44, so they never read those ages.
+- **δ's truth sits in its posteriors' upper tail under every arm** (ranks 0.948–0.988). That is expected at δ 0.989, close to the box's top at 1.
+
+### 65.9 Reading
+
+- **The years between biennial waves are worth almost as much as the waves themselves, for one household's β.**
+  - In about the same years, annual waves carry 1.9 times the information on β, 1.7–1.9 on ρ and δ, and 1.4 on R_γ. 41–48% of pairs can be ordered on β, against 26–32%.
+  - Every arm is calibrated. This is an upper bound: the simulated noise is fresh every wave.
+- **At the same number of waves, every year beats every other year for β and ρ** (1.07–1.17 times the information), is even for δ, and loses for R_γ (0.81). R_γ reads the long run.
+- **β below 0.3 gains with the number of waves, not their spacing,** so annual waves widen the top's lead found in 64.12.
+- **The population at θ₀ needs years.**
+  - In about the same years, annual waves cut the se by 17–51%.
+  - At the same number of waves, the longer biennial span gives the smaller se for β (1.39–1.68 times) and δ. The annual arms' later windows and the β–δ link explain it.
+- **For PSID couples the population se is set by how much couples differ** (64.8), not by how often they are observed. Under (b), annual waves leave β's se at 0.023–0.024.
+- **Nothing looks odd,** so nothing more is run.
+- **Caveats:**
+  - **Fresh noise every wave:** the annual gain is an upper bound.
+  - **No PSID counterpart:** PSID was annual until 1997, but records card debt on its own only from 2011.
+  - **Years read:** a14 reads w07's years and one more (a20, w10's), so the same-years comparison is close, not exact.
+  - **Age coverage:** the same-count comparison also changes which ages are read (the age rule lets annual windows start later).
+  - **One θ₀:** the population se is measured at one point, δ 0.993.
+  - **Simulated households under our model:** real panels bring attrition, changes of household head and more measurement error (64.11).
+
+**Figures:**
+- 112: precision against waves and against years read; biennial arms as lines, annual as squares;
+- 113–114: SBC ranks for a14 and a20;
+- 115: figure 105's household under the six arms, 68/95%.
+
+**Reproduce** (from the chain's outputs):
+
+    PYTHONPATH=. .venv/bin/python scripts/annual_waves.py measures            # the tables of 65.3-65.7
+    PYTHONPATH=. .venv/bin/python scripts/annual_waves.py population_check    # 65.6's intervals and decomposition (CPU)
+    PYTHONPATH=. .venv/bin/python scripts/annual_waves.py figures             # 112 and 115, and 115's ranks
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_annual_waves.py tests/test_waves_experiment.py

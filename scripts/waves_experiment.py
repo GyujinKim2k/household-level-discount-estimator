@@ -167,6 +167,14 @@ def sim_at(tag: str, theta: np.ndarray, cache: Path) -> dict:
     return d
 
 
+def pop_starts(window: dict, m: int) -> np.ndarray:
+    """The population's window starts for ``m`` simulated households: uniform
+    on the arm's range, seeded by its wave count (and wave length)."""
+    annual = 0 if window["wave_years"] == WAVE_YEARS else 1000    # RESULTS 65's own seeds
+    return np.random.default_rng(POP_SEED + annual + window["n_waves"]).integers(
+        window["start_low"], window["start_high"] + 1, m)
+
+
 def cut(sim: dict, window: dict, flow_lag: int) -> np.ndarray:
     """Each simulated household's window: start uniform on the arm's range,
     the same starts at every point (common random numbers)."""
@@ -175,9 +183,7 @@ def cut(sim: dict, window: dict, flow_lag: int) -> np.ndarray:
 
     panel = {k.removeprefix("panel_"): v for k, v in sim.items() if k.startswith("panel_")}
     m = len(sim["ids"])
-    annual = 0 if window["wave_years"] == WAVE_YEARS else 1000    # RESULTS 65's own seeds
-    starts = np.random.default_rng(POP_SEED + annual + window["n_waves"]).integers(
-        window["start_low"], window["start_high"] + 1, m)
+    starts = pop_starts(window, m)
     _t, x, ids = cut_windows(panel, np.zeros((m, 1)), np.arange(m), starts[:, None],
                              window["n_waves"], window["wave_years"], FEATURES_TWOASSET_AGE,
                              flow_lag=flow_lag)
