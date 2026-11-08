@@ -11,6 +11,8 @@ sigma = lo + (hi - lo) u. A column is one candidate truth for PSID's error:
 - corr, MAE and contraction are recovery, as in the held-out check.
 
 Arms must share everything but the noise (box, transforms, mask, windows).
+The windows are the ensembles' own (``optionA.window_of``: RESULTS 66's
+longer and annual arms), ``WINDOW`` for configs that record none.
 
 Usage::
 
@@ -81,9 +83,12 @@ def main() -> None:
                     for n, a in arms.items()},
            "n_draws": args.n_draws, "cells": {}}
     pick = None
+    window = oa.window_of(first["cfg"])                 # WINDOW for configs that record none
+    res["window"] = window
     for wname, wa in arms.items():                      # the windows' noise
         th, x, pid, _f = oa.windows(held_f, theta_all, seed=oa.HELD_SEED,
-                                    noise=wa["spec"].obs_noise, mask=base.mask_patterns())
+                                    noise=wa["spec"].obs_noise, mask=base.mask_patterns(),
+                                    window=window)
         if pick is None:
             pick = oa.one_per_draw(pid, seed=0)
             pid0 = pid[pick]

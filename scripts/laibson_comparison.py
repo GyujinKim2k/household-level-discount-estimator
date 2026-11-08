@@ -82,6 +82,8 @@ ARMS = {**hr.ARMS, "none": ("outputs/optionA2v2_noise_none",
            for a in ("typical", "gross")}}
 ARM_COLOR = {**hr.ARM_COLOR, "none": "#4A9A5B", "unknown": "#D08A1E"}
 ARM_COLOR |= {f"{a}_b010": c for a, c in list(ARM_COLOR.items())}
+#: RESULTS 66: the 7-wave arm on the matched range (64.7) and its noise-free twin
+ARM_COLOR |= {"w07": "#1F4E79", "none_w07": "#4A9A5B"}
 
 
 def box_bounds(box) -> tuple[np.ndarray, np.ndarray]:

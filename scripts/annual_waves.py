@@ -359,31 +359,25 @@ def precision(res: dict, path: Path) -> None:
     print(f"wrote {path}")
 
 
-def one_household(args, path: Path) -> None:
-    """115: figure 105's household (held-out, nearest theta0) under the six
-    arms, 68/95%: its biennial panel from 24 with figure 105's noise, its
-    annual panel from 25 with its own; shorter windows see the same first
-    waves. Rows: 14 years (w07, a14) against 14 waves (w14); 20 years (w10,
-    a20) against 20 waves (w20)."""
-    import matplotlib.pyplot as plt
+#: the household's noise by wave length: 2, figure 105's; 1, figure 115's own
+HOUSEHOLD_SEEDS = {2: we.POP_SEED + 105, 1: we.POP_SEED + 115}
 
+
+def household(shards) -> tuple[np.ndarray, int, dict]:
+    """Figure 105's household (held-out, nearest theta0): its truth, draw id,
+    and raw 20-wave windows from ``start_low(wy)`` for each wave length."""
     from hh_npe.data.windows import build_windowed
-    from scripts import household_resolution as hr
-    from scripts import laibson_comparison as lc
     from scripts import optionA as oa
-    from scripts.plot_optionA2_households import weighted_draws
-    from scripts.sbc_optionA2 import Members
 
-    theta_all, _c, _tr, held_f, _p, _cfg = oa.load_shards(args.shards)
+    theta_all, _c, _tr, held_f, _p, _cfg = oa.load_shards(shards)
     th0 = we.theta0()
     first = held_f[0]
     d = np.load(first.path)
     lo, hi = int(d["lo"]), int(d["hi"])
     cand = theta_all[first.offset + lo: first.offset + hi]
     pick = int(np.argmin((((cand - th0) / (oa.BOX.high - oa.BOX.low)) ** 2).sum(1)))
-    seeds = {2: we.POP_SEED + 105, 1: we.POP_SEED + 115}     # 2: figure 105's noise
     raw, truth = {}, None
-    for wy in seeds:
+    for wy in HOUSEHOLD_SEEDS:
         th, x, pid = build_windowed([first.path], theta_all[first.offset:], k=1, seed=0,
                                     fixed_start=we.start_low(wy), n_waves=20, wave_years=wy,
                                     start_low=we.start_low(wy), start_high=we.start_low(wy),
@@ -394,21 +388,51 @@ def one_household(args, path: Path) -> None:
             raise SystemExit("the biennial and annual windows are not one household")
         truth = t
         raw[wy] = x[row:row + 1]
-    drawn, noisy = {}, {}
+    return truth, lo + pick, raw
+
+
+def household_draws(run: Path, label: str, raw: dict, device) -> np.ndarray:
+    """One ensemble's resampled posterior draws for the household's first
+    waves, with the ensemble's own training noise (seeded by wave length, so
+    every arm of one noise sees the same noisy panel)."""
+    from scripts import household_resolution as hr
+    from scripts import laibson_comparison as lc
+    from scripts import optionA as oa
+    from scripts.plot_optionA2_households import weighted_draws
+    from scripts.sbc_optionA2 import Members
+
+    n, wy = we.parse_arm(label)
+    members = Members(we.members_of(run), device)
+    spec = oa.spec_of(members.cfg)
+    x = oa.add_obs_noise(raw[wy], spec.obs_noise, seed=HOUSEHOLD_SEEDS[wy])
+    xt, _f = oa.transform(x[:, :n], masked=spec.masked)
+    inv, lw = oa._weighting(members.proposal, spec)
+    torch.manual_seed(0)
+    dr, lwt = weighted_draws(members.nets, xt, lc.N_DRAWS, spec.flow_box(), inv, lw)
+    return hr._resample(dr, np.exp(lwt - lwt.max()), 6000, seed=0)
+
+
+def print_ranks(name: str, draws: np.ndarray, truth: np.ndarray) -> None:
+    print(f"{name}: the truth's rank in the posterior " + "  ".join(
+        f"{p} {v:.3f}" for p, v in zip(we.NAMES, (draws < truth).mean(0), strict=True)),
+        flush=True)
+
+
+def one_household(args, path: Path) -> None:
+    """115: figure 105's household (held-out, nearest theta0) under the six
+    arms, 68/95%: its biennial panel from 24 with figure 105's noise, its
+    annual panel from 25 with its own; shorter windows see the same first
+    waves. Rows: 14 years (w07, a14) against 14 waves (w14); 20 years (w10,
+    a20) against 20 waves (w20)."""
+    import matplotlib.pyplot as plt
+
+    from scripts import household_resolution as hr
+
+    truth, draw, raw = household(args.shards)
+    drawn = {}
     for label in args.arms:
-        n, wy = we.parse_arm(label)
-        members = Members(we.members_of(we.arm_dir(label, args.root)), args.device)
-        spec = oa.spec_of(members.cfg)
-        if wy not in noisy:
-            noisy[wy] = oa.add_obs_noise(raw[wy], spec.obs_noise, seed=seeds[wy])
-        xt, _f = oa.transform(noisy[wy][:, :n], masked=spec.masked)
-        inv, lw = oa._weighting(members.proposal, spec)
-        torch.manual_seed(0)
-        dr, lwt = weighted_draws(members.nets, xt, lc.N_DRAWS, spec.flow_box(), inv, lw)
-        drawn[label] = hr._resample(dr, np.exp(lwt - lwt.max()), 6000, seed=0)
-        print(f"{label}: the truth's rank in the posterior " + "  ".join(
-            f"{p} {v:.3f}" for p, v in zip(we.NAMES, (drawn[label] < truth).mean(0),
-                                           strict=True)), flush=True)
+        drawn[label] = household_draws(we.arm_dir(label, args.root), label, raw, args.device)
+        print_ranks(label, drawn[label], truth)
     label_of = {"beta": "β", "delta": "δ", "crra": "ρ", "R_gamma": "R_γ"}
     groups = [[x for x in ("w07", "a14", "w14") if x in drawn],
               [x for x in ("w10", "a20", "w20") if x in drawn]]
@@ -425,13 +449,13 @@ def one_household(args, path: Path) -> None:
                     xlim=we.LIMITS[we.NAMES[i]], ylim=we.LIMITS[we.NAMES[j]])
             axi.grid(ls=":", lw=0.5)
         axs[r_i, 0].legend(fontsize=8)
-    fig.suptitle(f"One held-out simulated household (draw {lo + pick}, nearest θ₀; figure 105's) "
+    fig.suptitle(f"One held-out simulated household (draw {draw}, nearest θ₀; figure 105's) "
                  "under biennial and annual waves (RESULTS 65): 68% (solid) / 95% (dashed)",
                  fontsize=10)
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)
-    np.savez(args.root / "annual_one_household.npz", truth=truth, draw=lo + pick,
+    np.savez(args.root / "annual_one_household.npz", truth=truth, draw=draw,
              **{f"draws_{x}": v for x, v in drawn.items()})
     print(f"wrote {path}")
 

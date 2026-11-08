@@ -57,6 +57,7 @@
        - β below 0.3 gains with the number of waves, not their spacing.
        - For the population at θ₀, at the same number of waves the longer biennial span gives the smaller se for β and δ. The annual windows start later under the age rule, and β's se runs through δ, which needs years.
        - PSID couples' β se under case (b) stays at 0.023–0.024.
+   - **Noise-free arms (RESULTS 66, launched 2026-11-08, the user's request):** w07, a14 and w14 retrained with no observation noise. That measures the cost of noise at each length and spacing, and how much of the annual gain was averaging fresh noise. The noise-free w07 also completes the 7-wave noise ladder on PSID couples (none, v2, typical, gross). It is a benchmark, not a candidate model for PSID.
    - **Models.** Train with 7 (retrained on the matched range), 10, 14 and 20 waves, under v2's noise model on the box with the β strip, with everything else as v2. If the longer windows underfit (training loss still falling while held-out loss stalls), add one wider-embedder arm. That costs GPU-hours, not a regeneration. The training set is dense enough as it is (RESULTS 63.8).
    - **No regeneration needed.** The stored panels cover ages 20–90 for every household, so longer windows are cut from the existing shards (`optionA.py train --n_waves --start_high`). Every window lies inside ages 24–64 (start ≤ 65 − 2 × waves; the user's choice, 2026-11-05); PSID's start ages run forward to 83 is the fallback.
    - **Measures, per number of waves:**

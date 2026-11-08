@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-07 (§65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-08 (§66: noise-free arms launched, w07, a14 and w14 trained with no observation noise against v2's; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -10933,3 +10933,98 @@ Figure 105's household (held-out draw 31833, nearest θ₀; true β 0.477, δ 0.
     PYTHONPATH=. .venv/bin/python scripts/annual_waves.py population_check    # 65.6's intervals and decomposition (CPU)
     PYTHONPATH=. .venv/bin/python scripts/annual_waves.py figures             # 112 and 115, and 115's ranks
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_annual_waves.py tests/test_waves_experiment.py
+
+## 66. Noise-free arms: w07, a14 and w14 trained with no observation noise, against v2's noise (launch record)
+
+*66.0–66.1 are the launch record, written before the run.*
+
+**Request (user, 2026-11-07).** "let's also compare the non-noise model. train the model without any noise, too. and compare with other models."
+- **The user chose:**
+  - the core three arms: w07, a14 and w14;
+  - five members each;
+  - the noise-free 7-wave arm on PSID couples, with a population fit beside v2, typical and gross.
+- The plan was approved as it stands here.
+
+### 66.0 Design
+
+| arm, no noise | waves | start ages | years read | against |
+|---|---|---|---|---|
+| w07 | 7 biennial | 24–51 | 14 | w07 with v2's noise (64); the 7-wave noise ladder: v2_b010, typical, gross (63.10) |
+| a14 | 14 annual | 25–51 | 15 | a14 with v2's noise (65); w07 and w14 with no noise |
+| w14 | 14 biennial | 24–37 | 28 | w14 with v2's noise (64) |
+
+**Why:**
+1. **RESULTS 65's annual gain is an upper bound.** Every simulated wave draws fresh noise, so an annual window averages twice as many independent errors. With no noise only the behaviour is left. a14 against w07 and against w14 with no noise show how much of the 1.93 (β, about the same years) and the 1.17 (β, the same count) was averaging noise.
+2. **The cost of noise, arm by arm:** information, ordering, low β (64.12's bands), and the population se at θ₀ on the same simulated households and window starts. That comparison is paired.
+3. **The noise ladder at seven waves on the β 0.10 box.** RESULTS 62's noise-free arm was on the old 0.3 box. On this box: none, v2, typical, gross, and unknown from 63.10.
+
+**Setup:**
+- **Everything else is v2_b010, as the RESULTS 64–65 arms:**
+  - the box β 0.10–1, logit β and R_γ;
+  - the main run, R_γ strip and β strip;
+  - seeds 0–4;
+  - the same held-out and SBC sets;
+  - every year read inside ages 24–64.
+- **Training omits `--obs_noise`,** whose default is no noise, as for RESULTS 62's arm.
+- **Each ensemble is graded with its own training noise,** so the noise-free arms are graded on noise-free windows: what the data would tell, under our model, if measured exactly.
+
+**Measures:**
+- RESULTS 65's tables for each arm with and without noise;
+- the cost of noise (no noise ÷ v2);
+- the annual gain under each noise;
+- population se ratios with 90% intervals from households resampled within card type, paired across arms;
+- cross-noise: each arm's noisy and noise-free networks on each noise's held-out windows;
+- PSID couples at seven waves: medians, widths, couple-by-couple agreement of none_w07 with w07, and the representative θ for none_w07, w07, v2_b010, typical and gross.
+
+**Figures** (68/95% contours on every estimate):
+- 116: precision with and without noise;
+- 117–119: SBC ranks;
+- 120: figure 115's household under the six networks;
+- 121: the representative θ under each noise arm against Laibson et al.'s point;
+- 122–123: a simulated and a PSID household under none_w07.
+
+**Caveats the results will carry:**
+- No noise is a benchmark (perfect measurement under our model), not a candidate model for PSID.
+- RESULTS 62 found a noise-free network overconfident on noisy data (coverage 0.46–0.70). So none_w07's PSID numbers are read as overconfident if cross-noise says so.
+- w07's window (24–51) differs from v2_b010, typical and gross's (24–45). 64.7 found that changes nothing material, and w07 with v2's noise is in the fit for a like-for-like pair.
+- Everything else is simulated households.
+
+**Code:**
+- `cross_noise_heldout.py` cuts windows with the ensembles' own window (`optionA.window_of`). Configs that record none get `WINDOW`, as before.
+- `laibson_comparison.py`: colours for `w07` and `none_w07`.
+- `annual_waves.py`: figure 115's household code split into `household`, `household_draws` and `print_ranks`, which figure 120 reuses.
+- New:
+  - `scripts/noise_free_waves.py` (measures, figures 116 and 120);
+  - `scripts/run_noise_free.sh`;
+  - `tests/test_noise_free_waves.py`.
+
+### 66.1 Gates before launch
+
+All pass.
+1. **Tests.** The whole suite passes with the GPU hidden: 631 passed, 37 skipped.
+   - The affected files (`test_laibson_comparison`, `test_waves_experiment`, `test_annual_waves`, `test_noise_free_waves`) skip nothing.
+   - **The cross-noise change reproduces RESULTS 62.** v2 against none, on the old box's shards, gives the stored cells of `outputs/v2_noise_none_unknown/cross_noise_heldout.json` exactly (1,536 draws, ESS 758).
+2. **RESULTS 63.10 reproduces from cache.** `laibson_comparison.py --refresh 4` with v2_b010, typical and gross gives `laibson_comparison_b010_refresh.json`'s arms exactly. Nothing new was simulated or scored.
+   - After the refactor, figure 115, its ranks and its npz are identical byte for byte.
+3. **The smoke chain** (`SMOKE=<dir> scripts/run_noise_free.sh`) ran every stage to DONE in 32 minutes.
+   - Nothing was written into `outputs/` or `figures/`.
+   - Every arm's window is recorded as designed: cross-noise and the population read a14 at 14 annual waves from 25–51, and w14 at 24–37.
+   - The noisy arms' comparisons reproduce RESULTS 65: a14 ÷ w07 information 1.93, 1.67, 1.74, 1.41.
+4. **Timing.** One full-data epoch per arm with two training at once (a14 with w14, then w07 with w14) takes 80–85 s, and peak GPU memory is 2.6 GB of 16.
+   - If the noise-free members again train about 2.1 times v2's epochs (RESULTS 62: 82–124 against about 45), members take about 2.2 h (w07), 2.7 h (w14) and 3.5 h (a14).
+   - That puts training at **about 21 h** (15–27 h, the epochs being uncertain) and the chain at about 22.5 h.
+
+**The chain** (`scripts/run_noise_free.sh`):
+1. training, two members at a time;
+2. per arm, the held-out check and SBC (figures 117–119); w07 also scores PSID couples and all 889;
+3. the population at 409 households sharing θ₀, on RESULTS 64's simulations and window starts;
+4. cross-noise, three runs;
+5. PSID couples' representative θ (`--refresh 4`; figure 121);
+6. none_w07's household figures (122–123);
+7. `noise_free_waves.py` measures, then figures 116 and 120.
+
+**Reproduce.**
+
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_noise_free_waves.py tests/test_waves_experiment.py tests/test_annual_waves.py
+    SMOKE=<dir> ./scripts/run_noise_free.sh
+    nohup setsid ./scripts/run_noise_free.sh >> logs/noise_free.log 2>&1 < /dev/null &
