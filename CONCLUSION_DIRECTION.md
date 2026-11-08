@@ -57,7 +57,14 @@
        - β below 0.3 gains with the number of waves, not their spacing.
        - For the population at θ₀, at the same number of waves the longer biennial span gives the smaller se for β and δ. The annual windows start later under the age rule, and β's se runs through δ, which needs years.
        - PSID couples' β se under case (b) stays at 0.023–0.024.
-   - **Noise-free arms (RESULTS 66, launched 2026-11-08, the user's request):** w07, a14 and w14 retrained with no observation noise. That measures the cost of noise at each length and spacing, and how much of the annual gain was averaging fresh noise. The noise-free w07 also completes the 7-wave noise ladder on PSID couples (none, v2, typical, gross). It is a benchmark, not a candidate model for PSID.
+   - **Noise-free arms (RESULTS 66, done 2026-11-08, the user's request):** w07, a14 and w14 retrained with no observation noise. That measures the cost of noise at each length and spacing, and how much of the annual gain was averaging fresh noise. The noise-free w07 also completes the 7-wave noise ladder on PSID couples (none, v2, typical, gross). It is a benchmark, not a candidate model for PSID.
+     - **Results:** all three calibrated on noise-free data.
+       - Without noise one household's information on β, δ and ρ grows 1.8–3.1 times (R_γ 1.3). Seven noise-free waves tell as much as 20 noisy ones.
+       - The annual gain is partly noise: in about the same years annual still carries 1.53 times the information on β without noise (1.93 with it), and at the same number of waves biennial wins every parameter (annual 0.74–0.82).
+       - β below 0.3 stays the weakest band without noise (interval −8 to −14%, the top −46 to −59%): behaviour, not measurement.
+       - The noise-free networks break on v2's noise and read it as low ρ, low R_γ and high δ. On PSID couples none_w07 puts ρ near the floor (median 0.76, 69% below 1, against 2.5–2.7 under every noisy arm), and no noise-free population in the box fits them.
+       - **Checked at the user's request (66.9):** simulated couples given PSID-level consumption noise come out the same under none_w07 (ρ 0.72–0.92), and consumption noise alone does it. The low ρ measures PSID's noise, not couples' preferences: the noise model is needed.
+       - New: w07's 24–51 window moves the representative β by −0.05 and ρ by +0.25 against v2_b010's 24–45 (about two se); §1 keeps v2_b010.
    - **Models.** Train with 7 (retrained on the matched range), 10, 14 and 20 waves, under v2's noise model on the box with the β strip, with everything else as v2. If the longer windows underfit (training loss still falling while held-out loss stalls), add one wider-embedder arm. That costs GPU-hours, not a regeneration. The training set is dense enough as it is (RESULTS 63.8).
    - **No regeneration needed.** The stored panels cover ages 20–90 for every household, so longer windows are cut from the existing shards (`optionA.py train --n_waves --start_high`). Every window lies inside ages 24–64 (start ≤ 65 − 2 × waves; the user's choice, 2026-11-05); PSID's start ages run forward to 83 is the fallback.
    - **Measures, per number of waves:**
@@ -83,6 +90,8 @@
 - **"More waves would predict much more precisely":**
   - measured on simulated households under our model (RESULTS 64): true for one household's posterior and for telling households apart; less so for β below 0.3, where households spend most years at the borrowing limit (RESULTS 64.12); for the population of 409 couples, only partly, since couples' differences do not shrink with waves;
   - observing every year instead of every other (RESULTS 65) adds more to one household's β per wave than a wave further on (0.93–0.95 against 0.66–0.67 of an average wave), but this is an upper bound (the simulated noise is fresh every wave) and has no PSID counterpart; for the population's β and δ, years matter more than frequency;
+  - without observation noise (RESULTS 66) a wave further on is worth more than a year in between for every parameter (β 0.87 against 0.53 of an average wave): the in-between years' edge came from separating fresh noise;
+  - the precision gains are under our noise model; measured exactly, seven waves would tell as much as 20 noisy ones (RESULTS 66), so better measurement is worth as much as longer panels;
   - the per-household gain is steady but less than proportional (each wave beyond the seventh adds 0.60–0.72 of an average first-seven wave);
   - real longer panels also bring attrition, changes of household head and more measurement error.
 - **"Only seven waves" is PSID's limit, not our choice** (`PSID_DATA.md` §3, verified against PSID's codebooks):

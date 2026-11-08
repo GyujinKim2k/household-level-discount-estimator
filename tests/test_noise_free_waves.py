@@ -99,3 +99,27 @@ def test_psid_summary_gives_aggregates_and_the_couple_by_couple_correlation(tmp_
     assert out["none_w07"]["median_of_means"] == pytest.approx(
         (2 * np.median(mean, 0) + 1).tolist())
     assert out["w07"]["n"] == 30
+
+
+def test_noise_conditions_split_every_noise_by_feature(monkeypatch):
+    from scripts import noise_free_rho as nr
+
+    v2 = (("income", 0.0, 0.0), ("consumption", 0.0, 0.15), ("liquid_assets", 0.0, 0.1))
+    gross = (("income", 0.19, 0.19), ("consumption", 0.2, 0.2))
+    monkeypatch.setattr(nr, "NOISE_ARMS", {"gross": "g"})
+    monkeypatch.setattr(nr, "noise_of", lambda p: gross)
+    c = nr.conditions(v2)
+    assert c["none"] == () and c["v2"] == v2 and c["gross"] == gross
+    assert c["v2, consumption only"] == (("consumption", 0.0, 0.15),)
+    assert "v2, income only" not in c                  # no noise there: nothing to split
+    assert c["gross, income only"] == (("income", 0.19, 0.19),)
+    assert len(c) == 1 + 3 + 3
+
+
+def test_rho_summary():
+    from scripts import noise_free_rho as nr
+
+    mean = np.array([[0.4, 0.99, 0.8, 1.04], [0.5, 0.98, 2.0, 1.05], [0.6, 0.97, 3.0, 1.06]])
+    s = nr.summary(mean)
+    assert s["median_of_means"] == pytest.approx([0.5, 0.98, 2.0, 1.05])
+    assert s["share_rho_below_1"] == pytest.approx(1 / 3)

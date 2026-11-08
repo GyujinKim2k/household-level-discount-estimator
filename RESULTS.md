@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-08 (§66: noise-free arms launched, w07, a14 and w14 trained with no observation noise against v2's; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-08 (§66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -90,6 +90,7 @@ The data carry the audit's fixes (§55.1):
     - Noise-unknown stops at 0.143, because no income noise in the box matches couples.
     - Typical's 90% interval reaches the new floor of 0.10.
     - On the old box, no θ fitted under these arms: β had to fall below 0.3.
+    - **With no noise at all (§66),** the 7-wave network breaks on noisy data and reads PSID couples' consumption noise as ρ near the floor (median 0.76, 69% of couples below 1, against 2.5–2.7 under every noisy arm). Simulated couples given PSID-level consumption noise come out the same, and no noise-free population in the box fits couples. The noise model is needed.
 - **The old headline is reversed.** There, β was 0.852, inside the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14). On the wider box, 22% of couples' means are inside that band, and 40% of all 889's (old box 28% and 50%).
 - **β is weakly identified per couple:** the held-out share of prior variance removed is 0.52 (§63.3). That is not comparable with the old box's 0.40, because β's prior is now wider.
   - On the old box, couples' β piled at the floor of 0.3 (§47.3). On the wider box, 14% of couples' means and 75% of their 5th percentiles are below 0.3, but no couple's or simulated household's 95th percentile is. That is because one household's 90% interval for β is 0.5–0.6 wide anywhere in the box at seven waves, not because β below 0.3 is worse resolved: it is resolved as well as any band 0.2 wide (§64.12, correcting §63.4 and §64.6).
@@ -98,8 +99,9 @@ The data carry the audit's fixes (§55.1):
   - β below 0.3 gains less than the rest of the box: by 20 waves its 90% interval narrows 16%, against 32% at the top, because those households spend most years at the borrowing limit (§64.12).
   - PSID couples' population se for β would fall from 0.027 to between 0.007 and 0.022, depending on how much of it is couples differing, which more waves do not narrow.
   - The 7-wave arm on the matched age range reproduces the PSID results above.
+  - **Without observation noise (§66):** seven waves would carry 2.1–2.4 times the information on β, δ and ρ, as much as 20 noisy waves. β below 0.3 stays the weakest band: its limit is behaviour, not measurement.
   - **Annual waves (§65):** in about the same years, every year instead of every other carries 1.9 times the information on one household's β. That is an upper bound, because the simulated noise is fresh every wave.
-    - At the same number of waves, annual beats biennial for β and ρ (1.07–1.17 times) and loses for R_γ (0.81).
+    - At the same number of waves, annual beats biennial for β and ρ (1.07–1.17 times) and loses for R_γ (0.81). Without noise biennial wins every parameter (§66.5): that win came from separating fresh noise. In about the same years annual waves still carry 1.53 times the information on β without noise.
     - For the population at θ₀, the longer biennial span gives the smaller se for β and δ.
     - PSID couples' population β se stays at 0.023–0.024 under §64.8's case (b).
 - **ρ's posteriors are wide** (median sd 0.93). It is the parameter v2 moved most: −0.17 from A2n (§56.3).
@@ -8678,7 +8680,7 @@ The posteriors are written up after that review. Figure 67's `.npz` holds PSID-d
 - **Coverage passes,** and by posterior-mean region it is 0.888–0.951.
 - **R_gamma's KS p of 0.024 is not a failure:**
   - it is above the Bonferroni threshold for four parameters (0.0125);
-  - R_gamma is shared by the 16 draws of a block, so its 1,024 ranks are not independent, and the test overstates its evidence;
+  - R_gamma is shared by the 16 draws of a block, so its 1,024 ranks are not independent, and the test overstates its evidence; *(corrected in 66.3: the test already takes one draw per block, so its ranks are independent and it does not overstate; it is the ECDF band that is too narrow for R_gamma)*
   - its rank ECDF stays inside the KS band (figure 69).
 - **The liquidation-penalty checks match A2n's.** At ×0.5 and ×1.5, the median shift and its p10 and p90 are within 0.08 prior sd of A2n's on every parameter, and coverage within 0.02. R_gamma moves most (p90 +0.84 prior sd at ×0.5; A2n +0.87).
 
@@ -10387,7 +10389,7 @@ About 11–12 hours, from gate 4: about 1 h per member two at a time (v2_b010 tr
 - **SBC coverage is 0.888–0.912 in every arm,** inside the 0.88–0.92 band.
 - **Held-out coverage is 0.892–0.922.** One cell is outside the band: β at 20 waves, 0.922 (2,048 draws, binomial se 0.007). It errs on the wide side, so if anything 20 waves' precision is understated.
 - **SBC rank tests,** one household per draw: KS p 0.30–1.00 (β), 0.058–0.87 (δ), 0.47–0.93 (ρ).
-  - R_γ's are 0.0003, 0.099, 0.002 and 0.004. As in §63.5, R_γ is shared by the 16 draws of a block, so its ranks are not independent and the test overstates its evidence.
+  - R_γ's are 0.0003, 0.099, 0.002 and 0.004. As in §63.5, R_γ is shared by the 16 draws of a block, so its ranks are not independent and the test overstates its evidence. *(Corrected in 66.3: the test takes one draw per block, 82 independent ranks, so it does not overstate. The arms share those 82 values; the low p is open.)*
   - R_γ's coverage interval contains 0.90 in every arm (0.849–0.925).
   - R_γ's rank ECDF touches the one-per-draw band at 7 waves and crosses it at 20 (−0.049 against ±0.038, figures 107 and 110), under the same caveat.
 - **At the box's edge,** households with true β ≥ 0.95 are covered 0.60, 0.64, 0.68 and 0.70. Coverage by true value need not be 0.90 (§62.6); it rises as the prior pulls less.
@@ -10783,7 +10785,7 @@ All pass.
 | R_γ | 0.899 / 0.893 | 0.909 / 0.893 |
 
 - **SBC coverage is 0.893–0.913 and held-out coverage 0.899–0.919,** inside the 0.88–0.92 band. The biennial arms are in 64.3.
-- **SBC rank tests,** one household per draw: KS p for a14 is 0.93 (β), 0.58 (δ), 0.54 (ρ) and 0.12 (R_γ); for a20 it is 0.18, 0.34, 0.91 and 0.073. R_γ is shared within blocks of 16 draws, so its test overstates its evidence (64.3). Every rank ECDF stays inside the one-per-draw band (figures 113–114).
+- **SBC rank tests,** one household per draw: KS p for a14 is 0.93 (β), 0.58 (δ), 0.54 (ρ) and 0.12 (R_γ); for a20 it is 0.18, 0.34, 0.91 and 0.073. R_γ is shared within blocks of 16 draws, so its test overstates its evidence (64.3; *corrected in 66.3: it does not, the test takes one draw per block*). Every rank ECDF stays inside the one-per-draw band (figures 113–114).
 - **At the box's edge,** households with true β ≥ 0.95 are covered 0.70 (a14) and 0.78 (a20), against 0.68 (w14) and 0.70 (w20).
 
 ### 65.4 One household: the years between biennial waves add almost a full wave each for β; at the same number of waves, annual beats biennial for β and ρ, not for R_γ
@@ -10908,6 +10910,7 @@ Figure 105's household (held-out draw 31833, nearest θ₀; true β 0.477, δ 0.
   - In about the same years, annual waves carry 1.9 times the information on β, 1.7–1.9 on ρ and δ, and 1.4 on R_γ. 41–48% of pairs can be ordered on β, against 26–32%.
   - Every arm is calibrated. This is an upper bound: the simulated noise is fresh every wave.
 - **At the same number of waves, every year beats every other year for β and ρ** (1.07–1.17 times the information), is even for δ, and loses for R_γ (0.81). R_γ reads the long run.
+  - *Note (66.5): without observation noise biennial wins every parameter at the same count (annual 0.74–0.82 times), so this win comes from separating fresh noise. In about the same years annual waves still carry 1.53 times the information on β without noise.*
 - **β below 0.3 gains with the number of waves, not their spacing,** so annual waves widen the top's lead found in 64.12.
 - **The population at θ₀ needs years.**
   - In about the same years, annual waves cut the se by 17–51%.
@@ -10934,9 +10937,9 @@ Figure 105's household (held-out draw 31833, nearest θ₀; true β 0.477, δ 0.
     PYTHONPATH=. .venv/bin/python scripts/annual_waves.py figures             # 112 and 115, and 115's ranks
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_annual_waves.py tests/test_waves_experiment.py
 
-## 66. Noise-free arms: w07, a14 and w14 trained with no observation noise, against v2's noise (launch record)
+## 66. Noise-free arms: measured exactly, seven waves would tell as much as 20 noisy ones about β, δ and ρ; part of RESULTS 65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor, and no noise-free population fits couples
 
-*66.0–66.1 are the launch record, written before the run.*
+*66.0–66.1 are the launch record, written before the run; 66.2–66.11 are the results (2026-11-08).*
 
 **Request (user, 2026-11-07).** "let's also compare the non-noise model. train the model without any noise, too. and compare with other models."
 - **The user chose:**
@@ -11028,3 +11031,245 @@ All pass.
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_noise_free_waves.py tests/test_waves_experiment.py tests/test_annual_waves.py
     SMOKE=<dir> ./scripts/run_noise_free.sh
     nohup setsid ./scripts/run_noise_free.sh >> logs/noise_free.log 2>&1 < /dev/null &
+
+### 66.2 The run
+
+`run_noise_free.sh` ran from 2026-11-08 00:35 to 20:43 UTC and reached `DONE`; no stage failed (`outputs/waves_none/STATUS`).
+- **Training:** 15 members in 19.2 h, two at a time, inside gate 4's 15–27 h. Every member stopped on validation loss: w07 after 100–136 epochs, a14 after 111–175, w14 after 89–152 (66.10).
+- **Evaluation:** 1.0 h, as designed (66.0's chain). The population fit took 32 minutes.
+- **After the chain,** `noise_free_rho.py households` and `recovery` (GPU, about 15 and 10 minutes) checked where PSID couples' low ρ comes from (66.9).
+
+### 66.3 Calibration: all three noise-free arms pass
+
+| 90% coverage, held-out / SBC | w07, no noise | a14, no noise | w14, no noise |
+|---|---|---|---|
+| β | 0.927 / 0.911 | 0.922 / 0.916 | 0.916 / 0.919 |
+| δ | 0.915 / 0.906 | 0.909 / 0.907 | 0.902 / 0.906 |
+| ρ | 0.915 / 0.907 | 0.906 / 0.905 | 0.912 / 0.911 |
+| R_γ | 0.915 / 0.894 | 0.920 / 0.908 | 0.903 / 0.903 |
+
+- **SBC coverage is 0.894–0.919,** inside the 0.88–0.92 band. The noisy arms are in 64.3 and 65.3.
+- **Held-out coverage is 0.902–0.927.** β at w07 (0.927) and a14 (0.922) are just outside the band, on the wide side (binomial se 0.007), so if anything their precision is understated.
+- **SBC rank tests,** one household per draw: KS p for β is 0.29, 0.46 and 0.26 (w07, a14, w14); for δ 0.39, 0.29 and 0.16; for ρ 0.96, 0.94 and 0.92. Every β, δ and ρ rank ECDF stays inside the band (figures 117–119).
+- **R_γ's KS p is 0.49, 0.30 and 0.003.**
+  - The test takes one draw per block of 16 draws that share R_γ (`sbc_households.score`), so its 82 ranks are independent.
+  - That makes 56.2's, 64.3's and 65.3's reading wrong: they said shared ranks make the test overstate its evidence. It is the plotted one-per-draw ECDF band that is too narrow for R_γ; a14's R_γ curve crosses it (figure 118).
+  - Every arm is scored on the same 82 values of R_γ, and the noisy w07 and w14 give p 0.0003 and 0.002 on them (64.3). So these low p values are one finding, not several, and the noise-free arms did not introduce it.
+  - On the held-out check's 2,048 independent draws, R_γ's truth is below the 5th and above the 95th percentile 0.04–0.06 of the time in every arm (66.7's own-noise cells): no lean there.
+  - This is left open.
+
+### 66.4 The cost of noise for one household: more than half the information on β, δ and ρ
+
+| | w07 v2 | w07 none | a14 v2 | a14 none | w14 v2 | w14 none |
+|---|---|---|---|---|---|---|
+| held-out log q | 3.648 | 6.238 | 5.346 | 7.537 | 4.985 | 8.149 |
+| share of prior variance removed: β / δ / ρ / R_γ | 0.504 / 0.469 / 0.523 / 0.470 | 0.713 / 0.647 / 0.720 / 0.544 | 0.663 / 0.595 / 0.656 / 0.556 | 0.792 / 0.727 / 0.803 / 0.618 | 0.627 / 0.607 / 0.639 / 0.608 | 0.823 / 0.769 / 0.847 / 0.669 |
+| information, none ÷ v2: β / δ / ρ / R_γ | | 2.44 / 2.07 / 2.35 / 1.34 | | 1.93 / 1.81 / 2.14 / 1.29 | | 2.77 / 2.16 / 3.11 / 1.31 |
+| corr(posterior mean, truth): β / δ / ρ / R_γ | 0.714 / 0.689 / 0.735 / 0.687 | 0.860 / 0.811 / 0.863 / 0.743 | 0.830 / 0.781 / 0.815 / 0.731 | 0.901 / 0.856 / 0.895 / 0.775 | 0.808 / 0.780 / 0.807 / 0.781 | 0.904 / 0.884 / 0.923 / 0.818 |
+| median posterior sd (SBC): β / ρ | 0.181 / 0.888 | 0.125 / 0.650 | 0.147 / 0.742 | 0.093 / 0.517 | 0.154 / 0.763 | 0.074 / 0.431 |
+| pairs ordered at p ≥ 0.9: β / δ / ρ / R_γ | 0.26 / 0.25 / 0.26 / 0.24 | 0.48 / 0.43 / 0.45 / 0.34 | 0.41 / 0.35 / 0.38 / 0.32 | 0.55 / 0.50 / 0.54 / 0.42 | 0.37 / 0.37 / 0.37 / 0.37 | 0.61 / 0.57 / 0.61 / 0.48 |
+| one 90% interval ÷ 5–95% range of means: β | 1.09 | 0.63 | 0.79 | 0.45 | 0.85 | 0.35 |
+| β 90% width (median), true β 0.1–0.3 | 0.590 | 0.523 | 0.533 | 0.489 | 0.534 | 0.458 |
+| β 90% width (median), true β 0.8–1.0 | 0.509 | 0.260 | 0.360 | 0.193 | 0.396 | 0.162 |
+| ranking, β 0.1–0.2 against 0.3–0.4 | 0.696 | 0.722 | 0.719 | 0.756 | 0.723 | 0.779 |
+| ranking, β 0.7–0.8 against 0.9–1.0 | 0.725 | 0.865 | 0.824 | 0.926 | 0.797 | 0.964 |
+
+- **Removing v2's noise multiplies one household's information on β, δ and ρ by 1.8–3.1,** and on R_γ by 1.29–1.34. Held-out log q gains 2.2–3.2 nats.
+- **w14 loses most to noise** (2.77 for β, 3.11 for ρ), a14 least (1.93, 2.14). That fits 66.5: consecutive annual waves help the network tell fresh noise from behaviour.
+- **Seven noise-free waves tell as much as 20 noisy ones about β, δ and ρ.**
+  - The share removed is 0.713, 0.647 and 0.720, against a20's 0.727, 0.666 and 0.728 and w20's 0.695, 0.652 and 0.704 (65.4).
+  - 48% of pairs can be ordered on β, against 48% (a20) and 44% (w20).
+  - Not for R_γ: 0.544 against 0.63–0.68. R_γ is limited more by the span the window covers than by measurement.
+- **Noise is not what holds β below 0.3 back** (64.12's bands).
+  - Without noise the low band's interval narrows 8–14% (0.458–0.523 wide, about half the box), the top's 46–59%. Ranking in the low band moves from 0.70–0.72 to 0.72–0.78, at the top from 0.73–0.82 to 0.87–0.96.
+  - That is 64.12's mechanism: households at the borrowing limit show the same behaviour across a range of β, and exact measurement does not change that.
+
+### 66.5 The annual gain without noise: part of RESULTS 65's is noise; at the same number of waves the biennial span wins
+
+| a14 against | | log q gain | information: β / δ / ρ / R_γ | pairs ordered: β / δ / ρ / R_γ | population se [90%]: β / δ |
+|---|---|---|---|---|---|
+| w07 (about the same years) | v2's noise | +1.70 | 1.93 / 1.67 / 1.74 / 1.41 | 1.57 / 1.40 / 1.44 / 1.32 | 0.65 [0.57, 0.73] / 0.83 [0.74, 0.93] |
+| | none | +1.30 | 1.53 / 1.46 / 1.59 / 1.36 | 1.16 / 1.18 / 1.21 / 1.21 | 0.60 [0.52, 0.71] / 0.78 [0.68, 0.88] |
+| w14 (the same number of waves) | v2's noise | +0.36 | 1.17 / 0.95 / 1.07 / 0.81 | 1.08 / 0.97 / 1.03 / 0.86 | 1.39 [1.27, 1.53] / 1.47 [1.33, 1.61] |
+| | none | −0.61 | 0.82 / 0.80 / 0.74 / 0.80 | 0.91 / 0.89 / 0.89 / 0.87 | 2.41 [2.18, 2.70] / 2.01 [1.72, 2.43] |
+
+What each wave added to w07's seven, as a share of an average w07 wave (information ratio − 1), from the table and 65.4's w14 ÷ w07:
+
+| | β | δ | ρ | R_γ |
+|---|---|---|---|---|
+| a year in between (a14), v2's noise | 0.93 | 0.67 | 0.74 | 0.41 |
+| a year in between (a14), none | 0.53 | 0.46 | 0.59 | 0.36 |
+| two years further on (w14), v2's noise | 0.66 | 0.75 | 0.62 | 0.74 |
+| two years further on (w14), none | 0.87 | 0.82 | 1.15 | 0.70 |
+
+- **In about the same years, every year still beats every other year without noise:** 1.53 times the information on β and 1.36–1.59 on the rest, against 1.93 and 1.41–1.74 with v2's noise. 65's upper bound was 0.93 of a wave per in-between year for β. Without noise 0.53 remains, 57% of it; for ρ 80%, for δ 69%, for R_γ 88%.
+- **At the same number of waves, the ranking reverses.** Without noise biennial wins every parameter: annual has 0.74–0.82 times the information and orders 0.87–0.91 times the pairs. With v2's noise annual won for β and ρ (1.17, 1.07).
+  - Both windows carry 14 waves, so they carry the same number of errors. What annual waves had was neighbours: wealth moves little in one year, so consecutive waves let the network tell a measurement error from a real change. With nothing to separate, the 28 years and their extra ages win.
+  - Per wave, without noise a wave two years further on is worth more than a year in between for every parameter (0.70–1.15 against 0.36–0.59). With noise the in-between year won for β and ρ.
+- **For the population at θ₀,** annual waves in the same years still cut the se without noise (β 0.60, δ 0.78). At the same count biennial's lead widens: annual's se is 2.41 times for β and 2.01 for δ, against 1.39 and 1.47 with noise.
+- **So 65.9's "at the same number of waves, every year beats every other year for β and ρ" holds only with fresh measurement error every wave.** Errors that persist from year to year, as PSID's may, would give consecutive waves less to separate.
+
+### 66.6 The population at θ₀: removing noise cuts β's se by 24–59%; δ's rises at w07 and a14
+
+409 households sharing θ₀ (v2_b010's representative θ: 0.437, 0.9928, 1.58, 1.042), on RESULTS 64's simulations and window starts, so every pair is compared on the same households (`noise_free_waves.py measures`; 90% intervals from 1,000 resamplings of households within card type, paired across arms):
+
+| se, v2 → none; ratio [90% interval] | β | δ | ρ | R_γ |
+|---|---|---|---|---|
+| w07 | 0.0158 → 0.0121; 0.76 [0.67, 0.88] | 0.0005 → 0.0006; 1.19 [1.06, 1.34] | 0.060 → 0.042; 0.70 [0.60, 0.83] | 0.0009 → 0.0006; 0.74 [0.66, 0.83] |
+| a14 | 0.0103 → 0.0073; 0.70 [0.63, 0.79] | 0.0004 → 0.0005; 1.12 [1.01, 1.22] | 0.029 → 0.024; 0.82 [0.74, 0.92] | 0.0005 → 0.0002; 0.49 [0.46, 0.53] |
+| w14 | 0.0074 → 0.0030; 0.41 [0.38, 0.44] | 0.0003 → 0.0002; 0.81 [0.68, 0.93] | 0.032 → 0.023; 0.70 [0.65, 0.75] | 0.0005 → 0.0003; 0.61 [0.57, 0.65] |
+
+- **β's se falls 24% at w07, 30% at a14 and 59% at w14.** At w07 that is less than one household's information suggests (2.44 times would give 0.64).
+  - At θ₀ the 409 households' estimates differ mostly because their incomes, shocks and window starts differ (64.8). Exact measurement removes none of that.
+- **δ is the exception at w07 and a14** (1.19 and 1.12; both intervals exclude 1).
+  - The noise-free network's population mean of δ moves less with δ at θ₀: its Jacobian entry, ∂ mean δ / ∂ log(1 − δ), is −0.016 against −0.037 at w07, and −0.010 against −0.020 at a14 (`population.json`).
+  - That more than offsets its smaller spread of means: 0.0144 against 0.0183 at w07.
+  - θ₀'s δ, 0.993, is near the top of δ's box. Both se values are below 0.001.
+
+### 66.7 Cross-noise: every noise-free network breaks on v2's noise, and reads it as low ρ
+
+Held-out draws, households and noise draws are the same in every cell; only the noise differs (`cross_noise_heldout.py`, each arm's own window):
+
+| | w07 | a14 | w14 |
+|---|---|---|---|
+| noise-free network on v2's noise: 90% coverage β / δ / ρ / R_γ | 0.73 / 0.63 / 0.61 / 0.66 | 0.76 / 0.63 / 0.60 / 0.63 | 0.73 / 0.58 / 0.60 / 0.63 |
+| its log q (on noise-free windows) | −4.19 (6.24) | −5.70 (7.54) | −3.47 (8.15) |
+| ρ's truth above its 95th percentile / below its 5th | 0.34 / 0.05 | 0.36 / 0.03 | 0.37 / 0.03 |
+| R_γ's truth above its 95th / below its 5th | 0.30 / 0.04 | 0.24 / 0.12 | 0.35 / 0.03 |
+| δ's truth below its 5th / above its 95th | 0.31 / 0.06 | 0.32 / 0.04 | 0.37 / 0.05 |
+| v2's network on noise-free windows: coverage | 0.91–0.93 | 0.92–0.94 | 0.92–0.94 |
+| its log q (on v2's noise) | 4.34 (3.65) | 6.00 (5.35) | 6.04 (4.99) |
+
+- **Every noise-free network breaks on v2's light noise:** coverage 0.58–0.76, log q −3.5 to −5.7. This repeats 62.1 (0.46–0.70) on the β 0.10 box and at every length and spacing.
+- **The misses are one-sided.** ρ's truth is above the 95th percentile for 34–37% of households, R_γ's for 24–35%, and δ's is below the 5th for 31–37%. The noise-free network reads noise as low ρ, low R_γ and high δ.
+- **The noisy networks stay calibrated on noise-free windows** (0.91–0.94) and gain 0.65–1.05 nats. They stay below the noise-free networks' own log q: a network trained with noise discounts what could be noise.
+
+### 66.8 PSID couples at seven waves: ρ at the floor under the noise-free network, and no population fits
+
+| PSID couples (409): median of posterior means / median posterior sd | β | δ | ρ | R_γ |
+|---|---|---|---|---|
+| none_w07 (no noise, starts 24–51) | 0.596 / 0.196 | 0.9860 / 0.0086 | 0.76 / 0.31 | 1.039 / 0.0097 |
+| w07 (v2's noise, starts 24–51) | 0.483 / 0.185 | 0.9877 / 0.0113 | 2.69 / 0.96 | 1.057 / 0.0101 |
+| v2_b010 (v2's noise, starts 24–45) | 0.480 / 0.183 | 0.9867 / 0.0123 | 2.54 / 0.93 | 1.057 / 0.0102 |
+| typical_b010 | 0.495 / 0.184 | 0.9858 / 0.0126 | 2.74 / 0.96 | 1.056 / 0.0106 |
+| gross_b010 | 0.551 / 0.190 | 0.9796 / 0.0165 | 2.71 / 1.00 | 1.059 / 0.0107 |
+
+- **Under none_w07, 69% of couples' ρ means are below 1** (w07: 0.5%), and 80% of their 5th percentiles are below 0.55 (w07: 1.7%). 42% have R_γ's 5th percentile within 0.0025 of its floor (w07: 11%; `heldout_check.json`'s PSID floors). All 889 households: ρ 0.90 against 2.53.
+- **Its ρ posteriors are a third as wide** (sd 0.31 against 0.93–1.00). That is the overconfidence 66.7 measures, not information.
+- **The flow puts mass outside the prior box** for many couples: the median share inside is 0.925 (10th percentile 0.63), against 0.999 under w07. Couples' windows are unlike what the network trained on.
+- **Couple by couple** none_w07 agrees with w07 at r = 0.53 (β), 0.57 (δ), 0.20 (ρ) and 0.60 (R_γ).
+- **This repeats 62.1 on the old box:** ρ 0.85; 59% below 1; 74% of 5th percentiles below 0.55; r 0.54, 0.58, 0.29 and 0.54.
+
+**The representative θ** (`laibson_comparison.py --refresh 4`, figure 121; bootstrap se):
+
+| | β | δ | ρ | R_γ | |
+|---|---|---|---|---|---|
+| Laibson et al. (reported se) | 0.5305 (0.114) | 0.9891 (0.0051) | 1.94 (0.435) | 1.05, calibrated | |
+| none_w07 | — | — | — | — | no fit: the last simulated point (0.446, 0.9888, 0.86, 1.043) misses PSID by 14.5, 6.5, −10.7 and −11.9 se; the next step goes to the box's edges, with 98% of the bootstrap past β's top |
+| w07 | 0.384 (0.031) | 0.9941 (0.0010) | 1.84 (0.13) | 1.0448 (0.0016) | converged; misfit ≤ 0.19 se |
+| v2_b010 | 0.437 (0.027) | 0.9928 (0.0009) | 1.58 (0.085) | 1.0423 (0.0014) | 63.10, reproduced from cache |
+| typical_b010 | 0.132 (0.019) | 0.9991 (0.0003) | 1.95 (0.34) | 1.0382 (0.0017) | 63.10 |
+| gross_b010 | 0.157 (0.011) | 0.9986 (0.0002) | 1.11 (0.079) | 1.0364 (0.0009) | 63.10 |
+| unknown_b010 | 0.143 | 0.9989 | 1.96 | 1.048 | 63.10's last simulated point; no fit |
+
+- **Under none_w07 no θ in the box reproduces PSID couples.** Noise-free couples simulated at Laibson et al.'s θ give a median ρ of 2.40, at v2's median estimate a mean of 2.98; PSID couples give 0.76. The Newton steps head for the box's edges and stop 6–14 se away.
+- **w07 on its own window (24–51) differs from v2_b010 (24–45):** β is 0.053 lower (1.7–2.0 of their se) and ρ 0.25 higher (1.9–3.0 se). 64.7 found the window changes nothing material per household. For the representative θ it moves β and ρ by about two se, which 66.0's caveat did not expect. Both arms carry v2's noise; the difference is the training window and the members.
+
+### 66.9 Why ρ falls: PSID-level consumption noise, read as preference
+
+**Question (user, 2026-11-08).** "everything is done. it has the exact result that we expected. precision got increased but the rho estimation on PSID data gets extremly low. check the result."
+
+Two checks (`scripts/noise_free_rho.py`, `outputs/waves_none/noise_free_rho.json`).
+
+**1. Simulated couples with noise added.**
+- 4,096 couples are simulated at the θ where the noisy w07 fit settles: its last Newton point, β 0.384, δ 0.9941, ρ 1.84, R_γ 1.0446. Scored by w07 with v2's noise, these couples reproduce PSID couples within 0.2 se.
+- Here none_w07 scores them with each noise added (seeded as the population fit's scoring).
+
+| medians of couples' posterior means under none_w07 | β | δ | ρ | R_γ | ρ means below 1 |
+|---|---|---|---|---|---|
+| no noise added | 0.366 | 0.9941 | 2.31 | 1.0481 | 0.00 |
+| v2's noise | 0.428 | 0.9911 | 1.54 | 1.0410 | 0.25 |
+| typical's noise | 0.588 | 0.9834 | 0.92 | 1.0409 | 0.55 |
+| gross's noise | 0.617 | 0.9825 | 0.79 | 1.0372 | 0.64 |
+| **PSID couples** | **0.596** | **0.9860** | **0.76** | **1.0393** | **0.69** |
+| consumption noise only: v2 / typical / gross | 0.412 / 0.549 / 0.608 | 0.9910 / 0.9822 / 0.9787 | 1.55 / 0.89 / 0.72 | 1.0475 / 1.0476 / 1.0475 | 0.26 / 0.57 / 0.67 |
+| illiquid noise only: v2 / typical / gross | 0.361 / 0.361 / 0.362 | 0.9939–0.9940 | 1.95 / 1.95 / 1.86 | 1.0419 / 1.0415 / 1.0366 | 0.08–0.09 |
+| income or liquid noise only (each arm's) | 0.369–0.379 | 0.9938–0.9942 | 2.20–2.33 | 1.0469–1.0480 | 0.00–0.04 |
+
+- **Measurement noise alone takes simulated couples to PSID couples' numbers.**
+  - With no noise their ρ means sit near the truth: a median of 2.31 for a true 1.84, the prior's pull (w07 gives 2.56–2.59).
+  - With typical's or gross's noise, PSID's own error ranges (§57–58), the median falls to 0.92 and 0.79, and 55–64% of means go below 1. PSID couples give 0.76 and 69%.
+  - β (0.59–0.62 against 0.60), δ (0.9825–0.9834 against 0.9860) and R_γ (1.037–1.041 against 1.039) follow too.
+- **Consumption noise is what moves ρ.** On its own it gives 1.55, 0.89 and 0.72 at v2's, typical's and gross's level, as much as all the noise together.
+  - Income and liquid-wealth noise leave ρ within 0.15 of its noise-free value (at both θ).
+  - Illiquid noise lowers ρ by 0.36–0.63, and it is what moves R_γ (1.036–1.043, against 1.048–1.053 with no noise).
+- **The same at Laibson et al.'s θ** (β 0.531, ρ 1.94): ρ is 2.40 with no noise, 1.49 with v2's, 0.93 with typical's and 0.77 with gross's; consumption noise alone gives 1.53, 0.87 and 0.71. Under none_w07 the noise level sets couples' ρ, more than θ does.
+- **v2's level goes only part of the way** (1.54). To this network PSID couples look as noisy as typical or gross, which is also how 62.3's noise-unknown arm read them.
+
+**2. Across the box** (2,048 held-out households, one per draw):
+
+| median posterior mean of ρ, by true ρ | 0.5–1 | 1–1.5 | 1.5–2 | 2–3 | 3–4 | 4–5.5 |
+|---|---|---|---|---|---|---|
+| true median | 0.75 | 1.25 | 1.75 | 2.50 | 3.50 | 4.50 |
+| none_w07, no noise | 1.32 | 1.47 | 1.92 | 2.73 | 3.53 | 4.11 |
+| none_w07, v2's noise | 1.47 | 1.57 | 1.67 | 1.93 | 2.09 | 2.31 |
+| w07, no noise | 1.47 | 1.72 | 2.35 | 2.96 | 3.53 | 3.84 |
+| w07, v2's noise | 1.52 | 1.84 | 2.34 | 2.94 | 3.48 | 3.78 |
+
+- **With v2's noise the noise-free network's ρ curve flattens.** True ρ from 0.75 to 4.5 maps to 1.5–2.3, and the median error is −0.59 (+0.07 without noise).
+- **The noisy network's curve is the same with and without noise** (median error +0.10 and +0.11).
+
+**Reading.**
+- In the model a household with low ρ (high elasticity of intertemporal substitution, weak precautionary motive) lets consumption move with its income; a household with high ρ smooths it.
+- A network that never saw measurement error has one way to explain consumption that jumps from wave to wave: a weak motive to smooth. That is what PSID couples' ρ near the floor under none_w07 is: PSID's consumption error read as preference.
+- So it is not evidence of low risk aversion, and it is why the noise-free arm cannot be used on PSID. The arms trained with noise give couples ρ 2.5–2.7 per couple, and representative values of 1.1–1.95 (66.8).
+
+### 66.10 Training: no arm is short of capacity
+
+| each arm's 5 members | w07 v2 | w07 none | a14 v2 | a14 none | w14 v2 | w14 none |
+|---|---|---|---|---|---|---|
+| epochs | 43–50 | 100–136 | 68–78 | 111–175 | 49–65 | 89–152 |
+| training − validation loss at the end (mean) | −0.55 | −0.66 | −0.64 | −0.74 | −0.59 | −0.60 |
+| minutes per member (mean) | 56 | 134 | 90 | 174 | 69 | 140 |
+
+- **Every member stopped on validation loss with a gap** (64.9's criterion), so capacity is not the limit.
+- **Noise-free members train 1.9–2.4 times as long,** as RESULTS 62's did (82–124 epochs).
+
+### 66.11 Reading
+
+- **Measured exactly, seven waves would tell as much as 20 noisy ones** about one household's β, δ and ρ. Information grows 1.8–3.1 times, and 48% of pairs can be ordered on β instead of 26%. Every noise-free arm is calibrated on noise-free data.
+- **Part of RESULTS 65's annual advantage was the noise.**
+  - In about the same years, annual waves still carry 1.53 times the information on β without noise, against 1.93 with it.
+  - At the same number of waves the biennial span wins without noise (annual 0.74–0.82 times), so 65's same-count win for β and ρ came from separating fresh noise.
+- **β below 0.3 stays the weakest band even without noise.** Its interval narrows 8–14%, the top's 46–59%: the limit is behaviour at the borrowing limit (64.12), not measurement.
+- **For the population at θ₀, noise costs β's se 24–59%.** At seven waves most of the se is households differing (64.8).
+- **On PSID the noise-free network fails, as the user expected.**
+  - It breaks on even v2's noise (66.7), reading noise as low ρ.
+  - It puts PSID couples' ρ near the floor (0.76; 69% below 1). Simulated couples given PSID-level consumption noise come out the same (0.72–0.92, 66.9).
+  - No noise-free population in the box reproduces couples (66.8).
+  - So the low ρ measures PSID's noise, not couples' preferences. Training with noise stays necessary, and the noise-free arms are a benchmark of what better measurement would buy.
+- **New:** w07's 24–51 window moves the representative β by −0.05 and ρ by +0.25 against v2_b010's 24–45 (66.8), about two se. §1 keeps v2_b010.
+- **Nothing more is run.** The R_γ rank test (66.3) is an open point that predates this run.
+- **Caveats:**
+  - **No noise is a benchmark** (perfect measurement under our model), not a model of PSID.
+  - **Our noise model:** iid log-normal, fresh every wave, its own range per feature. Errors that persist across years would change both the annual comparison (66.5) and how much consumption noise moves ρ (66.9).
+  - **66.9 checks two θ** (w07's fit and Laibson et al.'s); they agree.
+  - **One θ₀** for the population se, with δ near its box's top.
+  - **Simulated households** under our model, except the seven-wave PSID ladder.
+
+**Figures:**
+- 116: precision with and without noise (share removed, pairs ordered, population se);
+- 117–119: SBC ranks, noise-free w07, a14 and w14 (their titles name the arm, not the noise);
+- 120: figure 115's household under the six networks, 68/95%;
+- 121: PSID couples' representative θ under every noise against Laibson et al.'s point, 68/95%;
+- 122–123: a simulated and a PSID household under none_w07, 68/95%;
+- 124: none_w07's couples' posterior means, PSID against simulated couples with no noise, v2's and gross's, 68/95%, and ρ's distribution with typical's too.
+
+**Reproduce** (from the chain's outputs):
+
+    PYTHONPATH=. .venv/bin/python scripts/noise_free_waves.py measures    # 66.3-66.8, 66.10 (logs/noise_free_measures.log)
+    PYTHONPATH=. .venv/bin/python scripts/noise_free_waves.py figures     # 116 and 120
+    PYTHONPATH=. .venv/bin/python scripts/noise_free_rho.py households    # 66.9's first check and figure 124 (GPU, about 15 min)
+    PYTHONPATH=. .venv/bin/python scripts/noise_free_rho.py recovery      # 66.9's second check (GPU, about 10 min)
+    PYTHONPATH=. .venv/bin/python scripts/noise_free_rho.py figure        # 124 from the saved means
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_noise_free_waves.py
