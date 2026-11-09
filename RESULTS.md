@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-08 (§66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-09 (§67 launched: 8 noisy copies of every clean training window, and the noise model of "psid noise methodology.md" as written, three 7-wave arms; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -11273,3 +11273,127 @@ Two checks (`scripts/noise_free_rho.py`, `outputs/waves_none/noise_free_rho.json
     PYTHONPATH=. .venv/bin/python scripts/noise_free_rho.py recovery      # 66.9's second check (GPU, about 10 min)
     PYTHONPATH=. .venv/bin/python scripts/noise_free_rho.py figure        # 124 from the saved means
     PYTHONPATH=. .venv/bin/python -m pytest tests/test_noise_free_waves.py
+
+## 67. Noisy copies of clean households, and the methodology file's noise model (launched)
+
+*67.0–67.1 are the launch record, written before the run.*
+
+**Request (user, 2026-11-09).** After the comparison of "psid noise methodology.md" with our noise: "ok let's try the file's noise method. heavy tail sounds plausible. but at this time, I want to try differently. the current model's bottleneck is distinguishing the noise from signal. So, let's make multi data from one non noise clean data. we can add noise differently while keeping the same original data. with this method, we can duplicate many data and give the model more information about the noise vs signal. Additionally, pls show me the training process via csv fil. save metrics per csv like usual ML does, and save the csv where that I can see."
+- **The user chose:**
+  - K fixed noisy copies first ("my first idea was K fixed copies. let try K fixed copies first and try new noise every epoch later if K fixed dont work");
+  - the file's noise model as written;
+  - three arms (below), five members each.
+- The plan was approved as it stands here.
+
+### 67.0 Design
+
+| arm | noise | copies of each clean window | against |
+|---|---|---|---|
+| v2_k8 | v2's (w07's) | 8 | w07 (64): the copies alone, on identical held-out windows |
+| file_k1 | the methodology file's | 1 | w07: the noise model alone |
+| file_k8 | the methodology file's | 8 | file_k1: the copies under the file's noise, on identical held-out windows |
+
+**Why copies may help.** w07's five members reach their best validation loss at epoch 23–30, with training loss still falling, and stop 20 epochs later. At the best epoch, training loss is 0.14–0.23 below validation. Each household carries one fixed noise draw, which the network can fit. With eight draws on the same clean window, fitting a draw is eight times harder.
+
+**What copies cannot do.** They add no information about θ to any one household's data. At best the network gets closer to the posterior those data allow. For scale, doubling the number of households bought +0.19 in held-out log q and no sharpness (63.8), and copies of the same clean windows should buy less than new households. So the main test is held-out log q, paired on identical windows, not posterior width.
+
+**The file's noise model** (`scripts/psid_noise.py`, built from the file's text; the module the file names is not on this machine). Every error multiplies the magnitude, x·exp(u): zeros stay zero, signs are kept and age is never touched. The four errors are independent, and each household (and each copy) draws its own parameters from the file's priors.
+- **Income:** u_t = b(log y*_t − ref_t) + σ_v z_t, z an AR(1) across waves, with σ_v ~ U(0.08, 0.14), b ~ U(−0.20, 0) and ρ ~ U(0, 0.3).
+  - ref_t is the file's "wave's cross-sectional mean of log y*". For windows it is the mean clean log income at each window position over w07's 638,976 training windows: 10.724, 10.755, 10.779, 10.795, 10.803, 10.804, 10.799. It is fixed once, so every scoring uses the same reference.
+- **Consumption:** iid normal, σ_c ~ U(0.12, 0.25).
+- **Liquid and illiquid wealth:** u = σ t_ν, a unit-variance Student t clipped at |u| ≤ 3 (the file's "≈ 20×", read as log points), iid across waves, ν ~ U(3, 8).
+  - σ² = s V / 2, with s ~ U(0.3, 0.7) and V the file's `calibrate_asset_sigma(observed=True)` on PSID couples: ((p75 − p25)/1.349)² of one-wave changes in log wealth, over pairs where both waves are positive.
+  - **PSID couples (409):** liquid V 1.517 over 675 pairs, so σ 0.48–0.73; illiquid V 0.553 over 1,955 pairs, so σ 0.29–0.44.
+  - Liquid's pairs are few because the gross definition makes card debt negative; negative balances still get the noise on their magnitude, as the file specifies.
+- **Not built, as in the file:**
+  - transfers' non-reporting and the income timing offset (its TODOs);
+  - illiquid wealth by component (the model has one illiquid asset);
+  - any conversion to the network's input scale (57.4's).
+
+**Copies.** `optionA.windows_raw(..., copies=K)` cuts the clean windows once and noises them K times. Copy k draws from its own streams, k × 10⁷ above copy 0's, clear of every other window seed.
+- θ and the draw id repeat, so the grouped split keeps all copies of a household on the same side.
+- Copy 0 is exactly the windows of `copies=1`. Held-out and SBC windows are cut as before, so v2_k8 is scored on w07's own held-out windows and file_k8 on file_k1's.
+- An epoch over 8 copies is 8 passes over the clean windows. Patience and the cap are scaled to keep about today's passes: 3 and 25 epochs (24 and 200 passes, against 20 and 200).
+
+**The training CSVs** (`hh_npe.npe.train.EpochCSV`). Every `optionA.py train` now writes one row per epoch, flushed as the epoch ends:
+- to `training_metrics/<run>/s<seed>.csv` in the repository, where `<run>` is the output path after `outputs/` (here `training_metrics/noise_copies/<arm>/w07/`);
+- and to `metrics.csv` beside the checkpoint.
+
+Columns: epoch, passes, train_loss, val_loss, best_val_loss, is_best, epochs_since_best, epoch_sec, elapsed_min, grad_norm_mean, grad_norm_max, lr, n_train_rows, n_val_rows, gpu_mem_gb.
+- They are read from sbi's own loop: a wrapper on `_converged`, which sbi calls once per epoch, and the norms its `clip_grad_norm_` returns. Training is unchanged; the same seed gives bit-identical losses with and without the logger.
+- `scripts/training_metrics.py backfill` writes the same layout for w07 and none_w07 from their `training_summary.json`. The losses are there; the columns sbi did not store are empty.
+
+**Measures:**
+- **Calibration:** held-out and SBC 90% coverage (gate 0.88–0.92), each arm on its own noise.
+- **The main test:** held-out log q paired on identical windows: v2_k8 against w07, and file_k8 against file_k1. Weighted mean difference, with a 95% interval over resampled households.
+  - **Fixed copies "work"** if v2_k8 beats w07 and the interval is above 0. If they don't, the next run draws new noise every epoch.
+- **One household:** information, ordering, β below 0.3.
+- **The population se at θ₀**, against w07's, with paired resampling.
+- **Training, from the CSVs:** passes to the best epoch, the best validation loss, and the training − validation gap there (w07: 0.14–0.23).
+- **Cross-noise:** the four networks on each other's held-out windows.
+- **PSID couples:** medians, the share of ρ below 1 (does the file's noise move 66.9's reading?), and the representative θ beside w07, v2_b010, typical and gross.
+
+**Figures** (68/95% contours on every estimate):
+- 125: training curves from the CSVs;
+- 126–128: SBC ranks for v2_k8, file_k1 and file_k8;
+- 129: paired log q and precision;
+- 130: PSID couples' representative θ under every arm against Laibson et al.'s point;
+- 131–132: a simulated and a PSID household under file_k8.
+
+**Caveats the results will carry:**
+- The file's priors are literature numbers and its own judgment calls (its [A] tags).
+- Its asset σ is on log|value|, with no conversion to the network's scale (57.4).
+- Its income noise adds to a model income already more volatile than PSID's (43.7, 57.2).
+- The file's noise is not PSID's measured noise: the diagnostic in 67.1 shows where they differ.
+- Simulated households, except the PSID rows.
+
+**Code:**
+- New:
+  - `scripts/psid_noise.py`;
+  - `scripts/training_metrics.py`;
+  - `scripts/noise_copies.py`;
+  - `scripts/run_noise_copies.sh`;
+  - tests `test_psid_noise.py`, `test_noise_copies.py`, `test_training_metrics.py`.
+- `optionA.py`:
+  - `add_obs_noise` dispatches to the file's model;
+  - `Spec`, `spec_of` and the config carry it as `noise_model`; older configs give the same Spec as before;
+  - `windows_raw(copies=)`;
+  - `train --noise_model --noise_copies --metrics_dir`;
+  - `metrics_paths`, `noise_record`.
+- `hh_npe/npe/train.py`: `EpochCSV`, and `train_npe(metrics_csv=, passes_per_epoch=)`.
+- `cross_noise_heldout.py`: ensembles may differ in how they were trained (`optionA.TRAINING_KEYS`), and `--per_row` saves each household's log q.
+- `laibson_comparison.py`: colours for the three arms.
+
+### 67.1 Gates before launch
+
+All pass.
+1. **Tests.** The whole suite passes with the GPU hidden: 664 passed, 37 skipped (33 new).
+   - **v2's path is unchanged.** w07's held-out check, rerun through the changed noise and window code, gives `outputs/waves/w07/heldout_check.json` exactly (log q 3.647954).
+2. **The file's noise, calibrated** (`psid_noise.py calibrate`): the V, σ and reference of 67.0.
+   - **Diagnostic** (`psid_noise.py check`, not a pass or fail): 989 held-out simulated couples, one window each, read with 57.2's estimator. σ on log|value|, rw+drift, typical / with gross errors:
+
+| | the model alone | v2's noise | the file's noise | PSID couples (57.2) |
+|---|---|---|---|---|
+| income | 0.229 / 0.301 | 0.229 / 0.301 | 0.239 / 0.291 | 0.078 / 0.187 |
+| consumption | 0 / 0.094 | 0.071 / 0.131 | 0.188 / 0.211 | 0.161 / 0.194 |
+| liquid | 0.193 / 0.579 | 0.218 / 0.581 | 0.747 / 0.832 | 0.685 / 0.899 |
+| illiquid | 0 / 0 | 0.279 / 0.266 | 0.306 / 0.308 | 0.431 / 0.728 |
+
+   - **What it shows:**
+     - The file's noise reproduces PSID's consumption and liquid readings.
+     - It stays below PSID's illiquid readings, most with gross errors counted.
+     - Income is set by the model's own volatility, with or without the file's income error.
+3. **The smoke chain** (`SMOKE=<dir> scripts/run_noise_copies.sh`) ran every stage to DONE.
+   - **Two fixes came out of it:**
+     - The population fit takes RESULTS 64's w07. The smoke's own w07, under the same name, clashed with the fit's cached Newton points.
+     - `noise_copies.py measures` reads its inputs under `--root`. It had defaulted to `outputs/noise_copies` even in smoke.
+   - Nothing was written into `outputs/`, `figures/` or `training_metrics/`.
+   - The cross-noise columns for w07's and v2_k8's noise agree exactly, as do file_k1's and file_k8's: the copies leave the held-out windows unchanged.
+4. **Timing.** Two real 8-copy members trained at once, each with 5,111,808 rows (8 × 638,976).
+   - An epoch took 573–593 s.
+   - Allocated GPU memory was 3.6 GB per member (9.2 GB reserved for both), and RAM about 12 GB.
+   - They were stopped after one epoch.
+   - **Expected cost:**
+     - 8-copy members take 1–4 h each (cap 25 epochs, patience 3);
+     - file_k1's take about 1 h, like w07's;
+     - training is about 12 h (8–23 h) two at a time, and evaluation about 1.5 h.

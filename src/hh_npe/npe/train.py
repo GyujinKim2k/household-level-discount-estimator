@@ -12,7 +12,10 @@ assumption for 3D ``x``.
 
 from __future__ import annotations
 
+import contextlib
+import csv
 import logging
+import time
 from pathlib import Path
 
 import torch
@@ -80,6 +83,96 @@ def _use_grouped_split(inference, group_ids: torch.Tensor, seed: int = 0) -> Non
     inference.get_dataloaders = grouped
 
 
+#: Columns of the per-epoch training CSV (RESULTS 67).
+METRIC_COLUMNS = ("epoch", "passes", "train_loss", "val_loss", "best_val_loss", "is_best",
+                  "epochs_since_best", "epoch_sec", "elapsed_min", "grad_norm_mean",
+                  "grad_norm_max", "lr", "n_train_rows", "n_val_rows", "gpu_mem_gb")
+
+
+class EpochCSV:
+    """One row per epoch to each of ``paths``, written and flushed as the epoch
+    ends, so a run can be watched while it trains.
+
+    sbi's ``train`` loop has no callback; it calls ``_converged(epoch, ...)``
+    once before the first epoch (epoch 0) and once after each, then once more
+    at the end with the same epoch. :meth:`attach` wraps that method on one
+    instance and logs each epoch the first time it is seen, after sbi has
+    updated its best loss. Gradient norms are the values sbi's own
+    ``clip_grad_norm_`` returns, recorded without changing the call.
+    Nothing here draws random numbers or touches the optimisation."""
+
+    def __init__(self, paths, passes_per_epoch: int = 1):
+        self.paths = [Path(p) for p in paths]
+        self.passes = passes_per_epoch
+        self.files = []
+        self.norms: list[torch.Tensor] = []
+        self.logged = 0
+        self.t0 = time.time()
+
+    def __enter__(self):
+        for path in self.paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            f = path.open("w", newline="")
+            csv.writer(f).writerow(METRIC_COLUMNS)
+            f.flush()
+            self.files.append(f)
+        return self
+
+    def __exit__(self, *exc):
+        for f in self.files:
+            f.close()
+        return False
+
+    @contextlib.contextmanager
+    def grad_norms(self):
+        """Record every gradient norm sbi's NPE loop clips, for the epoch."""
+        from sbi.inference.trainers.npe import npe_base
+
+        orig = npe_base.clip_grad_norm_
+
+        def recording(*a, **k):
+            n = orig(*a, **k)
+            self.norms.append(n.detach())
+            return n
+
+        npe_base.clip_grad_norm_ = recording
+        try:
+            yield
+        finally:
+            npe_base.clip_grad_norm_ = orig
+
+    def attach(self, inference) -> None:
+        orig = inference._converged
+
+        def converged(epoch, stop_after_epochs):
+            out = orig(epoch, stop_after_epochs)
+            if epoch > self.logged:
+                self.logged = epoch
+                self.write(inference, epoch)
+            return out
+
+        inference._converged = converged
+
+    def write(self, inference, epoch: int) -> None:
+        s = inference._summary
+        g = torch.stack(self.norms).float() if self.norms else None
+        self.norms = []
+        dev = torch.device(inference._device)
+        mem = (torch.cuda.max_memory_allocated(dev) / 1e9
+               if dev.type == "cuda" and torch.cuda.is_available() else float("nan"))
+        since = inference._epochs_since_last_improvement
+        row = (epoch, epoch * self.passes, s["training_loss"][-1], s["validation_loss"][-1],
+               inference._best_val_loss, int(since == 0), since,
+               s["epoch_durations_sec"][-1], (time.time() - self.t0) / 60,
+               float(g.mean()) if g is not None else float("nan"),
+               float(g.max()) if g is not None else float("nan"),
+               inference.optimizer.param_groups[0]["lr"], len(inference.train_indices),
+               len(inference.val_indices), mem)
+        for f in self.files:
+            csv.writer(f).writerow([f"{v:.6g}" if isinstance(v, float) else v for v in row])
+            f.flush()
+
+
 def train_npe(
     theta: torch.Tensor,
     x: torch.Tensor,
@@ -97,12 +190,19 @@ def train_npe(
     device: str = "cpu",
     show_progress: bool = False,
     group_ids: torch.Tensor | None = None,
+    metrics_csv=None,
+    passes_per_epoch: int = 1,
 ):
     """Train SNPE-C on ``(theta, x)`` and return ``(posterior, density_estimator, inference)``.
 
     ``group_ids`` marks rows that share a simulated panel, so the train/
     validation split can keep them together -- see :func:`_use_grouped_split`.
     Required whenever one panel contributes several rows; harmless otherwise.
+
+    ``metrics_csv``: a path or paths, each given one row per epoch
+    (:class:`EpochCSV`, :data:`METRIC_COLUMNS`); ``passes_per_epoch`` is the
+    number of passes over the clean windows an epoch makes (K noisy copies
+    make K, RESULTS 67). Logging changes nothing in training.
     """
     if embedder is None:
         embedder = TrajectoryTransformer()
@@ -135,13 +235,20 @@ def train_npe(
         f"x_shape={tuple(x.shape[1:])}, device={device}, "
         f"max_epochs={max_num_epochs}, batch_size={batch_size}"
     )
-    density_estimator = inference.train(
-        max_num_epochs=max_num_epochs,
-        stop_after_epochs=stop_after_epochs,
-        learning_rate=learning_rate,
-        training_batch_size=batch_size,
-        validation_fraction=validation_fraction,
-    )
+    paths = ([] if metrics_csv is None else
+             [metrics_csv] if isinstance(metrics_csv, (str, Path)) else list(metrics_csv))
+    with contextlib.ExitStack() as stack:
+        if paths:
+            logger = stack.enter_context(EpochCSV(paths, passes_per_epoch))
+            stack.enter_context(logger.grad_norms())
+            logger.attach(inference)
+        density_estimator = inference.train(
+            max_num_epochs=max_num_epochs,
+            stop_after_epochs=stop_after_epochs,
+            learning_rate=learning_rate,
+            training_batch_size=batch_size,
+            validation_fraction=validation_fraction,
+        )
     posterior = inference.build_posterior(density_estimator)
     return posterior, density_estimator, inference
 

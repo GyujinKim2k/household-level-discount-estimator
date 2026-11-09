@@ -84,6 +84,8 @@ ARM_COLOR = {**hr.ARM_COLOR, "none": "#4A9A5B", "unknown": "#D08A1E"}
 ARM_COLOR |= {f"{a}_b010": c for a, c in list(ARM_COLOR.items())}
 #: RESULTS 66: the 7-wave arm on the matched range (64.7) and its noise-free twin
 ARM_COLOR |= {"w07": "#1F4E79", "none_w07": "#4A9A5B"}
+#: RESULTS 67: noisy copies (v2_k8) and the methodology file's noise (file_k1, file_k8)
+ARM_COLOR |= {"v2_k8": "#6BAED6", "file_k1": "#E6862E", "file_k8": "#A63603"}
 
 
 def box_bounds(box) -> tuple[np.ndarray, np.ndarray]:

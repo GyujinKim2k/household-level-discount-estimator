@@ -10,9 +10,12 @@ sigma = lo + (hi - lo) u. A column is one candidate truth for PSID's error:
 - log q compares the networks on the same windows (a proper score);
 - corr, MAE and contraction are recovery, as in the held-out check.
 
-Arms must share everything but the noise (box, transforms, mask, windows).
-The windows are the ensembles' own (``optionA.window_of``: RESULTS 66's
-longer and annual arms), ``WINDOW`` for configs that record none.
+Arms must share everything but the noise (box, transforms, mask, windows);
+how they were trained may differ (``optionA.TRAINING_KEYS``: RESULTS 67's
+noisy copies and their epoch caps). The windows are the ensembles' own
+(``optionA.window_of``: RESULTS 66's longer and annual arms), ``WINDOW`` for
+configs that record none. ``--per_row`` saves every cell's log q per
+household, with the importance weights, for paired comparisons.
 
 Usage::
 
@@ -52,6 +55,9 @@ def main() -> None:
     ap.add_argument("--n_draws", type=int, default=4000)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--per_row", type=Path, default=None,
+                    help="An .npz for each cell's per-household log q (key NETWORK__NOISE), "
+                         "the weights w and the draw ids pid.")
     args = ap.parse_args()
 
     arms = {}
@@ -66,8 +72,9 @@ def main() -> None:
         if (dataclasses.replace(a["spec"], obs_noise=()) != base
                 or a["proposal"] != first["proposal"]):
             raise SystemExit(f"{name} differs from {args.arm[0][0]} in more than the noise")
-        if {k: v for k, v in a["cfg"].items() if k != "obs_noise"} != \
-                {k: v for k, v in first["cfg"].items() if k != "obs_noise"}:
+        skip = oa.NOISE_KEYS + oa.TRAINING_KEYS
+        if {k: v for k, v in a["cfg"].items() if k not in skip} != \
+                {k: v for k, v in first["cfg"].items() if k not in skip}:
             raise SystemExit(f"{name}'s training config differs from {args.arm[0][0]}'s "
                              f"in more than the noise")
 
@@ -79,10 +86,11 @@ def main() -> None:
     fb = base.flow_box()
 
     res = {"arms": {n: {"run_dirs": list(map(str, a["dirs"])),
-                        "noise": {f: [lo, hi] for f, lo, hi in a["spec"].obs_noise}}
+                        "noise": oa.noise_record(a["spec"].obs_noise)}
                     for n, a in arms.items()},
            "n_draws": args.n_draws, "cells": {}}
     pick = None
+    rows = {}
     window = oa.window_of(first["cfg"])                 # WINDOW for configs that record none
     res["window"] = window
     for wname, wa in arms.items():                      # the windows' noise
@@ -101,7 +109,9 @@ def main() -> None:
             torch.manual_seed(0)
             r = sample_weighted(na["members"], x, args.n_draws, fb.low, fb.high, invert=inv,
                                 log_weight=lw, truth=t)
-            s = heldout(r, t, w, oa._log_q(na["members"], th, x, base, per_row=True), base)
+            lq = oa._log_q(na["members"], th, x, base, per_row=True)
+            rows[f"{nname}__{wname}"] = lq
+            s = heldout(r, t, w, lq, base)
             res["cells"][f"{nname} on {wname} noise"] = s
             print(f"network {nname:8s} windows {wname:8s} log q {s['log_q_weighted']:7.3f}  "
                   + "  ".join(f"{n} cov {s[n]['cov90']:.3f} contr {s[n]['contraction']:.3f}"
@@ -119,6 +129,8 @@ def main() -> None:
                     f"{(v[k] if n is None else v[n][k]):10.3f}" for v in vals))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(res, indent=1))
+    if args.per_row is not None:
+        np.savez(args.per_row, w=w, pid=pid0.numpy(), **rows)
     print(f"\nwrote {args.out}")
 
 

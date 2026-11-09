@@ -94,6 +94,7 @@ from hh_npe.npe.prior import (
 )
 from hh_npe.npe.train import load_posterior, save_posterior, train_npe
 from scripts.compare_windows import EMBEDDER, TRAINING, anchor_log, mean_income_channel
+from scripts.psid_noise import FileNoise, add_psid_noise
 
 SHARDS = Path("data/processed/optionA_card_dataset_shards")
 SBC_CACHE = Path("outputs/optionA/sbc_sims.pt")
@@ -298,6 +299,14 @@ def transform(x: torch.Tensor, masked: bool = False):
 NOISY = ("income", "consumption", "liquid_assets", "illiquid_assets")
 #: Added to a window seed for its noise stream, so noise never reuses it.
 NOISE_SEED = 437_000
+#: RESULTS 67: copy k of a training window draws its noise at NOISE_SEED + seed
+#: + offset + k * COPY_STRIDE, above every other window seed in use.
+COPY_STRIDE = 10_000_000
+#: Config keys that say how a run was trained, not what its windows are:
+#: ensembles may differ in them and still be compared on the same windows
+#: (cross_noise_heldout.py), beside the noise itself.
+NOISE_KEYS = ("obs_noise", "noise_model")
+TRAINING_KEYS = ("noise_copies", "max_epochs", "stop_after_epochs")
 #: Features PSID's accuracy codes can mark as imputed (RESULTS 49, 50). Income
 #: and age carry no codes and are never masked.
 MASKABLE = ("consumption", "liquid_assets", "illiquid_assets")
@@ -370,8 +379,20 @@ def _noise_range(v) -> tuple[float, float]:
     return lo, hi
 
 
+def noise_record(noise) -> dict:
+    """A run's observation noise as JSON: ``{feature: [low, high]}`` for the
+    lognormal ranges, the model's record for the methodology file's model."""
+    if isinstance(noise, FileNoise):
+        return noise.record()
+    return {f: [lo, hi] for f, lo, hi in noise}
+
+
 def add_obs_noise(x: torch.Tensor, noise, seed: int) -> torch.Tensor:
     """Classical measurement error on raw (dollar) windows (RESULTS 43.7).
+
+    ``noise`` may instead be the methodology file's model
+    (:class:`scripts.psid_noise.FileNoise`, RESULTS 67), drawn from its own
+    numpy stream at the same seed.
 
     ``noise`` maps features to a sigma or a ``(low, high)`` range (a dict or
     its items; :class:`Spec`'s ``obs_noise`` holds ``(feature, low, high)``).
@@ -382,6 +403,8 @@ def add_obs_noise(x: torch.Tensor, noise, seed: int) -> torch.Tensor:
     scale, so medians are kept; zero stays zero and signs are kept. Age is
     never touched. Unlike ``compare_windows.add_obs_noise`` (§9.4: one sigma
     on every feature), each feature has its own range."""
+    if isinstance(noise, FileNoise):
+        return add_psid_noise(x, noise, seed)
     items = noise.items() if isinstance(noise, dict) else noise
     rng = {e[0]: _noise_range(e[1] if len(e) == 2 else e[1:]) for e in items}
     if bad := set(rng) - set(NOISY):
@@ -408,7 +431,8 @@ def window_of(cfg: dict | None = None) -> dict:
     return {k: rec.get(k, v) for k, v in WINDOW.items()}
 
 
-def windows_raw(files, theta_all, seed, n_waves=None, noise=(), mask=None, window=None):
+def windows_raw(files, theta_all, seed, n_waves=None, noise=(), mask=None, window=None,
+                copies: int = 1):
     """``build_windowed`` over shards of one or more runs, untransformed.
     ``files`` are :class:`Shard`\\ s or plain paths (one run, offset 0). Draw
     ids, and the window seeds (``seed + lo``), are offset per run, so ids stay
@@ -418,7 +442,15 @@ def windows_raw(files, theta_all, seed, n_waves=None, noise=(), mask=None, windo
     :meth:`Spec.mask_patterns`) then marks feature-waves missing, from its own
     stream, so the noise is the same with or without it. ``window`` (a dict
     like ``WINDOW``, e.g. :func:`window_of` a members' config) sets the window;
-    ``n_waves``, if given, overrides its length."""
+    ``n_waves``, if given, overrides its length.
+
+    ``copies`` (RESULTS 67): the clean windows are cut once and noised
+    ``copies`` times, copy k from its own streams (``k * COPY_STRIDE`` above
+    copy 0's); theta and the draw id repeat, so a grouped split keeps every
+    copy of a household on one side. Rows come copy by copy, and copy 0 is
+    exactly the windows of ``copies=1``."""
+    if copies < 1:
+        raise ValueError(f"copies {copies}: need at least 1")
     win = {**WINDOW, **{k: v for k, v in (window or {}).items() if k in WINDOW}}
     if n_waves is not None:
         win["n_waves"] = n_waves
@@ -426,14 +458,16 @@ def windows_raw(files, theta_all, seed, n_waves=None, noise=(), mask=None, windo
     for f in files:
         path, off = (f.path, f.offset) if isinstance(f, Shard) else (Path(f), 0)
         groups.setdefault(off, []).append(path)
+    clean = [(off, *build_windowed(paths, theta_all[off:], k=1, seed=seed + off, **win,
+                                   flow_lag=flow_lag_of(paths)))
+             for off, paths in groups.items()]
     out = []
-    for off, paths in groups.items():
-        th, x, pid = build_windowed(paths, theta_all[off:], k=1, seed=seed + off, **win,
-                                    flow_lag=flow_lag_of(paths))
-        x = add_obs_noise(x, noise, seed=NOISE_SEED + seed + off)
-        if mask is not None:
-            x = add_imputation_mask(x, mask, seed=MASK_SEED + seed + off)
-        out.append((th, x, pid + off))
+    for c in range(copies):
+        for off, th, x, pid in clean:
+            x = add_obs_noise(x, noise, seed=NOISE_SEED + seed + off + c * COPY_STRIDE)
+            if mask is not None:
+                x = add_imputation_mask(x, mask, seed=MASK_SEED + seed + off + c * COPY_STRIDE)
+            out.append((th, x, pid + off))
     return tuple(torch.cat(t) for t in zip(*out))
 
 
@@ -459,8 +493,9 @@ def check_flow_lag(cfg: dict, files) -> None:
                          f"were generated with {sorted(data)}")
 
 
-def windows(files, theta_all, seed, n_waves=None, noise=(), mask=None, window=None):
-    th, x, pid = windows_raw(files, theta_all, seed, n_waves, noise, mask, window)
+def windows(files, theta_all, seed, n_waves=None, noise=(), mask=None, window=None,
+            copies: int = 1):
+    th, x, pid = windows_raw(files, theta_all, seed, n_waves, noise, mask, window, copies)
     x, feats = transform(x, masked=mask is not None)
     return th, x, pid, feats
 
@@ -486,7 +521,8 @@ class Spec:
     (RESULTS 43.7), ``((feature, low, high), ...)``, each household's sigma
     uniform on [low, high]; every simulated window scored against the run must
     carry the same (``windows(..., noise=spec.obs_noise)``). PSID never gets
-    any.
+    any. RESULTS 67: it may instead be the methodology file's model, a
+    :class:`scripts.psid_noise.FileNoise` (config key ``noise_model``).
 
     ``imputation_mask``: ``(patterns file, tau, sha256)`` when the run was
     trained with PSID's imputed values treated as missing (RESULTS 50), else
@@ -516,6 +552,8 @@ class Spec:
             raise ValueError(f"beta transform {self.beta_transform!r}")
         if self.rgamma_transform not in RGAMMA_TRANSFORMS:
             raise ValueError(f"R_gamma transform {self.rgamma_transform!r}")
+        if isinstance(self.obs_noise, FileNoise):
+            return
         if bad := {e[0] for e in self.obs_noise} - set(NOISY):
             raise ValueError(f"no observation noise on {sorted(bad)}")
         for e in self.obs_noise:
@@ -557,9 +595,12 @@ class Spec:
                 + rgamma_log_jacobian(th[:, 3], self.box, self.rgamma_transform))
 
     def describe(self) -> str:
-        noise = ("; observation noise sigma " + ", ".join(
-            f"{f} {lo:g}" + (f"-{hi:g}" if hi != lo else "") for f, lo, hi in self.obs_noise)
-            if self.obs_noise else "")
+        if isinstance(self.obs_noise, FileNoise):
+            noise = "; observation noise " + self.obs_noise.describe()
+        else:
+            noise = ("; observation noise sigma " + ", ".join(
+                f"{f} {lo:g}" + (f"-{hi:g}" if hi != lo else "")
+                for f, lo, hi in self.obs_noise) if self.obs_noise else "")
         mask = (f"; imputed PSID values missing (tau {self.imputation_mask[1]:g})"
                 if self.masked else "")
         # RESULTS 63: the beta range only when it is not the A box's, so earlier
@@ -574,8 +615,9 @@ def spec_of(cfg: dict) -> Spec:
     """The Spec a run's ``results.json`` config describes."""
     return Spec(box=box_of(cfg), beta_transform=cfg.get("beta_transform", "linear"),
                 rgamma_transform=cfg.get("rgamma_transform", "linear"),
-                obs_noise=tuple((f, *_noise_range(v))
-                                for f, v in cfg.get("obs_noise", {}).items()),
+                obs_noise=(FileNoise.from_record(cfg["noise_model"]) if "noise_model" in cfg
+                           else tuple((f, *_noise_range(v))
+                                      for f, v in cfg.get("obs_noise", {}).items())),
                 imputation_mask=tuple(cfg["imputation_mask"][k] for k in
                                       ("patterns", "tau", "sha256"))
                 if "imputation_mask" in cfg else ())
@@ -602,11 +644,42 @@ def from_flow(t, spec="linear"):
 
 # --------------------------------------------------------------------------- train
 
+#: Training metrics, one CSV per member (RESULTS 67), under the repository.
+METRICS_DIR = Path("training_metrics")
+
+
+def metrics_paths(out: Path, seed: int, metrics_dir: Path | None = None) -> list[Path]:
+    """Where a member's per-epoch CSV goes: ``metrics.csv`` beside its
+    checkpoint, and ``<dir>/<run>/s<seed>.csv`` with ``<run>`` the output path
+    after its last ``outputs`` component (or its name). ``<dir>`` is
+    ``metrics_dir``, or ``METRICS_DIR`` for an output under this repository's
+    ``outputs/``; any other output (a smoke run, a test's temporary
+    directory) gets only its own ``metrics.csv`` unless ``metrics_dir`` is
+    given."""
+    out = Path(out)
+    paths = [out / f"s{seed}" / "metrics.csv"]
+    parts = out.parts
+    run = (Path(*parts[len(parts) - parts[::-1].index("outputs"):]) if "outputs" in parts
+           else Path(out.name))
+    if metrics_dir is None:
+        try:
+            out.resolve().relative_to(Path("outputs").resolve())
+        except ValueError:
+            return paths
+        metrics_dir = METRICS_DIR
+    return paths + [metrics_dir / run / f"s{seed}.csv"]
+
+
 def train(args) -> None:
     theta_all, card_all, train_f, held_f, proposal, cfg = load_shards(
         args.shards, args.train_shards, train_frac=args.train_frac)
     noise = tuple((f, *_noise_range([float(v) for v in r.split(":")] if ":" in r else float(r)))
                   for f, r in (e.split("=") for e in args.obs_noise))
+    if args.noise_model is not None:      # RESULTS 67: the methodology file's model
+        if noise:
+            raise SystemExit("--noise_model replaces --obs_noise; pass one")
+        noise = FileNoise.load(args.noise_model)
+    copies = args.noise_copies
     mask = ()
     if args.mask_patterns:
         import hashlib
@@ -621,7 +694,7 @@ def train(args) -> None:
     win.update({k: getattr(args, k) for k in ("start_low", "start_high", "wave_years")
                 if getattr(args, k) is not None})
     th, x, pid, feats = windows(train_f, theta_all, seed=0, noise=spec.obs_noise,
-                                mask=spec.mask_patterns(), window=win)
+                                mask=spec.mask_patterns(), window=win, copies=copies)
     drawn = np.unique(pid.numpy())
     train_ids = np.concatenate([f.offset + np.arange(int(np.load(f.path)["lo"]),
                                                      int(np.load(f.path)["hi"]))
@@ -629,7 +702,8 @@ def train(args) -> None:
     assert np.isin(drawn, train_ids).all()
     print(f"train: {len(th)} rows from {len(drawn)} draws (n_train "
           f"{n_train(proposal)}, proposal {proposal}); cardholder share "
-          f"{card_all[drawn].mean():.3f}; {spec.describe()}; channels {list(feats)}",
+          f"{card_all[drawn].mean():.3f}; {spec.describe()}; channels {list(feats)}"
+          + (f"; {copies} noisy copies of each window" if copies > 1 else ""),
           flush=True)
     keep = torch.tensor([f in STATIC for f in feats])
     f_mean = torch.where(keep, x.mean((0, 1)), torch.zeros(len(feats)))
@@ -638,12 +712,19 @@ def train(args) -> None:
                                 feature_mean=f_mean, feature_std=f_std,
                                 per_sequence=False, **{**EMBEDDER, **ARCH})
     dev = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    # RESULTS 67: an epoch over K copies is K passes over the clean windows, so
+    # patience and the cap keep today's number of passes (20 and 200)
+    stop_after = -(-TRAINING["stop_after_epochs"] // copies)
+    if args.max_epochs is None and copies > 1:
+        args.max_epochs = -(-TRAINING["max_num_epochs"] // copies)
     over = {"max_num_epochs": args.max_epochs} if args.max_epochs else {}
     torch.manual_seed(args.seed)
     post, _d, inference = train_npe(spec.to_flow(th).float(), x, embedder=emb,
                              box=spec.flow_box(), device=dev, group_ids=pid,
+                             metrics_csv=metrics_paths(args.out, args.seed, args.metrics_dir),
+                             passes_per_epoch=copies,
                              **{**TRAINING, "batch_size": 1024,
-                                "learning_rate": 1e-3, **over})
+                                "learning_rate": 1e-3, "stop_after_epochs": stop_after, **over})
     out = args.out / f"s{args.seed}"
     out.mkdir(parents=True, exist_ok=True)
     save_posterior(post, emb, spec.flow_box(), out / f"posterior_{args.n_waves}w.pt",
@@ -663,8 +744,12 @@ def train(args) -> None:
         extra["beta_range"] = cfg["beta_range"]
     if spec.rgamma_transform != "linear":
         extra["rgamma_transform"] = spec.rgamma_transform
-    if spec.obs_noise:
+    if isinstance(spec.obs_noise, FileNoise):
+        extra["noise_model"] = {**spec.obs_noise.record(), "path": str(args.noise_model)}
+    elif spec.obs_noise:
         extra["obs_noise"] = {f: [lo, hi] for f, lo, hi in spec.obs_noise}
+    if copies > 1:
+        extra |= {"noise_copies": copies, "stop_after_epochs": stop_after}
     if spec.masked:
         extra["imputation_mask"] = dict(zip(("patterns", "tau", "sha256"),
                                             spec.imputation_mask, strict=True))
@@ -945,7 +1030,7 @@ def psid(args) -> None:
                "rgamma_range": [box.rgamma_low, box.rgamma_high],
                "n_households": int(len(keep))}
     if spec.obs_noise:     # the training windows' noise; PSID itself gets none
-        summary["training_obs_noise"] = {f: [lo, hi] for f, lo, hi in spec.obs_noise}
+        summary["training_obs_noise"] = noise_record(spec.obs_noise)
     if args.debt_scale != 1.0:
         summary["debt_scale"] = args.debt_scale
     # PSID's own imputed values, missing exactly where the accuracy codes put
@@ -1101,6 +1186,15 @@ def main() -> None:
                    help="Observation noise on the simulated windows, per dollar feature: "
                         "each household's sigma uniform on [LOW, HIGH], or a fixed SIGMA "
                         "(RESULTS 43.7; noise_calibration.py's sigma_range).")
+    t.add_argument("--noise_model", type=Path, default=None,
+                   help="The methodology file's noise model instead of --obs_noise: "
+                        "psid_noise.py calibrate's JSON (RESULTS 67).")
+    t.add_argument("--noise_copies", type=int, default=1,
+                   help="K noisy copies of every clean training window, each with its own "
+                        "noise draw; patience and the epoch cap scale by 1/K (RESULTS 67).")
+    t.add_argument("--metrics_dir", type=Path, default=None,
+                   help=f"Where the per-epoch CSV goes besides the member's metrics.csv "
+                        f"(default {METRICS_DIR}/<the output path after outputs/>).")
     t.add_argument("--mask_patterns", type=Path, default=None,
                    help="PSID couples' imputation masks (psid_accuracy_codes.py --write_mask): "
                         "simulated windows take them, and the model gets missing-value "
