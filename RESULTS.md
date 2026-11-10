@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-10 (§68 launched: a new noise draw on the training windows every epoch, under v2's noise and the methodology file's, against one draw and 8 fixed copies; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-10 (§68's results: a new noise draw on the training windows every epoch does not beat 8 fixed copies under v2's noise (+0.014 log q, interval spans 0) and gains +0.027 under the methodology file's noise, where the copies gained nothing; nothing downstream moves; a third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453, so §1's ensemble caveat now cites three ensembles; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -92,7 +92,7 @@ The data carry the audit's fixes (§55.1):
     - **The noise model of "psid noise methodology.md" (§67),** written from the literature independently of our calibration, gives 0.15–0.18 at seven waves, with typical and gross.
     - On the old box, no θ fitted under these arms: β had to fall below 0.3.
     - **With no noise at all (§66),** the 7-wave network breaks on noisy data and reads PSID couples' consumption noise as ρ near the floor (median 0.76, 69% of couples below 1, against 2.5–2.7 under every noisy arm). Simulated couples given PSID-level consumption noise come out the same, and no noise-free population in the box fits couples. The noise model is needed.
-  - **The bootstrap se leaves out the network's own error (§67.8).** Two 7-wave ensembles trained for v2's noise on the same window and draws (w07 and v2_k8) give representative β 0.384 and 0.453, and ρ 1.84 and 1.60: about two bootstrap se apart. The noise model's 0.3 in β is still about four times that.
+  - **The bootstrap se leaves out the network's own error (§67.8, §68.8).** Three 7-wave ensembles trained for v2's noise on the same window and draws give representative β 0.384 (w07), 0.453 (v2_k8) and 0.444 (v2_fresh), and ρ 1.84, 1.60 and 1.68: an sd of 0.038 in β, about 1.2–1.6 bootstrap se. The two with the higher held-out log q agree, beside v2_b010's 0.437. The noise model's 0.3 in β is still about four times the whole range.
 - **The old headline is reversed.** There, β was 0.852, inside the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14). On the wider box, 22% of couples' means are inside that band, and 40% of all 889's (old box 28% and 50%).
 - **β is weakly identified per couple:** the held-out share of prior variance removed is 0.52 (§63.3). That is not comparable with the old box's 0.40, because β's prior is now wider.
   - On the old box, couples' β piled at the floor of 0.3 (§47.3). On the wider box, 14% of couples' means and 75% of their 5th percentiles are below 0.3, but no couple's or simulated household's 95th percentile is. That is because one household's 90% interval for β is 0.5–0.6 wide anywhere in the box at seven waves, not because β below 0.3 is worse resolved: it is resolved as well as any band 0.2 wide (§64.12, correcting §63.4 and §64.6).
@@ -11599,7 +11599,7 @@ The held-out draws and households are the same in every cell. Only the noise dif
     PYTHONPATH=. .venv/bin/python scripts/noise_copies.py figures     # 125-129
     PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_noise_copies.py tests/test_psid_noise.py tests/test_training_metrics.py
 
-## 68. A new noise draw every epoch (launched)
+## 68. A new noise draw every epoch: no gain over fixed copies under v2's noise, a small one under the file's (+0.027 log q); a third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453
 
 *68.0–68.1 are the launch record, written before the run.*
 
@@ -11698,3 +11698,223 @@ All pass.
      - Retraining any earlier ensemble would reproduce it only up to this spread. Scoring stored members is deterministic (check 1).
    - The two plain runs and one fresh run of that check were started with `--max_epochs 0`, which then meant the default cap. They were stopped by PID at epoch 21; this is fixed.
    - **Expected cost:** members train for 1–4 h each at about 70 s per epoch (cap 200, patience 20). Training is about 8 h (4–20 h) two at a time, and evaluation about 1.5 h.
+
+### 68.2 The run
+
+- **The chain** (`scripts/run_fresh_noise.sh`, pid 1520556) ran every stage to DONE in 8 h 17 min, against about 9.5 h expected (5.5–21.5 h).
+  - Training took 6 h 46 min for the 10 members, two at a time.
+  - Evaluation took 1 h 31 min, 1 h 4 min of it the population fit.
+  - No stage failed. The logs hold only warnings (torch's deprecations, Sobol' sample sizes).
+- **Minutes per member:** v2_fresh 80–103, file_fresh 55–71 (w07 51–60, v2_k8 87–114; file_k1 38–53, file_k8 56–76).
+- **Every member stopped on patience,** v2_fresh after 66–84 epochs and file_fresh after 46–58. None reached the cap, so no best weights had to be restored.
+- **Every per-epoch CSV matches sbi's own record.** All 10 files in `training_metrics/fresh_noise/<arm>/w07/` agree with each member's `training_summary.json`, epoch for epoch.
+- **The redraw ran every epoch.**
+  - Every member's config records `fresh_noise`.
+  - Wall time beyond the epochs' own is 0.9 s per epoch for v2_fresh and 1.6 s for file_fresh, against 0.0 for w07.
+  - Epoch 1 trains on draw 0. Its training loss lies within 0.004–0.033 of the one-draw twin with the same seed (w07, file_k1), the GPU spread of 68.1.
+- **Allocated GPU memory** is 0.50 GB per member, against 3.63 GB for the 8-copy members, which hold all eight copies on the device.
+- **Fixed after the run:**
+  - **Colours.** In figure 133 v2_fresh and file_fresh were shades of w07's blue and file_k1's orange, too close to read; in figure 137 both were the same grey. They now have hues of their own (`fresh_noise.COLOR`, `laibson_comparison.ARM_COLOR`).
+    - Figures 133 and 136 were redrawn by `fresh_noise.py figures`.
+    - Figure 137 was redrawn by the new `laibson_comparison.py --replot`, which plots the saved fit and fits nothing.
+  - **A member-level check** (68.5), added after the run and not part of the rule. `fresh_noise.py measures` now reports it; the rest of `fresh_noise.json` is unchanged.
+
+### 68.3 Calibration: both arms pass
+
+| 90% coverage, held-out / SBC | v2_fresh | file_fresh |
+|---|---|---|
+| β | 0.913 / 0.902 | 0.900 / 0.900 |
+| δ | 0.894 / 0.891 | 0.891 / 0.890 |
+| ρ | 0.907 / 0.902 | 0.899 / 0.900 |
+| R_γ | 0.910 / 0.886 | 0.900 / 0.891 |
+
+- **Every cell is inside the 0.88–0.92 gate** (0.886–0.913). Each arm is scored on its own noise; 67.3 has the other four arms.
+- **SBC rank tests,** one household per draw:
+  - **β, δ and ρ pass.** KS p is 0.83, 0.60 and 1.00 for v2_fresh, and 0.95, 0.55 and 0.89 for file_fresh. Every rank ECDF stays inside the band (figures 134–135).
+  - **R_γ's KS p is 0.004 and 0.003.** This is the open point on the same 82 values of R_γ, which predates the run (66.3, 67.3).
+
+### 68.4 Training, from the CSVs: the overfit to the noise draw is gone, and the clean households are still memorised
+
+| each arm's 5 members | w07 | v2_k8 | v2_fresh | file_k1 | file_k8 | file_fresh |
+|---|---|---|---|---|---|---|
+| epochs | 43–50 | 9–12 | 66–84 | 35–41 | 6–8 | 46–58 |
+| passes over the clean windows at the best epoch | 23–30 | 48–72 | 46–64 | 15–21 | 24–40 | 26–38 |
+| best validation loss | 3.275–3.290 | 3.158–3.198 | 3.120–3.137 | 4.299–4.317 | 4.295–4.312 | 4.241–4.257 |
+| rise in validation loss from the best to the stop | 0.07–0.15 | 0.02–0.07 | 0.01–0.04 | 0.12–0.19 | 0.00–0.04 | 0.01–0.05 |
+| training − validation loss at the best | −0.23 to −0.14 | −0.29 to −0.16 | −0.21 to −0.12 | −0.13 to −0.06 | −0.16 to −0.06 | −0.10 to −0.05 |
+
+Losses are on the flow's scale (−log q); lower is better (figure 133).
+
+**The validation curves no longer turn** (a rise of 0.01–0.05, against one draw's 0.07–0.19), as with the copies. No noise draw is seen twice, so none can be learned.
+
+**v2_fresh's validation set is exactly w07's,** households and noise. On it every v2_fresh member beats every w07 member, by 0.14–0.17. file_fresh's validation set is file_k1's, and file_fresh is better on it by 0.04–0.08.
+- Against the copy arms the best validation loss is not the test. Their validation sets hold all eight copies. The fresh arms take the minimum of a noisier curve, on one eighth of the rows and over more epochs, which favours them. The held-out log q (68.5) is the test.
+
+**The training − validation gap at the best stays** (−0.12 to −0.21, against w07's −0.14 to −0.23).
+- Each epoch's training loss is now on noise the network has never seen. What the gap still measures is the clean households, each seen 46–64 times by the best epoch, as 67.4 and 68.0 expected.
+
+**Training time:** v2_fresh runs about as many passes as v2_k8 (46–64 to the best, against 48–72) in about the same time (80–103 min, against 87–114), with one eighth of the data on the device.
+
+### 68.5 The main test: no gain over fixed copies under v2's noise, a small gain under the file's
+
+Held-out log q per household, paired on identical windows (2,048 draws), with a 95% interval from resampled households (`fresh_noise.py measures`, figure 136):
+
+| | difference in log q [95%] | members | member means (se; Welch p) |
+|---|---|---|---|
+| v2_fresh − v2_k8 (v2's noise) | +0.014 [−0.012, +0.039] | 3.562–3.666 against 3.534–3.632 | +0.029 (0.027; 0.32) |
+| file_fresh − file_k1 (the file's noise) | **+0.027 [+0.006, +0.050]** | 2.507–2.553 against 2.481–2.510 | +0.034 (0.012; 0.03) |
+| v2_fresh − w07 | +0.129 [+0.098, +0.160] | against 3.423–3.498 | +0.142 (0.022; < 0.001) |
+| file_fresh − file_k8 | +0.032 [+0.011, +0.054] | against 2.469–2.519 | +0.032 (0.014; 0.05) |
+
+- **By the rule set before the run (68.0), a new draw every epoch does not beat fixed copies under v2's noise:** the interval spans 0.
+  - Against one draw it gains +0.129: v2_k8's +0.115 (67.5) and 0.014 more.
+- **Under the file's noise it works by the rule:** the interval is above 0. The gain is small, a quarter of what the copies bought under v2's noise.
+  - By its stop the fresh arm had seen 46–58 distinct draws, file_k8 eight.
+- **The member-level check** was added after the run and is not part of the rule. It carries the training's own randomness, which the household interval leaves out.
+  - It agrees: file_fresh's members beat file_k1's by +0.034 (p 0.03), and v2_fresh's do not separate from v2_k8's (p 0.32).
+  - The member ranges still overlap in both: file_fresh's lowest member (2.507) is below file_k1's highest (2.510).
+  - With five members per arm the check is weak. It confirms the direction, not the size.
+
+### 68.6 One household and the population at θ₀
+
+| | v2_k8 (67) | v2_fresh | file_k1 (67) | file_k8 (67) | file_fresh |
+|---|---|---|---|---|---|
+| held-out log q | 3.763 | 3.777 | 2.587 | 2.582 | 2.614 |
+| share of prior variance removed: β / δ / ρ / R_γ | 0.519 / 0.482 / 0.536 / 0.473 | 0.519 / 0.485 / 0.538 / 0.478 | 0.405 / 0.400 / 0.453 / 0.411 | 0.410 / 0.406 / 0.454 / 0.413 | 0.417 / 0.410 / 0.447 / 0.411 |
+| corr(posterior mean, truth): β / δ / ρ / R_γ | 0.724 / 0.697 / 0.743 / 0.690 | 0.730 / 0.698 / 0.746 / 0.695 | 0.643 / 0.626 / 0.667 / 0.644 | 0.648 / 0.630 / 0.670 / 0.644 | 0.650 / 0.629 / 0.671 / 0.645 |
+| median posterior sd (SBC): β / ρ | 0.179 / 0.877 | 0.178 / 0.878 | 0.198 / 0.954 | 0.197 / 0.957 | 0.196 / 0.960 |
+| pairs ordered at p ≥ 0.9: β / δ / ρ / R_γ | 0.27 / 0.26 / 0.28 / 0.24 | 0.27 / 0.26 / 0.27 / 0.25 | 0.16 / 0.20 / 0.20 / 0.18 | 0.17 / 0.20 / 0.20 / 0.18 | 0.18 / 0.20 / 0.20 / 0.18 |
+| β 90% width (median), true β 0.1–0.3 | 0.589 | 0.580 | 0.643 | 0.636 | 0.635 |
+| population se at θ₀: β / δ / ρ / R_γ | 0.0165 / 0.0005 / 0.059 / 0.0008 | 0.0157 / 0.0005 / 0.056 / 0.0008 | 0.0195 / 0.0006 / 0.097 / 0.0014 | 0.0193 / 0.0006 / 0.090 / 0.0013 | 0.0188 / 0.0006 / 0.089 / 0.0013 |
+
+w07 (64): share removed 0.504 / 0.469 / 0.523 / 0.470, β width 0.590, population se 0.0158 / 0.0005 / 0.060 / 0.0009.
+
+| ratio, β / δ / ρ / R_γ | information (held-out) | population se at θ₀ [90%, paired resampling] |
+|---|---|---|
+| v2_fresh ÷ v2_k8 | 1.00 / 1.01 / 1.01 / 1.02 | 0.95 [0.92, 0.98] / 0.96 [0.93, 0.98] / 0.95 [0.92, 0.97] / 0.99 [0.97, 1.01] |
+| v2_fresh ÷ w07 | 1.06 / 1.07 / 1.06 / 1.03 | 0.99 [0.95, 1.03] / 1.01 [0.97, 1.05] / 0.93 [0.89, 0.96] / 0.92 [0.90, 0.95] |
+| file_fresh ÷ file_k1 | 1.05 / 1.04 / 0.97 / 1.00 | 0.96 [0.92, 1.01] / 0.99 [0.94, 1.03] / 0.92 [0.88, 0.96] / 0.92 [0.90, 0.95] |
+| file_fresh ÷ file_k8 | 1.03 / 1.02 / 0.97 / 0.99 | 0.97 [0.94, 1.01] / 0.99 [0.96, 1.02] / 1.00 [0.96, 1.03] / 1.00 [0.98, 1.02] |
+
+- **Under v2's noise one household's posterior is v2_k8's:** information 1.00–1.02.
+- **Under the file's noise β and δ gain 4–5% information against file_k1, and ρ loses 3%.** The log q gain is in β and δ.
+- **β below 0.3 barely moves** (width 0.580 against 0.589–0.590; 0.635 against 0.636–0.643). Its limit is behaviour at the borrowing limit (64.12, 66.4).
+- **The population se at θ₀ for β is 0.0157–0.0165 under all three v2-noise ensembles.**
+  - v2_fresh is back at w07's for β and δ (0.99 and 1.01), so v2_k8's rise of 4–6% (67.6) was that ensemble's, not the copies'.
+  - These intervals resample households, not networks. Between ensembles β's se moves 5% either way (v2_k8 ÷ w07 1.04, v2_fresh ÷ v2_k8 0.95), more than the intervals allow. The network's own error moves the population se by about 5%, and no training change here moves it beyond that.
+  - ρ and R_γ are 7–8% below w07's, as R_γ was under v2_k8.
+- **file_fresh against file_k1:** the se of ρ and R_γ is 8% lower, as file_k8's was (67.6), and β and δ are within 4%.
+
+### 68.7 Cross-noise: v2_fresh is as overconfident on the file's noise as v2's other networks, without v2_k8's loss there
+
+The held-out draws and households are the same in every cell. Only the noise differs (`cross_noise_heldout.py --per_row`):
+
+| network, 90% coverage β / δ / ρ / R_γ (log q) | on v2's noise | on the file's noise |
+|---|---|---|
+| w07 | 0.90 / 0.90 / 0.91 / 0.91 (3.648) | 0.87 / 0.86 / 0.89 / 0.83 (1.509) |
+| v2_k8 | 0.91 / 0.90 / 0.90 / 0.90 (3.763) | 0.86 / 0.85 / 0.88 / 0.82 (1.451) |
+| **v2_fresh** | 0.91 / 0.89 / 0.91 / 0.91 (3.777) | 0.86 / 0.85 / 0.88 / 0.82 (1.509) |
+| file_k1 | 0.91 / 0.91 / 0.90 / 0.92 (2.925) | 0.90 / 0.89 / 0.89 / 0.90 (2.587) |
+| file_k8 | 0.91 / 0.90 / 0.91 / 0.92 (2.923) | 0.90 / 0.89 / 0.90 / 0.90 (2.582) |
+| **file_fresh** | 0.90 / 0.90 / 0.91 / 0.92 (2.950) | 0.90 / 0.89 / 0.90 / 0.90 (2.614) |
+
+- **The four networks of 67.7 reproduce it exactly.**
+- **v2_fresh is as overconfident on the file's noise as v2_k8** (coverage 0.82–0.88). It scores there like w07 (1.509), not 0.06 lower like v2_k8.
+- **file_fresh keeps its gain on v2's noise** (+0.025 over file_k1) and stays calibrated there (0.90–0.92).
+- The columns of the three v2-noise arms are identical, and so are those of the three file arms: draw 0 is copy 0, the one-draw window. `fresh_noise.py measures` checks it.
+
+### 68.8 PSID couples: a third v2-noise ensemble lands beside v2_k8
+
+| PSID couples (409): median of posterior means / median posterior sd | β | δ | ρ | R_γ | ρ means below 1 |
+|---|---|---|---|---|---|
+| w07 (66.8) | 0.483 / 0.185 | 0.9877 / 0.0113 | 2.69 / 0.96 | 1.057 / 0.0101 | 0.5% |
+| v2_k8 (67.8) | 0.485 / 0.181 | 0.9879 / 0.0108 | 2.66 / 0.95 | 1.057 / 0.0101 | 0.7% |
+| **v2_fresh** | 0.483 / 0.181 | 0.9876 / 0.0113 | 2.66 / 0.93 | 1.058 / 0.0100 | 1.0% |
+| file_k1 (67.8) | 0.521 / 0.192 | 0.9833 / 0.0141 | 2.76 / 0.99 | 1.059 / 0.0102 | 0% |
+| file_k8 (67.8) | 0.522 / 0.188 | 0.9831 / 0.0138 | 2.73 / 0.98 | 1.060 / 0.0102 | 0% |
+| **file_fresh** | 0.513 / 0.188 | 0.9836 / 0.0141 | 2.73 / 0.99 | 1.060 / 0.0103 | 0.2% |
+
+- **Fresh draws leave couples' estimates where they were.** Median β is within 0.01 of the other arms on the same noise.
+
+**The representative θ** (`laibson_comparison.py --refresh 4`, figure 137; bootstrap se):
+
+| | β | δ | ρ | R_γ | |
+|---|---|---|---|---|---|
+| Laibson et al. (reported se) | 0.5305 (0.114) | 0.9891 (0.0051) | 1.94 (0.435) | 1.05, calibrated | |
+| w07 | 0.384 (0.031) | 0.9941 (0.0010) | 1.84 (0.13) | 1.0448 (0.0016) | 66.8, reproduced from cache |
+| v2_k8 | 0.453 (0.026) | 0.9921 (0.0009) | 1.60 (0.085) | 1.0428 (0.0014) | 67.8, reproduced from cache |
+| **v2_fresh** | **0.444** (0.024) | **0.9924** (0.0008) | **1.68** (0.090) | **1.0443** (0.0014) | converged; misfit ≤ 0.24 se |
+| file_k1 | 0.151 (0.023) | 0.9989 (0.0003) | 1.94 (0.22) | 1.0466 (0.0037) | 67.8's θ; 1.3% of the bootstrap past β's floor |
+| file_k8 | 0.179 (0.051) | 0.9987 (0.0013) | 2.34 (0.31) | 1.0503 (0.0054) | 67.8's θ; 6.8% past β's floor |
+| **file_fresh** | **0.149** (0.037) | **0.9989** (see below) | **2.10** (0.25) | **1.0487** (0.0041) | converged; misfit ≤ 0.06 se; 9.0% past β's floor |
+| v2_b010 | 0.437 (0.027) | 0.9928 (0.0009) | 1.58 (0.085) | 1.0423 (0.0014) | 63.10, reproduced |
+| typical_b010 | 0.132 (0.019) | 0.9991 (0.0003) | 1.95 (0.34) | 1.0382 (0.0017) | 63.10, reproduced |
+| gross_b010 | 0.157 (0.011) | 0.9986 (0.0002) | 1.11 (0.079) | 1.0364 (0.0009) | 63.10, reproduced |
+
+The bootstrap se of file_k1 and file_k8 differ from 67.8's; the end of this section explains why.
+
+**The answer to 67.8's question: the third v2-noise ensemble lands beside v2_k8.**
+- v2_fresh's β is 0.444: 0.009 below v2_k8's (0.4 se) and 0.061 above w07's (2.0–2.5 se). Its ρ, 1.68, lies between theirs (1.60 and 1.84).
+- With v2_b010 (0.437, on v2's 24–45 window), three of the four v2-noise ensembles put couples' β at 0.437–0.453, and w07 puts it at 0.384.
+- The three on w07's window spread by sd 0.038 (range 0.070), about 1.2–1.6 bootstrap se.
+- **w07 is also the weakest of the three** by held-out log q (3.648, against 3.763 and 3.777). Its lower β comes from both sides of the fit:
+  - PSID couples come out slightly lower under it (mean β 0.495, against 0.501–0.502);
+  - simulated couples at Laibson et al.'s θ come out slightly higher (0.566, against 0.552–0.555).
+  - Three ensembles cannot tell whether that is its weaker training or chance.
+- **So §1's caveat stands, with the third point.** The bootstrap leaves out the network's own error, which here is about one bootstrap se. The noise model's 0.3 in β is about four times the whole range.
+
+**The file's noise gives 0.15–0.18 under all three of its ensembles** (file_fresh 0.149, file_k1 0.151, file_k8 0.179), beside typical's and gross's 0.13–0.16.
+
+**file_fresh's se for δ is set by one bootstrap draw,** as file_k8's was in 67.8.
+- One of its 1,000 draws went to δ 0.926 (β 0.53, ρ 1.52).
+- With it δ's se is 0.0024. Without the four draws below 0.995 it is 0.0005, and 1.48 × the median absolute deviation is 0.0004. Its 90% interval is 0.9978–0.9994.
+
+**Found in the run: each arm's bootstrap depends on the arms listed before it.**
+- `laibson_comparison.py` draws every arm's bootstrap from one random stream (seed 0), in list order. v2_fresh is listed before the file arms, so their resamples changed.
+- Their θ and Jacobians are bit-identical to 67.8's, and the five arms listed before v2_fresh reproduce exactly. Only the file arms' bootstrap se moved:
+  - file_k1: β 0.0228 → 0.0229, ρ 0.214 → 0.218;
+  - file_k8: β 0.056 → 0.051, δ 0.0048 → 0.0013.
+- 67.8's δ se for file_k8 came from one draw at the box's corner, which this stream does not produce. Without the draws below δ 0.995 both streams give 0.0008.
+- **So the file arms' β se carries a Monte Carlo error of about 10%** at 1,000 draws, because their bootstraps have heavy tails.
+- **Not changed.** Seeding each arm by its name would change every earlier section's bootstrap se. That is the user's call.
+
+### 68.9 Reading
+
+- **A new noise draw every epoch does not beat fixed copies under v2's noise,** by the rule set before the run (+0.014 [−0.012, +0.039]).
+  - It removes the overfit to the noise draw as the copies did, and gains as much against one draw (+0.129, against +0.115).
+  - It takes the same training time, with one eighth of the data on the GPU (0.50 GB against 3.63 GB) and no K to choose.
+- **Under the file's noise it works, in a small way** (+0.027 [+0.006, +0.050]; the member-level check agrees). Eight fixed copies bought nothing there (−0.005). One household's information on β and δ rises 4–5%, and on ρ falls 3%.
+- **Nothing downstream moves.**
+  - The population se at θ₀ stays within the 5% by which the ensembles themselves differ.
+  - PSID couples' medians are unchanged.
+  - Couples' representative β is 0.444 under v2's noise and 0.149 under the file's.
+- **67.8's question is answered.** A third v2-noise ensemble lands beside v2_k8 (0.444 against 0.453), not w07 (0.384), and three of the four v2-noise ensembles give 0.437–0.453. §1 keeps v2_b010 and the caveat, now with three ensembles on one window.
+- **What is left of the training gap is the clean households.** With no noise draw ever repeated, the training − validation gap at the best is still 0.12–0.21. Only more simulated households close that: 63.8's doubling bought +0.19, and it projected about +0.1 for the next, at about 6 GPU-days.
+- **Fresh noise as the default** would give future training the copies' gain without their memory, and a small gain where they gave none. Whether to retrain §1's reference with it is the user's decision. My expectation is that couples' representative β would move within the ensemble spread (0.437–0.453), as v2_fresh's did.
+- **Nothing more is run.**
+- **Caveats:**
+  - **One noise schedule:** a new draw every epoch, with the validation set fixed at draw 0.
+  - **The member-level check was added after the run,** and five members per arm make it weak.
+  - **GPU training is not bit-reproducible** (68.1). Epoch 1 lies within 0.004–0.033 of its one-draw twin.
+  - **The bootstrap's shared stream** (68.8): the file arms' β se carries about 10% Monte Carlo error.
+  - **The file's noise caveats** (67.9).
+  - **One θ₀** for the population se.
+  - **Simulated households,** except the PSID rows.
+
+**Figures:**
+- 133: training curves from the CSVs, validation and training loss against passes;
+- 134–135: SBC ranks, v2_fresh and file_fresh;
+- 136: paired log q, information and population se;
+- 137: PSID couples' representative θ under every arm against Laibson et al.'s point, 68/95%;
+- 138–139: a simulated and a PSID household under v2_fresh, 68/95%.
+
+**Training CSVs:** `training_metrics/fresh_noise/<arm>/w07/s<seed>.csv`, beside RESULTS 67's in `training_metrics/noise_copies/` and w07's in `training_metrics/waves/w07/`.
+
+**Reproduce** (from the chain's outputs):
+
+    PYTHONPATH=.:src .venv/bin/python scripts/fresh_noise.py measures    # 68.3-68.8 (logs/fresh_noise_measures.log)
+    PYTHONPATH=.:src .venv/bin/python scripts/fresh_noise.py figures     # 133, 136
+    PYTHONPATH=.:src .venv/bin/python scripts/laibson_comparison.py --replot \
+        --out outputs/fresh_noise/laibson_comparison.json \
+        --figure figures/137_laibson_comparison_fresh_noise.png --title "..."   # 137; the title is stage 5's in run_fresh_noise.sh
+    PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_fresh_noise.py

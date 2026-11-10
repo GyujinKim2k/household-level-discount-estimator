@@ -86,6 +86,8 @@ ARM_COLOR |= {f"{a}_b010": c for a, c in list(ARM_COLOR.items())}
 ARM_COLOR |= {"w07": "#1F4E79", "none_w07": "#4A9A5B"}
 #: RESULTS 67: noisy copies (v2_k8) and the methodology file's noise (file_k1, file_k8)
 ARM_COLOR |= {"v2_k8": "#6BAED6", "file_k1": "#E6862E", "file_k8": "#A63603"}
+#: RESULTS 68: a new noise draw every epoch, in hues of their own
+ARM_COLOR |= {"v2_fresh": "#C51B7D", "file_fresh": "#35978F"}
 
 
 def box_bounds(box) -> tuple[np.ndarray, np.ndarray]:
@@ -718,12 +720,18 @@ def main() -> None:
                     help="after the fixed-Jacobian steps, up to this many Newton steps with "
                          "the Jacobian recomputed at each point (RESULTS 63.7); 0: RESULTS 61's "
                          "method")
+    ap.add_argument("--replot", action="store_true",
+                    help="redraw --figure from the saved --out, with no fitting")
     args = ap.parse_args()
     for name, run_dir, couples in args.arm:
         ARMS[name] = (run_dir, couples, None)
         ARM_COLOR.setdefault(name, ARM_COLOR.get(name.removesuffix("_b010"), "0.4"))
         if name not in args.arms:
             args.arms.append(name)
+    if args.replot:
+        plot(json.loads(args.out.read_text()), args.figure, title=args.title)
+        print(f"redrew {args.figure} from {args.out}")
+        return
     if bad := [a for a in args.arms if a not in ARMS]:
         ap.error(f"unknown arms {bad}; known {list(ARMS)}")
     OUT = args.cache

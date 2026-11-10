@@ -160,3 +160,22 @@ def test_nothing_is_restored_when_patience_stops_training():
     _p, _d, inf = _train(lambda e: x.clone(), epochs=40, patience=1)
     assert len(inf._summary["training_loss"]) < 41      # stopped by patience, not the cap
     assert not inf.restored_best_at_cap                 # sbi had loaded the best itself
+
+
+def test_member_log_q_reads_every_member_and_the_difference_is_welch(tmp_path):
+    import json
+
+    from scripts import fresh_noise as fn
+
+    for d, vals in (("a", [3.0, 3.2, 3.1]), ("b", [2.9, 3.0, 2.95])):
+        (tmp_path / d).mkdir()
+        h = {"ensemble": {"log_q_weighted": 9.9},
+             **{f"member_{i}": {"log_q_weighted": v} for i, v in enumerate(vals)}}
+        (tmp_path / d / "heldout_check.json").write_text(json.dumps(h))
+    a, b = fn.member_log_q(tmp_path / "a"), fn.member_log_q(tmp_path / "b")
+    np.testing.assert_allclose(a, [3.0, 3.2, 3.1])      # the ensemble's row is not a member
+    m = fn.member_diff(a, b)
+    assert m["diff"] == pytest.approx(0.15)
+    assert m["se"] == pytest.approx(np.sqrt(0.01 / 3 + 0.0025 / 3))
+    assert 0 < m["welch_p"] < 0.2
+    assert m["range_a"] == [3.0, 3.2] and m["range_b"] == [2.9, 3.0]

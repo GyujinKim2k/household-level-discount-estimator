@@ -57,7 +57,8 @@ NOISE_OF = {"w07": "w07", "v2_k8": "w07", "v2_fresh": "w07",
             "file_k1": "file_k1", "file_k8": "file_k1", "file_fresh": "file_k1"}
 LABEL = {**nc.LABEL, "v2_fresh": "v2_fresh: v2 noise, new draw every epoch",
          "file_fresh": "file_fresh: file's noise, new draw every epoch"}
-COLOR = {**nc.COLOR, "v2_fresh": "#08306B", "file_fresh": "#FDAE6B"}
+#: hues of their own: shades of the comparison arms' blue and orange were too close to read
+COLOR = {**nc.COLOR, "v2_fresh": "#C51B7D", "file_fresh": "#35978F"}
 #: the cap on epochs (sbi trains up to one more)
 CAP = 200
 CROSS, PER_ROW, LAIBSON = "cross_noise.json", "cross_noise_rows.npz", "laibson_comparison.json"
@@ -95,6 +96,25 @@ def training_extra(arm_dir: Path, run: Path) -> dict:
                        "restored_best_at_cap": bool(cfg.get("fresh_noise_restored_best_at_cap",
                                                             False))}
     return out
+
+
+def member_log_q(run: Path) -> np.ndarray:
+    """Each member's held-out log q, from the arm's held-out check."""
+    h = json.loads((run / "heldout_check.json").read_text())
+    return np.array([h[k]["log_q_weighted"] for k in sorted(h) if k.startswith("member_")])
+
+
+def member_diff(a: np.ndarray, b: np.ndarray) -> dict:
+    """Difference of two arms' member means, with its se and Welch's p.
+    Added after the run: the paired interval resamples households only, and
+    this one carries the training's own randomness."""
+    from scipy import stats
+
+    return {"diff": float(a.mean() - b.mean()),
+            "se": float(np.sqrt(a.var(ddof=1) / len(a) + b.var(ddof=1) / len(b))),
+            "welch_p": float(stats.ttest_ind(a, b, equal_var=False).pvalue),
+            "range_a": [float(a.min()), float(a.max())],
+            "range_b": [float(b.min()), float(b.max())]}
 
 
 # -------------------------------------------------------------------- measures
@@ -141,6 +161,8 @@ def measures(args) -> None:
             "log_q": nc.paired_log_q({k: rows[f"{k}__{n}"] for k in (a, b)}, w, a, b,
                                      args.n_boot, args.seed),
             "on_noise": n,
+            "members": member_diff(*(member_log_q(run_dir(k, args.root, args.base,
+                                                           args.copies_root)) for k in (a, b))),
             "info": nf.info_ratio(A[a]["heldout"]["contraction"], A[b]["heldout"]["contraction"]),
             "pairs": [A[a]["sbc"]["pairs_box"][p]["ordered_p90"]
                       / A[b]["sbc"]["pairs_box"][p]["ordered_p90"] for p in we.NAMES],
@@ -172,6 +194,12 @@ def measures(args) -> None:
             print(f"{a:11s} rise {min(rise):.3f}-{max(rise):.3f}; at the cap "
                   f"{sum(v['reached_cap'] for v in ex.values())} "
                   f"({sum(v['restored_best_at_cap'] for v in ex.values())} restored)")
+    print("\nheld-out log q of the members (added after the run: training randomness included)")
+    for k, c in cmp_.items():
+        m = c["members"]
+        print(f"{k:22s} member means {m['diff']:+.3f} (se {m['se']:.3f}, Welch p "
+              f"{m['welch_p']:.3f}); members {m['range_a'][0]:.3f}-{m['range_a'][1]:.3f} "
+              f"against {m['range_b'][0]:.3f}-{m['range_b'][1]:.3f}")
     print(f"\nwrote {out}")
 
 
