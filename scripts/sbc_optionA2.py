@@ -135,9 +135,10 @@ def show(s: dict, title: str) -> None:
                   f"  {f(r['coverage_90'])}  {f(r['above_95'])}  {f(r['below_5'])}")
 
 
-def title(run_dirs, spec, n_draws: int = 1024) -> str:
-    """The SBC figure's title, named after the ensemble's run directory."""
-    name = Path(run_dirs[0]).parent.name.replace("option", "Option ")
+def title(run_dirs, spec, n_draws: int = 1024, name: str | None = None) -> str:
+    """The SBC figure's title, named ``name`` or after the ensemble's run
+    directory."""
+    name = name or Path(run_dirs[0]).parent.name.replace("option", "Option ")
     what = "the training observation noise" + (
         f" and PSID's imputation masks (tau {spec.imputation_mask[1]:g})" if spec.masked else "")
     lo, hi = spec.box.beta_low, spec.box.beta_high
@@ -292,6 +293,8 @@ def main() -> None:
     ap.add_argument("--figure", type=Path, default=Path("figures/45_sbc_optionA2n.png"))
     ap.add_argument("--train", type=Path, default=TRAIN,
                     help="The training run's shard directory the sets must match.")
+    ap.add_argument("--name", default=None,
+                    help="The ensemble's name in the figure title (default: its run directory).")
     args = ap.parse_args()
 
     members = Members(args.run_dirs, args.device)
@@ -324,7 +327,7 @@ def main() -> None:
                                    train=args.train)
     (args.out / "sbc16.json").write_text(json.dumps(res, indent=2))
     figure(r["u"], one & np.isfinite(r["u"]).all(1), args.figure,
-           title(args.run_dirs, spec, len(np.unique(pid))))
+           title(args.run_dirs, spec, len(np.unique(pid)), args.name))
     print(f"\nwrote {args.out}/ and {args.figure}")
 
 

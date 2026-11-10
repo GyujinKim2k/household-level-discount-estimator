@@ -166,3 +166,16 @@ def test_training_reads_the_best_epoch_from_the_csvs(tmp_path):
     t = nc.training(tmp_path)["s0"]
     assert t == {"epochs": 4, "passes_at_best": 16.0, "best_val": 3.1,
                  "train_minus_val_at_best": pytest.approx(-0.3), "minutes": 4.0}
+
+
+def test_sbc_title_names_the_arm_not_the_run_directory():
+    from types import SimpleNamespace
+
+    from scripts import sbc_optionA2 as sbc
+
+    spec = SimpleNamespace(masked=False, imputation_mask=None,
+                           box=SimpleNamespace(beta_low=0.1, beta_high=1.0))
+    dirs = [nc.run_dir("file_k8") / "s0"]
+    # every arm's run directory is w07, so the default title cannot tell them apart
+    assert sbc.title(dirs, spec).startswith("w07:")
+    assert sbc.title(dirs, spec, name="file_k8").startswith("file_k8:")

@@ -270,10 +270,30 @@ def report(res: dict) -> None:
 # --------------------------------------------------------------------- figures
 
 def figures(args) -> None:
-    """Figures 125 and 129."""
+    """Figures 125-129."""
     curves(args, args.fig_dir / "125_noise_copies_training.png")
+    sbc_figures(args)
     res = json.loads((args.root / "noise_copies.json").read_text())
     precision(res, args.fig_dir / "129_noise_copies_precision.png")
+
+
+def sbc_figures(args) -> None:
+    """126-128: each new arm's SBC ranks, redrawn from its saved sbc16.npz
+    with the arm's name in the title (the chain's first figures took the run
+    directory's name, w07, for every arm)."""
+    from scripts import optionA as oa
+    from scripts import sbc_optionA2 as sbc
+
+    for k, a in enumerate(NEW):
+        d = run_dir(a, args.root, args.base)
+        z = np.load(d / "sbc" / "sbc16.npz")
+        dirs = sorted(d.glob("s[0-9]*"))
+        spec = oa.spec_of(json.loads((dirs[0] / "results.json").read_text())["_config"])
+        u = z["u"]
+        path = args.fig_dir / f"{126 + k}_sbc_noise_copies_{a}.png"
+        sbc.figure(u, z["one_per_draw"] & np.isfinite(u).all(1), path,
+                   sbc.title(dirs, spec, len(np.unique(z["pid"])), a))
+        print(f"wrote {path}")
 
 
 def curves(args, path: Path) -> None:

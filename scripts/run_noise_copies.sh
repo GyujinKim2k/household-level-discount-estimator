@@ -169,7 +169,7 @@ for a in $TRAINED; do
     if [ "$a" = w07 ]; then f="$FIG/smoke_sbc_w07.png"; else f="$FIG/${fig}_sbc_noise_copies_$a.png"; fig=$((fig + 1)); fi
     [ -f "$OUT/sbc/sbc16.json" ] || run "$a: SBC" "noise_copies_${a}_sbc" \
         $PY scripts/sbc_optionA2.py --run_dirs $DIRS --shards "$SBC" "$SBCS" --train "$MAIN" \
-        --penalty --out "$OUT/sbc" --figure "$f" $DRAWS
+        --penalty --out "$OUT/sbc" --figure "$f" --name "$a" $DRAWS
 done
 
 # --- 3. the population at 409 households -------------------------------------------
