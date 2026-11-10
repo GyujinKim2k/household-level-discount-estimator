@@ -128,7 +128,8 @@ def test_metrics_paths(tmp_path, monkeypatch):
 
 def test_cross_noise_may_compare_runs_trained_differently():
     assert {"obs_noise", "noise_model"} == set(oa.NOISE_KEYS)
-    assert {"noise_copies", "max_epochs", "stop_after_epochs"} == set(oa.TRAINING_KEYS)
+    assert {"noise_copies", "max_epochs", "stop_after_epochs", "fresh_noise",
+            "fresh_noise_restored_best_at_cap"} == set(oa.TRAINING_KEYS)
     assert "window" not in oa.NOISE_KEYS + oa.TRAINING_KEYS
 
 

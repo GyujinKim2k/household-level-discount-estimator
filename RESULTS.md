@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-09 (§67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-10 (§68 launched: a new noise draw on the training windows every epoch, under v2's noise and the methodology file's, against one draw and 8 fixed copies; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -11598,3 +11598,103 @@ The held-out draws and households are the same in every cell. Only the noise dif
     PYTHONPATH=. .venv/bin/python scripts/noise_copies.py measures    # 67.3-67.8 (logs/noise_copies_measures.log)
     PYTHONPATH=. .venv/bin/python scripts/noise_copies.py figures     # 125-129
     PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_noise_copies.py tests/test_psid_noise.py tests/test_training_metrics.py
+
+## 68. A new noise draw every epoch (launched)
+
+*68.0–68.1 are the launch record, written before the run.*
+
+**Request (user, 2026-11-10).** "let's try new noise every epoch". In RESULTS 67 the user's rule was "let try K fixed copies first and try new noise every epoch later if K fixed dont work".
+- Fixed copies passed under v2's noise (+0.115 log q, 67.5) and failed under the file's (−0.005).
+- **The user chose both noises.**
+- The plan was approved as it stands here.
+
+### 68.0 Design
+
+| arm | noise | training data | against |
+|---|---|---|---|
+| v2_fresh | v2's (w07's) | a new noise draw every epoch | v2_k8 (8 fixed copies) and w07 (one draw), on identical held-out windows |
+| file_fresh | the methodology file's (67.0) | a new noise draw every epoch | file_k1 (one draw) and file_k8 (8 fixed copies), on identical held-out windows |
+
+Everything else is w07's: the window, box, training runs, seeds 0–4, batch and learning rate.
+
+**Why.** Under fixed copies the network still sees each noise draw once per epoch. With a new draw every epoch no draw is ever seen twice, so the overfit to a noise draw that turned w07's validation loss (67.4) cannot happen.
+- **What it cannot change:** each clean household is still seen every epoch, and 67.4 found the train − validation gap at the best epoch unchanged under copies. So a small gain over v2_k8 at most is expected.
+- Under the file's noise even eight copies added nothing, but that arm is where the user's rule called for this test.
+
+**The draws.** Epoch e trains on draw e − 1. Draw e is RESULTS 67's copy e: noise from `NOISE_SEED + seed + offset + e × 10⁷`, the mask likewise.
+- Draw 0 is w07's (file_k1's) training data, so epoch 1 is exactly w07's first epoch.
+- Draws 0–7 are v2_k8's (file_k8's) eight copies, seen one per epoch instead of all eight every epoch.
+- Seeds for draws up to 200 stay below 2³¹ and clear of every other window seed.
+- **The validation rows keep draw 0**, which is w07's own validation set, households and noise alike. Early stopping runs on a fixed set, and the validation curve sits on w07's scale.
+- Patience is 20 epochs and the cap 200, the same passes as w07 and v2_k8.
+  - sbi keeps the last weights when the cap is reached. The fresh path then restores the best ones and records it (`fresh_noise_restored_best_at_cap`).
+
+**How.** sbi's loop has no callback. It calls `_converged` once before each epoch, and trains from one concatenated copy of the data on the training device.
+- `hh_npe.npe.train.FreshNoise` keeps a handle on that copy by wrapping `get_dataloaders`, on top of the grouped split.
+- It also wraps `_converged`: after sbi's own check, when training goes on, it writes the next draw into the training rows in place.
+- The redraw comes before sbi starts its epoch timer, so `epoch_sec` stays training time.
+- It draws nothing from torch's global generator. A redraw that returns the same data gives bit-identical losses (test).
+- `optionA.windows_raw` is split into `clean_windows` and `noisy_copy` with unchanged output, and `fresh_redraw` builds draw e (`train --fresh_noise`).
+
+**Measures:**
+- **Calibration:** held-out and SBC 90% coverage (gate 0.88–0.92).
+- **The main tests:** held-out log q paired on identical windows, with a 95% interval over resampled households.
+  - **v2_fresh − v2_k8:** a new draw every epoch "beats fixed copies" if the interval is above 0.
+  - **file_fresh − file_k1:** it "works under the file's noise" if the interval is above 0.
+  - Also v2_fresh − w07 and file_fresh − file_k8.
+- **Training (CSVs):**
+  - passes to the best epoch and the best validation loss (v2_fresh's on exactly w07's validation set);
+  - the rise after the best;
+  - the train − validation gap at the best;
+  - members at the cap.
+- **One household:** information, ordering, β below 0.3.
+- **The population se at θ₀:** paired resampling.
+- **Cross-noise:** the six networks on both noises.
+- **PSID couples:**
+  - medians and the share of ρ below 1;
+  - the representative θ beside w07, v2_k8, file_k1, file_k8, v2_b010, typical and gross;
+  - and 67.8's new question: where a third v2-noise ensemble lands against w07's 0.384 and v2_k8's 0.453.
+
+**Figures** (68/95% contours on every estimate):
+- 133: training curves from the CSVs;
+- 134–135: SBC ranks for v2_fresh and file_fresh;
+- 136: paired log q and precision;
+- 137: PSID couples' representative θ under every arm against Laibson et al.'s point;
+- 138–139: a simulated and a PSID household under v2_fresh.
+
+**Caveats the results will carry:**
+- one noise schedule (a new draw every epoch, the validation set fixed at draw 0);
+- the file's noise caveats (67.0);
+- simulated households, except the PSID rows.
+
+**Code:**
+- New: `scripts/fresh_noise.py`, `scripts/run_fresh_noise.sh` and `tests/test_fresh_noise.py`.
+- `optionA.py`:
+  - `clean_windows`, `noisy_copy` and `fresh_redraw`;
+  - `train --fresh_noise`;
+  - `TRAINING_KEYS` gains `fresh_noise`.
+- `hh_npe/npe/train.py`: `FreshNoise`, and `train_npe(redraw_x=)`.
+- `noise_copies.report` takes its columns.
+- `optionA.py train --max_epochs 0` now means one epoch. It had read as "not given" (68.1).
+
+### 68.1 Gates before launch
+
+All pass.
+1. **Tests.** The whole suite passes with the GPU hidden: 678 passed, 37 skipped (13 new).
+   - **The window code is unchanged.** w07's held-out check, rerun through the split code, gives `outputs/waves/w07/heldout_check.json` exactly (log q 3.647954, no field differs).
+2. **The data path, on the real shards** (CPU):
+   - draw 0's θ, draw ids and windows are bit-identical to w07's training windows (638,976 rows);
+   - draw 1 differs;
+   - a redraw takes 1.3 s (v2's noise).
+3. **The smoke chain** (`SMOKE=<dir> scripts/run_fresh_noise.sh`, `--max_epochs 2`, so the training rows took new draws) ran every stage to DONE.
+   - **One fix came out of it:** `fresh_noise_restored_best_at_cap` joined `optionA.TRAINING_KEYS`, since cross-noise had refused the arms over it.
+   - Nothing was written into `outputs/`, `figures/` or `training_metrics/`, and the fit's real cache is unchanged.
+4. **Timing:** one real v2_fresh member and one file_fresh member, trained together for 3 epochs (seed 0, with the test suite running alongside).
+   - An epoch took 57–73 s (v2_fresh) and 67–89 s (file_fresh). The redraw and its checks added 2.5–3 s per epoch.
+   - Allocated GPU memory was 0.50 GB per member, and peak RAM 2.4–2.7 GB.
+   - **GPU training is not bit-reproducible, so the planned check "epoch 1 equals w07's" cannot be made.**
+     - Two plain w07 runs with seed 0 and the same code and data differ in epoch 1's training loss (4.942 and 4.926) and validation loss (4.416 and 4.405). Both differ from the stored w07's (4.941, 4.452).
+     - The fresh members' epoch 1 (4.926 and 4.955) lies in that spread. Check 2 shows the data are the same.
+     - Retraining any earlier ensemble would reproduce it only up to this spread. Scoring stored members is deterministic (check 1).
+   - The two plain runs and one fresh run of that check were started with `--max_epochs 0`, which then meant the default cap. They were stopped by PID at epoch 21; this is fixed.
+   - **Expected cost:** members train for 1–4 h each at about 70 s per epoch (cap 200, patience 20). Training is about 8 h (4–20 h) two at a time, and evaluation about 1.5 h.

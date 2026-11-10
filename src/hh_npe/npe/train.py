@@ -173,6 +173,68 @@ class EpochCSV:
             f.flush()
 
 
+class FreshNoise:
+    """A new noise draw on the training rows before every epoch (RESULTS 68).
+
+    ``redraw(e)`` returns the whole ``x`` (every row, in the order handed to
+    sbi) with noise draw ``e``; the rows passed to sbi are draw 0. sbi builds
+    its loaders over one concatenated copy of ``x``: :meth:`attach` keeps a
+    handle on it (wrapping ``get_dataloaders``, on top of any grouped split),
+    and wraps ``_converged``, which sbi calls before each epoch's training.
+    When training goes on after epoch ``e`` (1 <= ``e`` <= the cap), the training rows
+    are overwritten in place with draw ``e``, so epoch ``e + 1`` trains on
+    it; the validation rows keep draw 0. The redraw falls before sbi starts
+    its epoch timer and draws nothing from torch's global generator.
+
+    sbi keeps the last weights when ``max_num_epochs`` is reached;
+    :meth:`restore_best` puts the best ones back (``restored_best_at_cap``)."""
+
+    def __init__(self, redraw, max_num_epochs: int):
+        self.redraw = redraw
+        self.max_epochs = max_num_epochs
+        self.dataset_x: torch.Tensor | None = None
+        self.drawn = 0
+        self.restored = False
+
+    def attach(self, inference) -> None:
+        orig_loaders = inference.get_dataloaders
+
+        def loaders(*a, **k):
+            train_loader, val_loader = orig_loaders(*a, **k)
+            self.dataset_x = train_loader.dataset.tensors[1]
+            return train_loader, val_loader
+
+        inference.get_dataloaders = loaders
+        orig_converged = inference._converged
+
+        def converged(epoch, stop_after_epochs):
+            out = orig_converged(epoch, stop_after_epochs)
+            # sbi trains epoch e + 1 after this call only while e <= the cap;
+            # its closing call (one past the cap) needs no draw
+            if not out and self.drawn < epoch <= self.max_epochs:
+                self.drawn = epoch
+                new = self.redraw(epoch)
+                if new.shape != self.dataset_x.shape:
+                    raise ValueError(f"draw {epoch} has shape {tuple(new.shape)}, the "
+                                     f"training data {tuple(self.dataset_x.shape)}")
+                idx = inference.train_indices
+                self.dataset_x[idx] = new[idx].to(self.dataset_x.device, self.dataset_x.dtype)
+            return out
+
+        inference._converged = converged
+
+    def restore_best(self, inference, density_estimator) -> None:
+        """At the epoch cap sbi keeps the last weights; take the best. (When
+        patience stops training, sbi has already loaded them, and this finds
+        the weights equal.)"""
+        best = inference._best_model_state_dict
+        now = density_estimator.state_dict()
+        if any(not torch.equal(now[k], v.to(now[k].device)) for k, v in best.items()):
+            density_estimator.load_state_dict(best)
+            inference._neural_net.load_state_dict(best)
+            self.restored = True
+
+
 def train_npe(
     theta: torch.Tensor,
     x: torch.Tensor,
@@ -192,6 +254,7 @@ def train_npe(
     group_ids: torch.Tensor | None = None,
     metrics_csv=None,
     passes_per_epoch: int = 1,
+    redraw_x=None,
 ):
     """Train SNPE-C on ``(theta, x)`` and return ``(posterior, density_estimator, inference)``.
 
@@ -203,6 +266,12 @@ def train_npe(
     (:class:`EpochCSV`, :data:`METRIC_COLUMNS`); ``passes_per_epoch`` is the
     number of passes over the clean windows an epoch makes (K noisy copies
     make K, RESULTS 67). Logging changes nothing in training.
+
+    ``redraw_x`` (RESULTS 68): ``e -> x`` with noise draw ``e`` on every row;
+    the training rows take draw ``e`` before epoch ``e + 1`` (:class:`FreshNoise`),
+    and at the epoch cap the best weights are restored. The returned
+    ``inference`` then carries ``fresh_noise`` (the :class:`FreshNoise`) and
+    ``restored_best_at_cap``.
     """
     if embedder is None:
         embedder = TrajectoryTransformer()
@@ -242,6 +311,10 @@ def train_npe(
             logger = stack.enter_context(EpochCSV(paths, passes_per_epoch))
             stack.enter_context(logger.grad_norms())
             logger.attach(inference)
+        fresh = None
+        if redraw_x is not None:
+            fresh = FreshNoise(redraw_x, max_num_epochs)
+            fresh.attach(inference)
         density_estimator = inference.train(
             max_num_epochs=max_num_epochs,
             stop_after_epochs=stop_after_epochs,
@@ -249,6 +322,9 @@ def train_npe(
             training_batch_size=batch_size,
             validation_fraction=validation_fraction,
         )
+    if fresh is not None:
+        fresh.restore_best(inference, density_estimator)
+        inference.fresh_noise, inference.restored_best_at_cap = fresh, fresh.restored
     posterior = inference.build_posterior(density_estimator)
     return posterior, density_estimator, inference
 

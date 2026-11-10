@@ -196,17 +196,18 @@ def measures(args) -> None:
     print(f"\nwrote {out}")
 
 
-def report(res: dict) -> None:
-    """The RESULTS tables, as markdown."""
+def report(res: dict, arms=ARMS) -> None:
+    """The RESULTS tables, as markdown (``arms``: the columns, RESULTS 68
+    passes its own)."""
     A = res["arms"]
-    hdr = "| | " + " | ".join(ARMS) + " |\n|---|" + "---|" * len(ARMS)
+    hdr = "| | " + " | ".join(arms) + " |\n|---|" + "---|" * len(arms)
 
     def row(label, f, fmt="{:.3f}"):
-        print(f"| {label} | " + " | ".join(fmt.format(f(A[a])) for a in ARMS) + " |")
+        print(f"| {label} | " + " | ".join(fmt.format(f(A[a])) for a in arms) + " |")
 
     def row4(label, f, fmt="{:.3f}"):
         print(f"| {label} | " + " | ".join(" / ".join(fmt.format(v) for v in f(A[a]))
-                                          for a in ARMS) + " |")
+                                          for a in arms) + " |")
 
     def show(v):
         return " ".join(f"{x:.2f}" for x in v)
@@ -233,7 +234,7 @@ def report(res: dict) -> None:
         print(f"| {lab} | " + " | ".join(
             (fmt.format(min(m[key] for m in A[a]["training"].values())) + "–"
              + fmt.format(max(m[key] for m in A[a]["training"].values())))
-            if A[a]["training"] else "–" for a in ARMS) + " |")
+            if A[a]["training"] else "–" for a in arms) + " |")
     print("\ncomparisons (β δ ρ R_γ)")
     for k, c in res["comparisons"].items():
         line = f"{k}:"

@@ -306,7 +306,8 @@ COPY_STRIDE = 10_000_000
 #: ensembles may differ in them and still be compared on the same windows
 #: (cross_noise_heldout.py), beside the noise itself.
 NOISE_KEYS = ("obs_noise", "noise_model")
-TRAINING_KEYS = ("noise_copies", "max_epochs", "stop_after_epochs")
+TRAINING_KEYS = ("noise_copies", "max_epochs", "stop_after_epochs", "fresh_noise",
+                 "fresh_noise_restored_best_at_cap")
 #: Features PSID's accuracy codes can mark as imputed (RESULTS 49, 50). Income
 #: and age carry no codes and are never masked.
 MASKABLE = ("consumption", "liquid_assets", "illiquid_assets")
@@ -451,6 +452,15 @@ def windows_raw(files, theta_all, seed, n_waves=None, noise=(), mask=None, windo
     exactly the windows of ``copies=1``."""
     if copies < 1:
         raise ValueError(f"copies {copies}: need at least 1")
+    clean = clean_windows(files, theta_all, seed, n_waves, window)
+    out = [noisy_copy(clean, seed, noise, mask, c) for c in range(copies)]
+    return tuple(torch.cat(t) for t in zip(*out, strict=True))
+
+
+def clean_windows(files, theta_all, seed, n_waves=None, window=None) -> list:
+    """The clean (noise-free) windows of :func:`windows_raw`, one
+    ``(offset, theta, x, pid)`` per run, cut once so they can be noised again
+    (RESULTS 67's copies, RESULTS 68's new draw every epoch)."""
     win = {**WINDOW, **{k: v for k, v in (window or {}).items() if k in WINDOW}}
     if n_waves is not None:
         win["n_waves"] = n_waves
@@ -458,17 +468,33 @@ def windows_raw(files, theta_all, seed, n_waves=None, noise=(), mask=None, windo
     for f in files:
         path, off = (f.path, f.offset) if isinstance(f, Shard) else (Path(f), 0)
         groups.setdefault(off, []).append(path)
-    clean = [(off, *build_windowed(paths, theta_all[off:], k=1, seed=seed + off, **win,
-                                   flow_lag=flow_lag_of(paths)))
-             for off, paths in groups.items()]
+    return [(off, *build_windowed(paths, theta_all[off:], k=1, seed=seed + off, **win,
+                                  flow_lag=flow_lag_of(paths)))
+            for off, paths in groups.items()]
+
+
+def noisy_copy(clean: list, seed: int, noise=(), mask=None, c: int = 0) -> tuple:
+    """Copy ``c`` of the clean windows (:func:`clean_windows`), each run's
+    noise and mask drawn from its own streams ``c * COPY_STRIDE`` above copy
+    0's: ``(theta, x, pid)``, runs in order, ids offset per run."""
     out = []
-    for c in range(copies):
-        for off, th, x, pid in clean:
-            x = add_obs_noise(x, noise, seed=NOISE_SEED + seed + off + c * COPY_STRIDE)
-            if mask is not None:
-                x = add_imputation_mask(x, mask, seed=MASK_SEED + seed + off + c * COPY_STRIDE)
-            out.append((th, x, pid + off))
-    return tuple(torch.cat(t) for t in zip(*out))
+    for off, th, x, pid in clean:
+        x = add_obs_noise(x, noise, seed=NOISE_SEED + seed + off + c * COPY_STRIDE)
+        if mask is not None:
+            x = add_imputation_mask(x, mask, seed=MASK_SEED + seed + off + c * COPY_STRIDE)
+        out.append((th, x, pid + off))
+    return tuple(torch.cat(t) for t in zip(*out, strict=True))
+
+
+def fresh_redraw(clean: list, seed: int, noise=(), mask=None):
+    """RESULTS 68: draw ``e`` of the training windows, transformed as the
+    network sees them, for a new noise draw every epoch. Draw ``e`` is copy
+    ``e`` of RESULTS 67 (draw 0 is the one-draw windows, draws 0-7 the eight
+    copies); only the noise and mask change, the rows keep their order."""
+    def redraw(e: int) -> torch.Tensor:
+        return transform(noisy_copy(clean, seed, noise, mask, e)[1],
+                         masked=mask is not None)[0]
+    return redraw
 
 
 def flow_lag_of(paths) -> int:
@@ -671,6 +697,8 @@ def metrics_paths(out: Path, seed: int, metrics_dir: Path | None = None) -> list
 
 
 def train(args) -> None:
+    if args.fresh_noise and args.noise_copies > 1:
+        raise SystemExit("--fresh_noise draws new noise every epoch; it takes no --noise_copies")
     theta_all, card_all, train_f, held_f, proposal, cfg = load_shards(
         args.shards, args.train_shards, train_frac=args.train_frac)
     noise = tuple((f, *_noise_range([float(v) for v in r.split(":")] if ":" in r else float(r)))
@@ -693,8 +721,15 @@ def train(args) -> None:
     win = {**WINDOW, "n_waves": args.n_waves}
     win.update({k: getattr(args, k) for k in ("start_low", "start_high", "wave_years")
                 if getattr(args, k) is not None})
-    th, x, pid, feats = windows(train_f, theta_all, seed=0, noise=spec.obs_noise,
-                                mask=spec.mask_patterns(), window=win, copies=copies)
+    redraw = None
+    if args.fresh_noise:      # RESULTS 68: draw 0 now, a new draw every epoch
+        clean = clean_windows(train_f, theta_all, seed=0, window=win)
+        th, x, pid = noisy_copy(clean, 0, spec.obs_noise, spec.mask_patterns(), 0)
+        x, feats = transform(x, masked=spec.masked)
+        redraw = fresh_redraw(clean, 0, spec.obs_noise, spec.mask_patterns())
+    else:
+        th, x, pid, feats = windows(train_f, theta_all, seed=0, noise=spec.obs_noise,
+                                    mask=spec.mask_patterns(), window=win, copies=copies)
     drawn = np.unique(pid.numpy())
     train_ids = np.concatenate([f.offset + np.arange(int(np.load(f.path)["lo"]),
                                                      int(np.load(f.path)["hi"]))
@@ -703,7 +738,8 @@ def train(args) -> None:
     print(f"train: {len(th)} rows from {len(drawn)} draws (n_train "
           f"{n_train(proposal)}, proposal {proposal}); cardholder share "
           f"{card_all[drawn].mean():.3f}; {spec.describe()}; channels {list(feats)}"
-          + (f"; {copies} noisy copies of each window" if copies > 1 else ""),
+          + (f"; {copies} noisy copies of each window" if copies > 1 else "")
+          + ("; a new noise draw every epoch" if redraw else ""),
           flush=True)
     keep = torch.tensor([f in STATIC for f in feats])
     f_mean = torch.where(keep, x.mean((0, 1)), torch.zeros(len(feats)))
@@ -717,12 +753,12 @@ def train(args) -> None:
     stop_after = -(-TRAINING["stop_after_epochs"] // copies)
     if args.max_epochs is None and copies > 1:
         args.max_epochs = -(-TRAINING["max_num_epochs"] // copies)
-    over = {"max_num_epochs": args.max_epochs} if args.max_epochs else {}
+    over = {"max_num_epochs": args.max_epochs} if args.max_epochs is not None else {}
     torch.manual_seed(args.seed)
     post, _d, inference = train_npe(spec.to_flow(th).float(), x, embedder=emb,
                              box=spec.flow_box(), device=dev, group_ids=pid,
                              metrics_csv=metrics_paths(args.out, args.seed, args.metrics_dir),
-                             passes_per_epoch=copies,
+                             passes_per_epoch=copies, redraw_x=redraw,
                              **{**TRAINING, "batch_size": 1024,
                                 "learning_rate": 1e-3, "stop_after_epochs": stop_after, **over})
     out = args.out / f"s{args.seed}"
@@ -750,6 +786,9 @@ def train(args) -> None:
         extra["obs_noise"] = {f: [lo, hi] for f, lo, hi in spec.obs_noise}
     if copies > 1:
         extra |= {"noise_copies": copies, "stop_after_epochs": stop_after}
+    if redraw is not None:
+        extra |= {"fresh_noise": True,
+                  "fresh_noise_restored_best_at_cap": bool(inference.restored_best_at_cap)}
     if spec.masked:
         extra["imputation_mask"] = dict(zip(("patterns", "tau", "sha256"),
                                             spec.imputation_mask, strict=True))
@@ -1192,6 +1231,9 @@ def main() -> None:
     t.add_argument("--noise_copies", type=int, default=1,
                    help="K noisy copies of every clean training window, each with its own "
                         "noise draw; patience and the epoch cap scale by 1/K (RESULTS 67).")
+    t.add_argument("--fresh_noise", action="store_true",
+                   help="A new noise draw on the training windows every epoch (epoch e takes "
+                        "copy e - 1's draw); validation keeps draw 0 (RESULTS 68).")
     t.add_argument("--metrics_dir", type=Path, default=None,
                    help=f"Where the per-epoch CSV goes besides the member's metrics.csv "
                         f"(default {METRICS_DIR}/<the output path after outputs/>).")
