@@ -224,15 +224,64 @@ class FreshNoise:
         inference._converged = converged
 
     def restore_best(self, inference, density_estimator) -> None:
-        """At the epoch cap sbi keeps the last weights; take the best. (When
-        patience stops training, sbi has already loaded them, and this finds
-        the weights equal.)"""
-        best = inference._best_model_state_dict
-        now = density_estimator.state_dict()
-        if any(not torch.equal(now[k], v.to(now[k].device)) for k, v in best.items()):
-            density_estimator.load_state_dict(best)
-            inference._neural_net.load_state_dict(best)
-            self.restored = True
+        """At the epoch cap sbi keeps the last weights; take the best."""
+        self.restored = restore_best(inference, density_estimator)
+
+
+def restore_best(inference, density_estimator) -> bool:
+    """At the epoch cap sbi keeps the last weights; load the best and say
+    whether they differed. (When patience stops training, sbi has already
+    loaded them, and this finds the weights equal.)"""
+    best = inference._best_model_state_dict
+    now = density_estimator.state_dict()
+    if any(not torch.equal(now[k], v.to(now[k].device)) for k, v in best.items()):
+        density_estimator.load_state_dict(best)
+        inference._neural_net.load_state_dict(best)
+        return True
+    return False
+
+
+class PlateauLR:
+    """Reduce-on-plateau on sbi's validation loss (RESULTS 69).
+
+    sbi's ``train`` builds its Adam optimizer just before the first
+    ``_converged`` call (epoch 0) and has no scheduler. :meth:`attach` wraps
+    ``_converged``: at epoch 0 it builds torch's ``ReduceLROnPlateau`` on that
+    optimizer; after each epoch ``e`` that training goes on from
+    (1 <= ``e`` <= the cap) it steps the scheduler on the epoch's validation
+    loss, so epoch ``e + 1`` trains at the new rate. ``threshold=0`` makes a
+    gain exactly sbi's (a loss below the best so far), so the scheduler's
+    count of epochs without a gain runs with sbi's patience count; the rate
+    is cut by ``factor`` (not below ``min_lr``) at the ``patience + 1``-th
+    epoch in a row without a gain, and the count restarts. ``cuts`` are the
+    epochs after which the rate fell."""
+
+    def __init__(self, factor: float, patience: int, min_lr: float, max_num_epochs: int):
+        self.kw = dict(mode="min", factor=factor, patience=patience, threshold=0.0,
+                       cooldown=0, min_lr=min_lr)
+        self.max_epochs = max_num_epochs
+        self.scheduler = None
+        self.stepped = 0
+        self.cuts: list[int] = []
+
+    def attach(self, inference) -> None:
+        from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+        orig = inference._converged
+
+        def converged(epoch, stop_after_epochs):
+            out = orig(epoch, stop_after_epochs)
+            if self.scheduler is None:
+                self.scheduler = ReduceLROnPlateau(inference.optimizer, **self.kw)
+            elif not out and self.stepped < epoch <= self.max_epochs:
+                self.stepped = epoch
+                before = inference.optimizer.param_groups[0]["lr"]
+                self.scheduler.step(inference._val_loss)
+                if inference.optimizer.param_groups[0]["lr"] < before:
+                    self.cuts.append(epoch)
+            return out
+
+        inference._converged = converged
 
 
 def train_npe(
@@ -255,6 +304,7 @@ def train_npe(
     metrics_csv=None,
     passes_per_epoch: int = 1,
     redraw_x=None,
+    lr_plateau: dict | None = None,
 ):
     """Train SNPE-C on ``(theta, x)`` and return ``(posterior, density_estimator, inference)``.
 
@@ -272,6 +322,11 @@ def train_npe(
     and at the epoch cap the best weights are restored. The returned
     ``inference`` then carries ``fresh_noise`` (the :class:`FreshNoise`) and
     ``restored_best_at_cap``.
+
+    ``lr_plateau`` (RESULTS 69): ``{"factor", "patience", "min_lr"}``, the
+    learning rate cut on a plateau of the validation loss (:class:`PlateauLR`,
+    patience in epochs); the best weights are then restored at the cap too,
+    and ``inference`` carries ``lr_cuts`` and ``restored_best_at_cap``.
     """
     if embedder is None:
         embedder = TrajectoryTransformer()
@@ -311,6 +366,11 @@ def train_npe(
             logger = stack.enter_context(EpochCSV(paths, passes_per_epoch))
             stack.enter_context(logger.grad_norms())
             logger.attach(inference)
+        # after the CSV, so an epoch's row carries the rate it trained at
+        plateau = None
+        if lr_plateau is not None:
+            plateau = PlateauLR(**lr_plateau, max_num_epochs=max_num_epochs)
+            plateau.attach(inference)
         fresh = None
         if redraw_x is not None:
             fresh = FreshNoise(redraw_x, max_num_epochs)
@@ -325,6 +385,10 @@ def train_npe(
     if fresh is not None:
         fresh.restore_best(inference, density_estimator)
         inference.fresh_noise, inference.restored_best_at_cap = fresh, fresh.restored
+    elif plateau is not None:
+        inference.restored_best_at_cap = restore_best(inference, density_estimator)
+    if plateau is not None:
+        inference.lr_cuts = list(plateau.cuts)
     posterior = inference.build_posterior(density_estimator)
     return posterior, density_estimator, inference
 

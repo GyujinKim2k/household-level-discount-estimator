@@ -76,6 +76,9 @@
          - A third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453 and v2_b010's 0.437; w07's 0.384 is the outlier. §1's ensemble caveat now cites three.
          - Found: `laibson_comparison.py` draws all arms' bootstraps from one stream, so adding an arm moves the bootstrap se of the arms after it (estimates unchanged). Left as it is; seeding by arm would change every earlier section's se (the user's call).
          - **Open (needs the user):** fresh noise as the training default, and whether to retrain §1's reference with it.
+       - **Reduce-on-plateau and a harder stop (RESULTS 69, launched 2026-11-11, the user's request):** v2_k8_rop, v2_fresh_rop, file_k8_rop and file_fresh_rop. Each is its RESULTS 67/68 counterpart with the learning rate halved (floor 1e-5) at 5 passes without a gain, a stop after 60 passes without one, and a cap of 600 (fixed copies as in 67, all 8 per epoch).
+         - **Tests, set before the run:** each arm against its counterpart, and fresh against fixed under the schedule, by paired held-out log q.
+         - **Running.** Results to be written into RESULTS 69.2+.
    - **Models.** Train with 7 (retrained on the matched range), 10, 14 and 20 waves, under v2's noise model on the box with the β strip, with everything else as v2. If the longer windows underfit (training loss still falling while held-out loss stalls), add one wider-embedder arm. That costs GPU-hours, not a regeneration. The training set is dense enough as it is (RESULTS 63.8).
    - **No regeneration needed.** The stored panels cover ages 20–90 for every household, so longer windows are cut from the existing shards (`optionA.py train --n_waves --start_high`). Every window lies inside ages 24–64 (start ≤ 65 − 2 × waves; the user's choice, 2026-11-05); PSID's start ages run forward to 83 is the fallback.
    - **Measures, per number of waves:**

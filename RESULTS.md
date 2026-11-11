@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-10 (§68's results: a new noise draw on the training windows every epoch does not beat 8 fixed copies under v2's noise (+0.014 log q, interval spans 0) and gains +0.027 under the methodology file's noise, where the copies gained nothing; nothing downstream moves; a third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453, so §1's ensemble caveat now cites three ensembles; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-11 (§69 launched: reduce-on-plateau and a harder early stop (patience 60 passes, cap 600) for 8 fixed copies and fresh noise under v2's and the methodology file's noise, four arms of five members against RESULTS 67/68's; 2026-11-10, §68's results: a new noise draw on the training windows every epoch does not beat 8 fixed copies under v2's noise (+0.014 log q, interval spans 0) and gains +0.027 under the methodology file's noise, where the copies gained nothing; nothing downstream moves; a third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453, so §1's ensemble caveat now cites three ensembles; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -11918,3 +11918,131 @@ The bootstrap se of file_k1 and file_k8 differ from 67.8's; the end of this sect
         --out outputs/fresh_noise/laibson_comparison.json \
         --figure figures/137_laibson_comparison_fresh_noise.png --title "..."   # 137; the title is stage 5's in run_fresh_noise.sh
     PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_fresh_noise.py
+
+## 69. Reduce-on-plateau and a harder early stop, for fixed copies and fresh noise under both noises
+
+*69.0–69.1 are the launch record, written before the run.*
+
+**Request (user, 2026-11-11).** "let's try fresh & fixed copies on both v2 and file's noise with reduce-on-plateau and make early stop harder". Asked, the user chose:
+- **fixed copies as RESULTS 67,** all 8 in one epoch;
+- **patience 60 passes and a cap of 600.**
+
+The plan was approved as it stands here.
+
+### 69.0 Design
+
+| arm | noise | training data | against (same arm, constant rate, patience 20) |
+|---|---|---|---|
+| v2_k8_rop | v2's (w07's) | 8 fixed copies in one epoch | v2_k8 (67) |
+| v2_fresh_rop | v2's | a new noise draw every epoch | v2_fresh (68) |
+| file_k8_rop | the methodology file's (67.0) | 8 fixed copies in one epoch | file_k8 (67) |
+| file_fresh_rop | the file's | a new noise draw every epoch | file_fresh (68) |
+
+Everything else is the counterpart's:
+- w07's window, box, training runs and seeds 0–4;
+- batch 1024, starting learning rate 1e-3;
+- for the fresh arms, the draws and the validation set at draw 0 (68.0).
+
+**Why.** RESULTS 64–68 trained at a constant learning rate of 1e-3. Near the best, the validation loss jumps 0.02–0.06 from epoch to epoch (v2_fresh s0: 3.135, 3.134, 3.156, 3.136, 3.144, …), about the size of the late gains. The stop after 20 passes without a gain can then fire on that jitter while a lower rate would still improve.
+
+**The schedule** (`optionA.py train --lr_plateau 5 --patience 60 --cap 600`). All rules are in passes over the clean windows. An 8-copy epoch is 8 passes, so they become epochs by rounding up, as 67.0 did (patience 20 → 3 epochs) (`optionA.schedule`).
+- **Reduce-on-plateau:** torch's `ReduceLROnPlateau` on sbi's validation loss.
+  - Factor 0.5, floor 1e-5, no cooldown.
+  - `threshold=0`, so a gain is exactly sbi's (a loss below the best so far), and the schedule's count runs with sbi's patience count.
+  - The rate halves at the 5th pass in a row without a gain, and the count restarts. With 8 copies that is the first 8-pass epoch without a gain.
+- **The stop:** 60 passes without a gain (8 epochs, 64 passes, with 8 copies).
+- **The cap:** 600 passes (75 epochs with 8 copies). At the cap the best weights are restored, now also without fresh noise.
+- **Before the first cut** a member trains as its counterpart: same data, seed and split, up to the GPU's nondeterminism (68.1).
+- **The floor** (1e-3/2⁷ < 1e-5) comes at the 7th cut:
+  - for the fresh arms, at the 35th pass without a gain, leaving 25 passes there before the stop;
+  - for the copy arms, at the 7th epoch without one (56 passes), leaving one epoch.
+
+**How.** sbi builds its Adam optimizer just before its first `_converged` call and has no scheduler.
+- `hh_npe.npe.train.PlateauLR` wraps `_converged`. At epoch 0 it builds the scheduler on that optimizer. After each epoch that training goes on from, it steps the scheduler on the epoch's validation loss, so the next epoch trains at the new rate.
+- It is attached after the per-epoch CSV, so each CSV row carries the rate that epoch trained at.
+- A plateau never reached gives bit-identical losses to no schedule (test).
+- **What a member's schedule did** (the epochs after which the rate fell, and whether the best weights were restored at the cap) is recorded in its `training_summary.json`. The config records only the setting (`lr_plateau`).
+  - Members of one ensemble must agree in their config apart from the seed, and these outcomes differ between members.
+  - RESULTS 68's `fresh_noise_restored_best_at_cap` was such an outcome in the config. It only matched because no member reached the cap. `optionA.load_members` now ignores it (`MEMBER_KEYS`).
+
+**Measures** (`lr_plateau.py measures`):
+- **Calibration:** held-out and SBC 90% coverage (gate 0.88–0.92).
+- **The main tests,** set now: held-out log q paired on identical windows, with a 95% interval over resampled households. "Helps" means the interval is above 0.
+  - **Does the schedule help?** v2_k8_rop − v2_k8, v2_fresh_rop − v2_fresh, file_k8_rop − file_k8, file_fresh_rop − file_fresh. Each pair shares its validation set.
+  - **Fresh against fixed under the schedule:** v2_fresh_rop − v2_k8_rop and file_fresh_rop − file_k8_rop.
+  - The member-level check (68.5) is reported beside each, set now this time.
+  - These are six tests, and the reading will say so.
+- **Training (CSVs):**
+  - passes to the best and to the stop;
+  - the cuts and the rate at the best;
+  - the best validation loss;
+  - the rise after the best and the train − validation gap there;
+  - members at the cap.
+  - **An independent check of the schedule:** each member's rate, rebuilt from its own validation losses by a separate implementation of the rule (`lr_plateau.expected_lr`), must equal the rate its CSV logged, and the cuts the cuts it recorded. `measures` stops if not.
+- **One household:** information, ordering, β below 0.3.
+- **The population se at θ₀:** paired resampling.
+- **Cross-noise:** ten networks (the four, w07, v2_k8, v2_fresh, file_k1, file_k8 and file_fresh) on both noises.
+- **PSID couples:**
+  - medians and the share of ρ below 1;
+  - the representative θ, adding four ensembles to 67.8's and 68.8's spread.
+  - RESULTS 68's arms are listed first, in 68's order, so the shared bootstrap stream (68.8) leaves their se unchanged. `measures` checks this against 68's fit.
+
+**Figures** (68/95% contours on every estimate):
+- 140: training curves and learning rates from the CSVs;
+- 141–144: SBC ranks for the four arms;
+- 145: paired log q and precision;
+- 146: PSID couples' representative θ under every arm against Laibson et al.'s point;
+- 147–148: a simulated and a PSID household under v2_fresh_rop, chosen before the run.
+
+**Caveats the results will carry:**
+- one schedule (factor 0.5, a cut at 5 passes, floor 1e-5);
+- the copy arms' coarser cuts and their single epoch at the floor;
+- the file's noise caveats (67.9);
+- the GPU's nondeterminism (68.1);
+- six tests;
+- simulated households, except the PSID rows.
+
+**Code:**
+- New: `scripts/lr_plateau.py`, `scripts/run_lr_plateau.sh` and `tests/test_lr_plateau.py`.
+- `hh_npe/npe/train.py`:
+  - `PlateauLR`;
+  - `train_npe(lr_plateau=)`;
+  - `restore_best`, taken out of `FreshNoise` for both paths.
+- `optionA.py`:
+  - `schedule`;
+  - `train --lr_plateau --lr_factor --lr_floor --patience --cap`;
+  - `TRAINING_KEYS` gains `lr_plateau`;
+  - `MEMBER_KEYS`.
+- `laibson_comparison.ARM_COLOR` gains the four arms, in hues apart from typical's purple and gross's red.
+
+### 69.1 Gates before launch
+
+All pass.
+1. **Tests.** The whole suite passes with the GPU hidden: 698 passed, 37 skipped (19 new).
+   - The CSV's rate is the rule rebuilt from its own validation losses, in two tiny CPU runs that cut the rate and reach the floor.
+   - A plateau never reached is bit-identical to no schedule.
+   - Patience still stops training under the schedule.
+   - The best weights come back at the cap without fresh noise.
+   - The pass → epoch conversion gives 67.0's 3 and 25 for patience 20 and cap 200 with 8 copies, and the configs of w07, v2_k8 and v2_fresh on disk agree with it.
+   - **The changed code scores stored members as before.** w07's and v2_fresh's held-out checks, rerun, give their `heldout_check.json` exactly (244 fields each, none differs).
+2. **The smoke chain** (`SMOKE=<dir> scripts/run_lr_plateau.sh`, one member per arm, `--max_epochs 3` on one shard per run) ran every stage to DONE with no fix.
+   - The 8-copy arms' configs record a stop after 8 epochs and plateau patience 0, as designed.
+   - Every CSV carries the rate, and the schedule check passed for every new member.
+   - Nothing was written into `outputs/`, `figures/` or `training_metrics/`, and the fit's real cache is unchanged.
+3. **The real data path:** v2_fresh_rop and v2_k8_rop, seed 0, trained together on the real shards, then stopped by PID (8 fresh epochs, 1 copy epoch).
+   - **Epoch 1 matches the counterpart within the GPU's spread** (68.1):
+     - v2_k8_rop against v2_k8: training loss 3.967 against 3.976, validation 3.584 against 3.607.
+     - v2_fresh_rop against v2_fresh: training loss 4.919 against 4.926, validation 4.457 against 4.558.
+     - Epoch 1's validation loss spreads 4.405–4.558 over same-seed runs on these data: w07 stored 4.452, v2_fresh 4.558, two reruns of 68.1 4.405 and 4.416. By epoch 2 v2_fresh_rop is 0.008 from v2_fresh.
+   - An epoch took 63–96 s (fresh) and 578 s for 8 passes (copies), as in 67 and 68.
+   - Allocated GPU memory was 0.50 and 3.63 GB, and RAM 2.3 and 5.7 GB, with 13 GB free.
+   - No cut happened in 8 epochs; no 5 in a row lacked a gain.
+   - A first launch of the copy member was mistyped (its flags were lost to a shell slip) and stopped by PID within a minute. It left only a CSV header outside the repository.
+4. **Disk:** 2.4 GB free against the chain's 2 GB check; the run adds about 0.2 GB.
+
+**Expected cost:**
+- **Members:** about 1.2 min per pass two at a time.
+  - v2 arms about 140–210 passes (3–4.3 h);
+  - file arms about 110–160 (2.2–3.2 h).
+- **Training:** about 20–38 h for the 20 members, about 125 h if every member reached the 600-pass cap.
+- **Evaluation:** about 3 h, about 2 of them the population fit.

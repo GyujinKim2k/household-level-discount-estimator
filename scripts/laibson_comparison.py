@@ -88,6 +88,9 @@ ARM_COLOR |= {"w07": "#1F4E79", "none_w07": "#4A9A5B"}
 ARM_COLOR |= {"v2_k8": "#6BAED6", "file_k1": "#E6862E", "file_k8": "#A63603"}
 #: RESULTS 68: a new noise draw every epoch, in hues of their own
 ARM_COLOR |= {"v2_fresh": "#C51B7D", "file_fresh": "#35978F"}
+#: RESULTS 69: the plateau schedule, apart from every hue above (typical's purple, gross's red)
+ARM_COLOR |= {"v2_k8_rop": "#222222", "v2_fresh_rop": "#C9A100", "file_k8_rop": "#7FBC41",
+              "file_fresh_rop": "#F781BF"}
 
 
 def box_bounds(box) -> tuple[np.ndarray, np.ndarray]:

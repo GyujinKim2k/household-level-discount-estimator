@@ -307,12 +307,42 @@ COPY_STRIDE = 10_000_000
 #: (cross_noise_heldout.py), beside the noise itself.
 NOISE_KEYS = ("obs_noise", "noise_model")
 TRAINING_KEYS = ("noise_copies", "max_epochs", "stop_after_epochs", "fresh_noise",
-                 "fresh_noise_restored_best_at_cap")
+                 "fresh_noise_restored_best_at_cap", "lr_plateau")
+#: Config keys that are one member's outcome, not the ensemble's setting:
+#: members may differ in them (RESULTS 69; RESULTS 68's key only matched
+#: because no member reached the cap).
+MEMBER_KEYS = ("train_seed", "fresh_noise_restored_best_at_cap")
 #: Features PSID's accuracy codes can mark as imputed (RESULTS 49, 50). Income
 #: and age carry no codes and are never masked.
 MASKABLE = ("consumption", "liquid_assets", "illiquid_assets")
 #: Added to a window seed for its imputation-mask stream.
 MASK_SEED = 529_000
+
+
+def schedule(copies: int, patience: int, cap: int, plateau: int | None = None,
+             factor: float = 0.5, floor: float = 1e-5) -> tuple:
+    """Patience, the cap and the plateau rule, given in passes over the clean
+    windows, in whole epochs of ``copies`` passes, rounded up (RESULTS 67, 69):
+    ``(stop_after_epochs, max_epochs, lr_plateau)``. ``max_epochs`` is None
+    at TRAINING's cap with one pass an epoch, so a run like those before
+    records the same config. The plateau rule cuts the rate at the
+    ``ceil(plateau / copies)``-th epoch in a row without a gain; torch's
+    patience is one less."""
+    for name, v in (("patience", patience), ("cap", cap), ("lr_plateau", plateau)):
+        if v is not None and v < 1:
+            raise SystemExit(f"--{name} {v}: need at least one pass")
+
+    def epochs(passes):
+        return -(-passes // copies)
+
+    max_epochs = None if copies == 1 and cap == TRAINING["max_num_epochs"] else epochs(cap)
+    lr = None
+    if plateau is not None:
+        if not 0 < factor < 1 or not 0 < floor < 1e-3:
+            raise SystemExit(f"--lr_factor {factor} must be in (0, 1) and --lr_floor {floor} "
+                             f"in (0, 1e-3), the starting rate")
+        lr = {"factor": factor, "patience": epochs(plateau) - 1, "min_lr": floor}
+    return epochs(patience), max_epochs, lr
 
 
 def load_mask_patterns(path, sha256: str | None = None) -> dict:
@@ -739,7 +769,10 @@ def train(args) -> None:
           f"{n_train(proposal)}, proposal {proposal}); cardholder share "
           f"{card_all[drawn].mean():.3f}; {spec.describe()}; channels {list(feats)}"
           + (f"; {copies} noisy copies of each window" if copies > 1 else "")
-          + ("; a new noise draw every epoch" if redraw else ""),
+          + ("; a new noise draw every epoch" if redraw else "")
+          + (f"; learning rate x{args.lr_factor} at {args.lr_plateau} passes without a gain "
+             f"(floor {args.lr_floor:g}), stop at {args.patience}, cap {args.cap}"
+             if args.lr_plateau else ""),
           flush=True)
     keep = torch.tensor([f in STATIC for f in feats])
     f_mean = torch.where(keep, x.mean((0, 1)), torch.zeros(len(feats)))
@@ -749,16 +782,18 @@ def train(args) -> None:
                                 per_sequence=False, **{**EMBEDDER, **ARCH})
     dev = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     # RESULTS 67: an epoch over K copies is K passes over the clean windows, so
-    # patience and the cap keep today's number of passes (20 and 200)
-    stop_after = -(-TRAINING["stop_after_epochs"] // copies)
-    if args.max_epochs is None and copies > 1:
-        args.max_epochs = -(-TRAINING["max_num_epochs"] // copies)
+    # patience and the cap are set in passes (default 20 and 200); RESULTS 69
+    # sets them per run, with the plateau rule
+    stop_after, max_epochs, plateau = schedule(copies, args.patience, args.cap, args.lr_plateau,
+                                               args.lr_factor, args.lr_floor)
+    if args.max_epochs is None:
+        args.max_epochs = max_epochs
     over = {"max_num_epochs": args.max_epochs} if args.max_epochs is not None else {}
     torch.manual_seed(args.seed)
     post, _d, inference = train_npe(spec.to_flow(th).float(), x, embedder=emb,
                              box=spec.flow_box(), device=dev, group_ids=pid,
                              metrics_csv=metrics_paths(args.out, args.seed, args.metrics_dir),
-                             passes_per_epoch=copies, redraw_x=redraw,
+                             passes_per_epoch=copies, redraw_x=redraw, lr_plateau=plateau,
                              **{**TRAINING, "batch_size": 1024,
                                 "learning_rate": 1e-3, "stop_after_epochs": stop_after, **over})
     out = args.out / f"s{args.seed}"
@@ -768,9 +803,13 @@ def train(args) -> None:
     # RESULTS 64: loss curves and epoch times, for the underfitting check; a
     # file of its own, so results.json stays what earlier runs wrote
     summ = getattr(inference, "_summary", {})
+    did = {}      # RESULTS 69: what the schedule did, per member (the config holds the setting)
+    if plateau is not None:
+        did = {"lr_cut_after_epochs": list(inference.lr_cuts),
+               "restored_best_at_cap": bool(inference.restored_best_at_cap)}
     (out / "training_summary.json").write_text(json.dumps(
-        {k: [float(v) for v in summ.get(k, [])]
-         for k in ("training_loss", "validation_loss", "epoch_durations_sec")}))
+        {**{k: [float(v) for v in summ.get(k, [])]
+            for k in ("training_loss", "validation_loss", "epoch_durations_sec")}, **did}))
     # Keys runs before RESULTS 43.5 never recorded, written only when they
     # differ from the defaults, so a run like those writes the same config.
     extra = {}
@@ -785,10 +824,14 @@ def train(args) -> None:
     elif spec.obs_noise:
         extra["obs_noise"] = {f: [lo, hi] for f, lo, hi in spec.obs_noise}
     if copies > 1:
-        extra |= {"noise_copies": copies, "stop_after_epochs": stop_after}
+        extra["noise_copies"] = copies
+    if copies > 1 or stop_after != TRAINING["stop_after_epochs"]:
+        extra["stop_after_epochs"] = stop_after
     if redraw is not None:
         extra |= {"fresh_noise": True,
                   "fresh_noise_restored_best_at_cap": bool(inference.restored_best_at_cap)}
+    if plateau is not None:       # the setting; what it did is in training_summary.json
+        extra["lr_plateau"] = {**plateau, "passes": args.lr_plateau}
     if spec.masked:
         extra["imputation_mask"] = dict(zip(("patterns", "tau", "sha256"),
                                             spec.imputation_mask, strict=True))
@@ -835,7 +878,7 @@ def load_members(run_dirs, device=None, n_waves=None):
         props.append(ck.get("proposal"))
         cfg.setdefault("beta_transform", "linear")     # runs before RESULTS 37
         cfg.setdefault("rgamma_transform", "linear")   # runs before RESULTS 43.5
-        cfgs.append({k: v for k, v in cfg.items() if k != "train_seed"})
+        cfgs.append({k: v for k, v in cfg.items() if k not in MEMBER_KEYS})
     if any(c != cfgs[0] for c in cfgs) or any(p != props[0] for p in props):
         raise SystemExit("ensemble members differ in configuration or proposal")
     if props[0] is None:
@@ -1234,6 +1277,18 @@ def main() -> None:
     t.add_argument("--fresh_noise", action="store_true",
                    help="A new noise draw on the training windows every epoch (epoch e takes "
                         "copy e - 1's draw); validation keeps draw 0 (RESULTS 68).")
+    t.add_argument("--patience", type=int, default=TRAINING["stop_after_epochs"],
+                   metavar="PASSES",
+                   help="Stop after this many passes over the clean windows without a gain "
+                        "in validation loss, in whole epochs (RESULTS 69).")
+    t.add_argument("--cap", type=int, default=TRAINING["max_num_epochs"], metavar="PASSES",
+                   help="The cap in passes, in whole epochs; at the cap the best weights are "
+                        "restored under --lr_plateau or --fresh_noise. --max_epochs overrides.")
+    t.add_argument("--lr_plateau", type=int, default=None, metavar="PASSES",
+                   help="Reduce-on-plateau: cut the learning rate by --lr_factor at this many "
+                        "passes in a row without a gain, in whole epochs (RESULTS 69).")
+    t.add_argument("--lr_factor", type=float, default=0.5)
+    t.add_argument("--lr_floor", type=float, default=1e-5)
     t.add_argument("--metrics_dir", type=Path, default=None,
                    help=f"Where the per-epoch CSV goes besides the member's metrics.csv "
                         f"(default {METRICS_DIR}/<the output path after outputs/>).")
