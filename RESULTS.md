@@ -5,7 +5,7 @@
 with the simulation audit's fixes (§54). A2n (§43.8) is its record on the v1
 data. The §29 headline that stood here until then is kept at the end of §1.
 Since 2026-11-05 (user) §1 is v2 on the prior box extended to β 0.10 (§63).
-**Last updated:** 2026-11-11 (§69 launched: reduce-on-plateau and a harder early stop (patience 60 passes, cap 600) for 8 fixed copies and fresh noise under v2's and the methodology file's noise, four arms of five members against RESULTS 67/68's; 2026-11-10, §68's results: a new noise draw on the training windows every epoch does not beat 8 fixed copies under v2's noise (+0.014 log q, interval spans 0) and gains +0.027 under the methodology file's noise, where the copies gained nothing; nothing downstream moves; a third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453, so §1's ensemble caveat now cites three ensembles; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-12 (§69's results: reduce-on-plateau raises held-out log q by 0.03–0.05 for three of the four arms (not fresh draws under the methodology file's noise); the harder stop bought nothing, since a stop after 20 passes would have kept the same weights in every member; under the schedule v2's networks lose more on the file's noise; both v2-noise schedule arms put couples' representative β at 0.428, so §1's ensemble caveat now cites five ensembles; 2026-11-11, §69 launched: reduce-on-plateau and a harder early stop (patience 60 passes, cap 600) for 8 fixed copies and fresh noise under v2's and the methodology file's noise, four arms of five members against RESULTS 67/68's; 2026-11-10, §68's results: a new noise draw on the training windows every epoch does not beat 8 fixed copies under v2's noise (+0.014 log q, interval spans 0) and gains +0.027 under the methodology file's noise, where the copies gained nothing; nothing downstream moves; a third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453, so §1's ensemble caveat now cites three ensembles; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -92,7 +92,7 @@ The data carry the audit's fixes (§55.1):
     - **The noise model of "psid noise methodology.md" (§67),** written from the literature independently of our calibration, gives 0.15–0.18 at seven waves, with typical and gross.
     - On the old box, no θ fitted under these arms: β had to fall below 0.3.
     - **With no noise at all (§66),** the 7-wave network breaks on noisy data and reads PSID couples' consumption noise as ρ near the floor (median 0.76, 69% of couples below 1, against 2.5–2.7 under every noisy arm). Simulated couples given PSID-level consumption noise come out the same, and no noise-free population in the box fits couples. The noise model is needed.
-  - **The bootstrap se leaves out the network's own error (§67.8, §68.8).** Three 7-wave ensembles trained for v2's noise on the same window and draws give representative β 0.384 (w07), 0.453 (v2_k8) and 0.444 (v2_fresh), and ρ 1.84, 1.60 and 1.68: an sd of 0.038 in β, about 1.2–1.6 bootstrap se. The two with the higher held-out log q agree, beside v2_b010's 0.437. The noise model's 0.3 in β is still about four times the whole range.
+  - **The bootstrap se leaves out the network's own error (§67.8, §68.8, §69.8).** Five 7-wave ensembles trained for v2's noise on the same window and draws give representative β 0.384 (w07), 0.453 (v2_k8), 0.444 (v2_fresh), 0.428 (v2_k8_rop) and 0.428 (v2_fresh_rop), and ρ 1.60–1.84: an sd of 0.027 in β, about one bootstrap se. The four better-trained ones give 0.428–0.453, beside v2_b010's 0.437, with no trend in held-out log q. The noise model's 0.3 in β is still about four times the whole range.
 - **The old headline is reversed.** There, β was 0.852, inside the experimental meta-analyses' band [0.66, 0.94], and their estimate was the outlier (§14). On the wider box, 22% of couples' means are inside that band, and 40% of all 889's (old box 28% and 50%).
 - **β is weakly identified per couple:** the held-out share of prior variance removed is 0.52 (§63.3). That is not comparable with the old box's 0.40, because β's prior is now wider.
   - On the old box, couples' β piled at the floor of 0.3 (§47.3). On the wider box, 14% of couples' means and 75% of their 5th percentiles are below 0.3, but no couple's or simulated household's 95th percentile is. That is because one household's 90% interval for β is 0.5–0.6 wide anywhere in the box at seven waves, not because β below 0.3 is worse resolved: it is resolved as well as any band 0.2 wide (§64.12, correcting §63.4 and §64.6).
@@ -11919,9 +11919,9 @@ The bootstrap se of file_k1 and file_k8 differ from 67.8's; the end of this sect
         --figure figures/137_laibson_comparison_fresh_noise.png --title "..."   # 137; the title is stage 5's in run_fresh_noise.sh
     PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_fresh_noise.py
 
-## 69. Reduce-on-plateau and a harder early stop, for fixed copies and fresh noise under both noises
+## 69. Reduce-on-plateau and a harder early stop: the schedule raises held-out log q by 0.03–0.05 for three arms of four, the harder stop adds nothing; v2's networks lose more on the file's noise; couples' representative β 0.428 under both v2-noise arms
 
-*69.0–69.1 are the launch record, written before the run.*
+*69.0–69.1 are the launch record, written before the run. 69.2–69.9 are the results.*
 
 **Request (user, 2026-11-11).** "let's try fresh & fixed copies on both v2 and file's noise with reduce-on-plateau and make early stop harder". Asked, the user chose:
 - **fixed copies as RESULTS 67,** all 8 in one epoch;
@@ -12046,3 +12046,266 @@ All pass.
   - file arms about 110–160 (2.2–3.2 h).
 - **Training:** about 20–38 h for the 20 members, about 125 h if every member reached the 600-pass cap.
 - **Evaluation:** about 3 h, about 2 of them the population fit.
+
+### 69.2 The run
+
+- **The chain** (`scripts/run_lr_plateau.sh`) ran every stage to DONE 29 h 6 min after launch (2026-11-11 04:40 to 2026-11-12 09:46 UTC), against about 23–41 h expected.
+  - **The server shut down at 09:30 UTC on 2026-11-11** and was back at 10:21.
+    - Three members had finished: v2_k8_rop, v2_fresh_rop and file_k8_rop, seed 0. Their files load, and their rates pass the schedule check.
+    - Two were mid-training. Training keeps no checkpoints, so both retrained from scratch when the same command resumed the chain at 10:28 (pid 1770; the first was 1552171):
+      - file_fresh_rop s0, 101 epochs in and 55 past its best;
+      - v2_k8_rop s1, just started.
+    - Their partial CSVs and logs are kept in `logs/lr_plateau_interrupted_0930/` (not committed). About 2 h 15 min of training was redone.
+  - **The rerun of file_fresh_rop s0 is a same-seed replicate.** Its best validation loss is 4.2124 (epoch 42), the interrupted run's 4.2245 (epoch 46). That 0.012 is the GPU's nondeterminism (68.1) at the best epoch; the arm's five members span 4.204–4.232.
+  - **Timing:** training took 25 h 30 min of wall time, two members at a time (4 h 50 min before the shutdown, 20 h 40 min after). Evaluation took 2 h 38 min, 1 h 42 min of it the population fit.
+  - No stage failed, and the logs hold no errors.
+- **Minutes per member:** v2_k8_rop 146–162, v2_fresh_rop 153–168, file_k8_rop 124–136, file_fresh_rop 97–134. That is 1.4–2.0 times their counterparts' (87–114, 80–103, 56–76, 55–71).
+- **Every member stopped on patience.** None reached the cap, so no best weights had to be restored.
+- **The schedule did what it was set to do in every member.**
+  - Each member's rate, rebuilt from its own validation losses by `lr_plateau.expected_lr`, equals the rate its CSV logged (largest relative difference 0). Its cuts equal the cuts it recorded.
+  - Every member's rate fell seven times and reached the floor.
+  - All 20 CSVs agree with each member's `training_summary.json`, epoch for epoch.
+- **GPU memory** is as in 67/68: 0.50 GB per fresh member, 3.63 GB per copy member.
+- **RESULTS 68's nine arms come out of the representative-θ fit bit-identical**, θ and se, as the list order was set to ensure (69.0).
+- **Added after the run** (`lr_plateau.py measures`; every other field of `lr_plateau.json` is unchanged):
+  - per member: the CSV against sbi's record, the lowest rate any gain came at, the passes at the floor, and what a stop after 20 passes would have kept (69.4);
+  - the paired interval for the six tests (Bonferroni), and the ensemble's log q over its members' (69.5).
+
+### 69.3 Calibration: all four arms pass
+
+| 90% coverage, held-out / SBC | v2_k8_rop | v2_fresh_rop | file_k8_rop | file_fresh_rop |
+|---|---|---|---|---|
+| β | 0.911 / 0.902 | 0.904 / 0.898 | 0.899 / 0.899 | 0.898 / 0.897 |
+| δ | 0.897 / 0.892 | 0.898 / 0.890 | 0.895 / 0.894 | 0.889 / 0.892 |
+| ρ | 0.904 / 0.901 | 0.905 / 0.901 | 0.898 / 0.899 | 0.893 / 0.899 |
+| R_γ | 0.911 / 0.885 | 0.901 / 0.882 | 0.898 / 0.888 | 0.897 / 0.888 |
+
+- **Every cell is inside the 0.88–0.92 gate** (0.882–0.911). Each arm is scored on its own noise.
+- **SBC rank tests,** one household per draw:
+  - **β, δ and ρ pass** (KS p 0.26–0.99). Every rank ECDF stays inside the band (figures 141–144).
+  - **R_γ's KS p is 0.015, 0.004, < 0.001 and 0.001.** This is the open point on the same 82 values of R_γ (66.3, 67.3, 68.3).
+- R_γ's SBC coverage, 0.882–0.888, is the lowest cell, as it was for the six arms before (0.886–0.891).
+
+### 69.4 Training, from the CSVs: the rate halves seven times, and the harder stop bought nothing
+
+| each arm's 5 members | v2_k8 | **v2_k8_rop** | v2_fresh | **v2_fresh_rop** | file_k8 | **file_k8_rop** | file_fresh | **file_fresh_rop** |
+|---|---|---|---|---|---|---|---|---|
+| epochs | 9–12 | 15–17 | 66–84 | 126–137 | 6–8 | 13–14 | 46–58 | 99–110 |
+| passes at the best epoch | 48–72 | 56–72 | 46–64 | 66–77 | 24–40 | 40–48 | 26–38 | 39–50 |
+| passes at the stop | 72–96 | 120–136 | 66–84 | 126–137 | 48–64 | 104–112 | 46–58 | 99–110 |
+| rate at the best epoch | 1e-3 | 2.5–5e-4 | 1e-3 | 3.1–6.3e-5 | 1e-3 | 2.5–5e-4 | 1e-3 | 0.6–2.5e-4 |
+| best validation loss | 3.158–3.198 | 3.109–3.163 | 3.120–3.137 | 3.018–3.032 | 4.295–4.312 | 4.268–4.284 | 4.241–4.257 | 4.204–4.232 |
+| rise from the best to the stop | 0.02–0.07 | 0.02–0.04 | 0.01–0.04 | 0.004–0.008 | 0.00–0.04 | 0.03–0.06 | 0.01–0.05 | 0.01–0.03 |
+| training − validation at the best | −0.30 to −0.16 | −0.37 to −0.26 | −0.21 to −0.12 | −0.35 to −0.26 | −0.16 to −0.06 | −0.22 to −0.18 | −0.10 to −0.05 | −0.21 to −0.14 |
+| passes trained at the floor | | 16–24 | | 45–50 | | 16–24 | | 35–45 |
+
+Losses are on the flow's scale (−log q); lower is better (figure 140).
+- Each pair shares its validation set (the fresh arms' is draw 0, the copy arms' all eight copies; 68.4). So best validation losses compare within a pair, not across.
+
+**The lower rates find better weights.**
+- Every pair's best validation loss falls, by 0.044 (v2's copies), 0.100 (v2's fresh draws), 0.027 (the file's copies) and 0.034 (the file's fresh draws) on the members' means.
+- Except under v2's copies, every member of the schedule arm beats every member of its counterpart. For v2_fresh_rop the margin is at least 0.088.
+- **The fresh arms take their best at much lower rates:** 3e-5 to 2.5e-4, after four to six cuts.
+- **The copy arms take theirs at 2.5–5e-4,** after one or two. With 8 copies each epoch is 8 passes at one rate, and the rate is cut after the first epoch without a gain.
+
+**The harder stop bought nothing** (`lr_plateau.patience_kept`, added after the run).
+- In all 20 members the longest run without a gain before the final best was 5–11 passes (8, one epoch, for the copy arms).
+- The cuts depend only on the validation losses before them. A stop after RESULTS 67/68's 20 passes (3 epochs with copies) would therefore have trained the same way and kept the same best weights in every member, up to the GPU's nondeterminism.
+  - It would have stopped at 59–97 passes instead of 99–137.
+  - The 40 passes each member trained beyond that, 31–38% of its training, found nothing.
+- With that stop the schedule would have cost 1.1–1.3 times the constant-rate arms' passes, instead of the 1.6–2.0 times it took.
+
+**No gain came at a rate below 3.1e-5, and none at the floor.**
+- Every member's best came before it reached the floor. The 45–50 passes (fresh) and 16–24 (copies) trained there were spent waiting for the stop.
+- The last one or two cuts never helped.
+
+**After the best, the validation curves stay flat for the fresh arms** (rise 0.004–0.03) **and rise as before for the copy arms** (0.02–0.06).
+- At the low rates the copy arms keep fitting their eight fixed draws: their training loss falls on, to 2.56–2.65 under v2's noise (figure 140).
+- The fresh arms' training loss levels off.
+
+**The training − validation gap at the best widens:** −0.26 to −0.37 against −0.12 to −0.30 under v2's noise, and −0.14 to −0.22 against −0.05 to −0.16 under the file's. The lower rates fit the clean training households more tightly, and the validation loss improves all the same.
+
+### 69.5 The main tests: the schedule helps three arms of four; under it fresh draws beat fixed copies on v2's noise by the 95% rule only
+
+Held-out log q per household, paired on identical windows (2,048 draws). The intervals come from resampled households: 1,000 resamples for 95%, and 10,000 for the six-test (Bonferroni) column, added after the run (`lr_plateau.py measures`, figure 145):
+
+| | difference in log q [95%] | [six tests] | members | member means (se; Welch p) |
+|---|---|---|---|---|
+| v2_k8_rop − v2_k8 | **+0.039 [+0.017, +0.064]** | [+0.008, +0.072] | 3.585–3.648 against 3.534–3.632 | +0.044 (0.023; 0.11) |
+| v2_fresh_rop − v2_fresh | **+0.051 [+0.021, +0.080]** | [+0.008, +0.090] | 3.677–3.716 against 3.562–3.666 | +0.078 (0.019; 0.009) |
+| file_k8_rop − file_k8 | **+0.031 [+0.013, +0.049]** | [+0.005, +0.057] | 2.504–2.540 against 2.469–2.519 | +0.029 (0.011; 0.03) |
+| file_fresh_rop − file_fresh | −0.010 [−0.038, +0.013] | [−0.053, +0.020] | 2.482–2.556 against 2.507–2.553 | +0.003 (0.016; 0.87) |
+| v2_fresh_rop − v2_k8_rop | **+0.026 [+0.001, +0.051]** | [−0.013, +0.062] | 3.677–3.716 against 3.585–3.648 | +0.064 (0.013; 0.002) |
+| file_fresh_rop − file_k8_rop | −0.009 [−0.027, +0.008] | [−0.035, +0.014] | 2.482–2.556 against 2.504–2.540 | +0.006 (0.014; 0.68) |
+
+- **By the rule set before the run (69.0), the schedule helps three arms of four.** These are both v2-noise arms (+0.039 and +0.051) and the copies under the file's noise (+0.031).
+  - All three intervals stay above 0 after the correction for six tests.
+  - The member-level check agrees in direction for all three: p 0.009, 0.03, and 0.11 for v2_k8_rop, whose members overlap v2_k8's.
+- **file_fresh_rop does not beat file_fresh** (−0.010 [−0.038, +0.013]; members +0.003, p 0.87).
+  - It carries 4–5% more information on β, ρ and R_γ (69.6), but is no better centred: corr with truth 0.651 against 0.650.
+  - Its coverage sits 0.002–0.006 below file_fresh's. It sharpened without becoming more accurate.
+- **Fresh draws against fixed copies under the schedule:**
+  - Under v2's noise v2_fresh_rop beats v2_k8_rop by the 95% rule (+0.026 [+0.001, +0.051]), but not after the correction for six tests (lower end −0.013).
+  - The member-level check is clearer: +0.064 (p 0.002), with every v2_fresh_rop member above every v2_k8_rop member.
+  - Under the file's noise they tie (−0.009).
+- **Against all earlier 7-wave ensembles:**
+  - v2_fresh_rop's held-out log q, 3.828, is the highest under v2's noise (w07 3.648, v2_k8 3.763, v2_fresh 3.777, v2_k8_rop 3.802). Every v2 network is scored on the same windows (69.7).
+  - Under the file's noise the four ensembles with fresh draws or the schedule sit at 2.604–2.614, above file_k1 and file_k8 (2.582–2.587).
+- **The members gain more than the ensembles** (added after the run).
+
+  | held-out log q: the ensemble over its members' mean | w07 | v2_k8 | v2_fresh | v2_k8_rop | v2_fresh_rop | file_k1 | file_k8 | file_fresh | file_k8_rop | file_fresh_rop |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | members' mean (sd) | 3.471 (0.029) | 3.584 (0.046) | 3.612 (0.040) | 3.627 (0.025) | 3.691 (0.015) | 2.492 (0.011) | 2.494 (0.020) | 2.526 (0.024) | 2.523 (0.013) | 2.529 (0.028) |
+  | ensemble − members' mean | +0.177 | +0.179 | +0.164 | +0.175 | **+0.137** | +0.095 | +0.088 | +0.088 | +0.090 | **+0.075** |
+
+  - Under the schedule the fresh arms' members disagree less at the truth, so the ensemble adds less to them.
+  - So part of their gain does not survive ensembling: +0.078 per member becomes +0.051 for the ensemble under v2's noise, and +0.003 becomes −0.010 under the file's.
+  - The copy arms' ensembles add as much as before.
+
+### 69.6 One household and the population at θ₀
+
+| | v2_k8_rop | v2_fresh_rop | file_k8_rop | file_fresh_rop |
+|---|---|---|---|---|
+| held-out log q | 3.802 | 3.828 | 2.613 | 2.604 |
+| share of prior variance removed: β / δ / ρ / R_γ | 0.524 / 0.492 / 0.542 / 0.478 | 0.531 / 0.492 / 0.548 / 0.483 | 0.423 / 0.406 / 0.457 / 0.419 | 0.426 / 0.410 / 0.459 / 0.421 |
+| corr(posterior mean, truth): β / δ / ρ / R_γ | 0.729 / 0.696 / 0.747 / 0.693 | 0.734 / 0.701 / 0.750 / 0.691 | 0.651 / 0.631 / 0.673 / 0.643 | 0.651 / 0.632 / 0.673 / 0.645 |
+| median posterior sd (SBC): β / ρ | 0.177 / 0.873 | 0.175 / 0.864 | 0.195 / 0.952 | 0.194 / 0.948 |
+| pairs ordered at p ≥ 0.9: β / δ / ρ / R_γ | 0.28 / 0.27 / 0.28 / 0.25 | 0.29 / 0.27 / 0.28 / 0.26 | 0.18 / 0.20 / 0.21 / 0.19 | 0.19 / 0.21 / 0.21 / 0.19 |
+| β 90% width (median), true β 0.1–0.3 | 0.581 | 0.578 | 0.629 | 0.628 |
+| population se at θ₀: β / δ / ρ / R_γ | 0.0159 / 0.0005 / 0.056 / 0.0008 | 0.0157 / 0.0005 / 0.056 / 0.0008 | 0.0192 / 0.0006 / 0.086 / 0.0012 | 0.0186 / 0.0006 / 0.086 / 0.0013 |
+
+68.6 has the counterparts.
+
+| ratio, β / δ / ρ / R_γ | information (held-out) | population se at θ₀ [90%, paired resampling] |
+|---|---|---|
+| v2_k8_rop ÷ v2_k8 | 1.02 / 1.04 / 1.03 / 1.02 | 0.96 [0.93, 1.00] / 0.97 [0.95, 1.00] / 0.96 [0.93, 0.99] / 0.98 [0.97, 1.00] |
+| v2_fresh_rop ÷ v2_fresh | 1.05 / 1.03 / 1.04 / 1.02 | 1.00 [0.97, 1.03] / 1.01 [0.98, 1.04] / 1.00 [0.98, 1.03] / 0.98 [0.97, 1.00] |
+| file_k8_rop ÷ file_k8 | 1.06 / 1.00 / 1.01 / 1.02 | 0.99 [0.96, 1.03] / 1.00 [0.96, 1.04] / 0.96 [0.93, 0.99] / 0.98 [0.96, 1.00] |
+| file_fresh_rop ÷ file_fresh | 1.04 / 1.00 / 1.05 / 1.04 | 0.99 [0.96, 1.03] / 0.99 [0.96, 1.02] / 0.97 [0.94, 1.00] / 0.99 [0.98, 1.01] |
+| v2_fresh_rop ÷ v2_k8_rop | 1.03 / 1.00 / 1.02 / 1.02 | 0.99 [0.95, 1.02] / 0.99 [0.96, 1.02] / 0.99 [0.97, 1.02] / 0.99 [0.98, 1.00] |
+| file_fresh_rop ÷ file_k8_rop | 1.01 / 1.02 / 1.01 / 1.01 | 0.97 [0.94, 1.00] / 0.97 [0.94, 1.00] / 1.00 [0.98, 1.03] / 1.02 [1.00, 1.03] |
+
+- **One household gains 0–6% information under the schedule.**
+  - v2_fresh_rop removes 0.531 of β's prior variance, the most of any 7-wave network so far (w07 0.504, v2_fresh 0.519).
+  - It orders 0.286 of pairs on β at p ≥ 0.9 (w07 0.259).
+- **β below 0.3 barely moves:** a 90% width of 0.578–0.581 against 0.580–0.589 under v2's noise, and 0.628–0.629 against 0.635–0.636 under the file's. Its limit stays behaviour at the borrowing limit (64.12).
+- **The population se at θ₀ stays within the 5% by which ensembles differ** (68.6). β's se under v2's noise is 0.0157–0.0159, inside the earlier 0.0157–0.0165.
+
+### 69.7 Cross-noise: under the schedule v2's networks lose more on the file's noise, and the file's gain on v2's
+
+The held-out draws and households are the same in every cell; only the noise differs (`cross_noise_heldout.py --per_row`):
+
+| network, 90% coverage β / δ / ρ / R_γ (log q) | on v2's noise | on the file's noise |
+|---|---|---|
+| w07 | 0.90 / 0.90 / 0.91 / 0.91 (3.648) | 0.87 / 0.86 / 0.89 / 0.83 (1.509) |
+| v2_k8 | 0.91 / 0.90 / 0.90 / 0.90 (3.763) | 0.86 / 0.85 / 0.88 / 0.82 (1.451) |
+| v2_fresh | 0.91 / 0.89 / 0.91 / 0.91 (3.777) | 0.86 / 0.85 / 0.88 / 0.82 (1.509) |
+| **v2_k8_rop** | 0.91 / 0.90 / 0.90 / 0.91 (3.802) | 0.86 / 0.84 / 0.88 / 0.82 (1.361) |
+| **v2_fresh_rop** | 0.90 / 0.90 / 0.91 / 0.90 (3.828) | 0.86 / 0.84 / 0.88 / 0.81 (1.192) |
+| file_k1 | 0.91 / 0.91 / 0.90 / 0.92 (2.925) | 0.90 / 0.89 / 0.89 / 0.90 (2.587) |
+| file_k8 | 0.91 / 0.90 / 0.91 / 0.92 (2.923) | 0.90 / 0.89 / 0.90 / 0.90 (2.582) |
+| file_fresh | 0.90 / 0.90 / 0.91 / 0.92 (2.950) | 0.90 / 0.89 / 0.90 / 0.90 (2.614) |
+| **file_k8_rop** | 0.91 / 0.90 / 0.90 / 0.92 (2.959) | 0.90 / 0.90 / 0.90 / 0.90 (2.613) |
+| **file_fresh_rop** | 0.91 / 0.90 / 0.90 / 0.92 (2.977) | 0.90 / 0.89 / 0.89 / 0.90 (2.604) |
+
+- **The six networks of 68.7 reproduce it exactly.**
+- **The more closely v2's networks fit v2's noise, the worse they score on the file's.**
+  - On the file's noise v2_fresh_rop scores 1.192 and v2_k8_rop 1.361, against 1.451–1.509 for the constant-rate networks.
+  - So the network 0.051 above v2_fresh on its own noise is 0.32 below it on the file's.
+  - Coverage there is as low as before (0.81–0.88). What falls is the density at the truth.
+- **The file's networks gain on v2's noise under the schedule** (2.959 and 2.977, against 2.923–2.950) and stay calibrated there (0.90–0.92).
+  - A network trained on the heavier noise loses nothing on the lighter one; one tuned more closely to the lighter noise loses more on the heavier.
+- **For PSID, whose noise is neither model's (62.3, 67.8),** the schedule makes v2's networks depend more on v2's noise model being right. The PSID shift in 69.8 is consistent with that, though it does not show it.
+
+### 69.8 PSID couples: the schedule reads couples' β about 0.01 lower; both v2-noise arms put the representative β at 0.428
+
+| PSID couples (409): median of posterior means / median posterior sd | β | δ | ρ | R_γ | ρ means below 1 |
+|---|---|---|---|---|---|
+| v2_k8 (67.8) | 0.485 / 0.181 | 0.9879 / 0.0108 | 2.66 / 0.95 | 1.057 / 0.0101 | 0.7% |
+| v2_fresh (68.8) | 0.483 / 0.181 | 0.9876 / 0.0113 | 2.66 / 0.93 | 1.058 / 0.0100 | 1.0% |
+| **v2_k8_rop** | 0.471 / 0.182 | 0.9882 / 0.0112 | 2.57 / 0.92 | 1.057 / 0.0098 | 1.2% |
+| **v2_fresh_rop** | 0.473 / 0.178 | 0.9889 / 0.0105 | 2.69 / 0.94 | 1.057 / 0.0095 | 0.7% |
+| file_k8 (67.8) | 0.522 / 0.188 | 0.9831 / 0.0138 | 2.73 / 0.98 | 1.060 / 0.0102 | 0% |
+| file_fresh (68.8) | 0.513 / 0.188 | 0.9836 / 0.0141 | 2.73 / 0.99 | 1.060 / 0.0103 | 0.2% |
+| **file_k8_rop** | 0.505 / 0.186 | 0.9831 / 0.0137 | 2.77 / 0.98 | 1.060 / 0.0099 | 0.2% |
+| **file_fresh_rop** | 0.504 / 0.183 | 0.9825 / 0.0140 | 2.75 / 0.97 | 1.060 / 0.0099 | 0.7% |
+
+- **All four schedule arms put couples' median β 0.009–0.017 below their counterparts',** under both noises. The posterior sd barely moves (0.178–0.186).
+  - The shift is small, about a twentieth of a posterior sd, but it goes the same way in all four.
+  - On simulated households the schedule arms are calibrated and as well centred as before (69.3, 69.6). So the shift lies in how the networks read couples, whose data are unlike either simulated noise (62.3).
+
+**The representative θ** (`laibson_comparison.py --refresh 4`, figure 146; bootstrap se):
+
+| | β | δ | ρ | R_γ | |
+|---|---|---|---|---|---|
+| Laibson et al. (reported se) | 0.5305 (0.114) | 0.9891 (0.0051) | 1.94 (0.435) | 1.05, calibrated | |
+| w07 | 0.384 (0.031) | 0.9941 (0.0010) | 1.84 (0.13) | 1.0448 (0.0016) | 66.8; as in 68.8 |
+| v2_k8 | 0.453 (0.026) | 0.9921 (0.0009) | 1.60 (0.085) | 1.0428 (0.0014) | 67.8; as in 68.8 |
+| v2_fresh | 0.444 (0.024) | 0.9924 (0.0008) | 1.68 (0.090) | 1.0443 (0.0014) | 68.8 |
+| **v2_k8_rop** | **0.428** (0.026) | **0.9926** (0.0009) | **1.67** (0.089) | **1.0441** (0.0015) | converged; misfit ≤ 0.18 se |
+| **v2_fresh_rop** | **0.428** (0.027) | **0.9926** (0.0009) | **1.75** (0.093) | **1.0456** (0.0015) | converged; misfit ≤ 0.15 se |
+| file_k1 | 0.151 (0.023) | 0.9989 (0.0003) | 1.94 (0.22) | 1.0466 (0.0037) | 68.8; 1.3% of the bootstrap past β's floor |
+| file_k8 | 0.179 (0.051) | 0.9987 (0.0013) | 2.34 (0.31) | 1.0503 (0.0054) | 68.8; 6.8% past β's floor |
+| file_fresh | 0.149 (0.037) | 0.9989 (0.0024) | 2.10 (0.25) | 1.0487 (0.0041) | 68.8; 9.0% past β's floor |
+| **file_k8_rop** | **0.188** (0.047) | **0.9986** (0.0009) | **2.53** (0.37) | **1.0514** (0.0049) | converged; misfit ≤ 0.24 se; 4.9% past β's floor |
+| **file_fresh_rop** | **0.191** (0.036) | **0.9984** (0.0007) | **2.34** (0.34) | **1.0503** (0.0036) | converged; misfit ≤ 0.21 se; 1.1% past β's floor |
+| v2_b010 | 0.437 (0.027) | 0.9928 (0.0009) | 1.58 (0.085) | 1.0423 (0.0014) | 63.10 |
+| typical_b010 | 0.132 (0.019) | 0.9991 (0.0003) | 1.95 (0.34) | 1.0382 (0.0017) | 63.10 |
+| gross_b010 | 0.157 (0.011) | 0.9986 (0.0002) | 1.11 (0.079) | 1.0364 (0.0009) | 63.10 |
+
+All nine of 68.8's arms reproduce exactly, θ and se: the four new arms come last in the shared bootstrap stream.
+
+- **Both v2-noise schedule ensembles put couples' representative β at 0.428.**
+  - That lies between w07's 0.384 and v2_k8's 0.453, and 0.009 below v2_b010's 0.437 (a third of a bootstrap se). Their ρ is 1.67 and 1.75.
+  - The lower β comes from the PSID side of the fit. PSID couples read lower (mean β 0.491–0.492, against 0.501–0.502 for v2_k8, v2_fresh and v2_b010), while simulated couples at Laibson et al.'s θ come out as before (0.553–0.557 against 0.552–0.558).
+- **Five 7-wave v2-noise ensembles on one window and one set of draws now give β 0.384–0.453:** sd 0.027, about one bootstrap se (0.024–0.031).
+  - Without w07 the four give 0.428–0.453 (sd 0.012).
+  - The two best by held-out log q both give 0.428, so better training does not move β one way. 68.8's question, whether w07's low β is its weaker training or chance, finds no trend to answer it.
+- **The file's noise gives 0.188 and 0.191,** beside 0.149–0.179 for its other three ensembles and typical's and gross's 0.13–0.16. Five file-noise ensembles span 0.149–0.191 (sd 0.020).
+- **§1's reference does not change.** v2_b010's 0.437 lies inside the five ensembles' range, and the noise model's 0.3 in β is still about four times that whole range (0.070). §1's ensemble caveat now cites the five.
+
+### 69.9 Reading
+
+- **Reduce-on-plateau helps; the harder stop does not.**
+  - By the rule set before the run, the schedule raises held-out log q for three arms of four: +0.039 (v2's copies), +0.051 (v2's fresh draws) and +0.031 (the file's copies). All three stand after the correction for six tests. Under the file's noise with fresh draws it does nothing (−0.010).
+  - The gain is in the lower rates: every best came after one to six halvings.
+  - The extra patience bought nothing. In all 20 members a stop after 20 passes would have kept the same weights. Patience 60 cost 40 passes per member, about a third of its training, and the last one or two cuts and the floor never produced a gain.
+- **v2_fresh_rop is now the best 7-wave v2-noise network:** held-out log q 3.828, against w07's 3.648 and v2_fresh's 3.777.
+  - Under the schedule fresh draws beat fixed copies by the 95% rule (+0.026), but not after the six-test correction. Their members separate clearly (p 0.002).
+  - It needs 0.50 GB of GPU memory against the copies' 3.63, and about 2.6 h per member at patience 60.
+- **The price is robustness to the noise model.**
+  - On the file's noise v2's schedule networks score 0.09–0.32 log q below the constant-rate ones, with coverage as low as before.
+  - PSID couples' β reads about 0.01 lower under all four schedule arms, and couples' representative β is 0.428 under both v2-noise arms.
+- **Nothing downstream moves beyond the ensemble spread.**
+  - One household gains up to 6% information.
+  - β below 0.3 and the population se at θ₀ barely move.
+  - Five v2-noise ensembles give couples' representative β 0.384–0.453 (sd 0.027, about one bootstrap se). §1 keeps v2_b010 (0.437), and its caveat now cites five ensembles.
+- **For a training default the CSVs point to** the schedule with RESULTS 67/68's patience of 20 passes, at about 1.1–1.3 times the constant rate's passes. A floor near 3e-5 would lose nothing. Whether to adopt fresh draws and the schedule as the default, and whether to retrain §1's reference with them, is the user's decision. My expectation is that couples' representative β would land within the better-trained ensembles' 0.428–0.453.
+- **Nothing more is run.**
+- **Caveats:**
+  - **One schedule:** factor 0.5, a cut at 5 passes, floor 1e-5, starting rate 1e-3.
+  - **The copy arms' coarser cuts:** one 8-pass epoch per rate, with the cut after the first epoch without a gain. They trained 2–3 epochs at the floor, not the one planned (69.0), because one or two cuts came before their best.
+  - **The patience reading is post hoc,** on the trajectories as trained. A run with a shorter patience would follow them only up to the GPU's nondeterminism; a same-seed rerun landed 0.012 away in best validation loss (69.2).
+  - **Six tests.** The Bonferroni column, the ensemble-over-members measure and the patience measure were added after the run.
+  - **The restart:** two members retrained from scratch after the server's shutdown (69.2).
+  - **The file's noise caveats** (67.9).
+  - **One θ₀** for the population se.
+  - **Simulated households,** except the PSID rows.
+
+**Figures:**
+- 140: training curves and learning rates from the CSVs, against passes;
+- 141–144: SBC ranks for the four arms;
+- 145: paired log q, information and population se;
+- 146: PSID couples' representative θ under every arm against Laibson et al.'s point, 68/95%;
+- 147–148: a simulated and a PSID household under v2_fresh_rop, 68/95%.
+
+**Training CSVs:** `training_metrics/lr_plateau/<arm>/w07/s<seed>.csv`, beside RESULTS 68's in `training_metrics/fresh_noise/` and 67's in `training_metrics/noise_copies/`. Each row carries the rate its epoch trained at (`lr`).
+
+**Reproduce** (from the chain's outputs):
+
+    PYTHONPATH=.:src .venv/bin/python scripts/lr_plateau.py measures    # 69.2-69.8 (logs/lr_plateau_measures.log)
+    PYTHONPATH=.:src .venv/bin/python scripts/lr_plateau.py figures     # 140, 145
+    PYTHONPATH=.:src .venv/bin/python scripts/laibson_comparison.py --replot \
+        --out outputs/lr_plateau/laibson_comparison.json \
+        --figure figures/146_laibson_comparison_lr_plateau.png --title "..."   # 146; the title is stage 5's in run_lr_plateau.sh
+    PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_lr_plateau.py

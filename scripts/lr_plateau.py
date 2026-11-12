@@ -26,7 +26,11 @@ Commands:
     stop, the cap), each member's learning rate rebuilt from its validation
     losses (:func:`expected_lr`) against the rate its CSV logged,
     cross-noise, PSID couples and the representative theta (RESULTS 68's
-    arms checked unchanged).
+    arms checked unchanged). Added after the run: the paired interval for
+    the six tests (Bonferroni), the ensemble's log q over its members', and
+    per member whether the CSV is sbi's record, the lowest rate a gain came
+    at, the passes at the floor and what RESULTS 67/68's patience of 20
+    passes would have kept on the same trajectory (:func:`patience_kept`).
 
 ``figures``
     140 (training curves and learning rates from the CSVs) and 145 (paired
@@ -134,11 +138,37 @@ def schedule_check(csv: Path, run: Path) -> dict:
             "ok": bool(err < 1e-5 and cuts == summ["lr_cut_after_epochs"])}
 
 
+def patience_kept(val_loss, patience: int) -> dict:
+    """What a stop after ``patience`` epochs without a gain would have kept on
+    this trajectory: the epoch it stops at (None if it never fires) and the
+    best validation loss by then; and the longest run of epochs without a gain
+    before the final best. The schedule's cuts depend only on the validation
+    losses before them, so up to that stop a shorter patience trains the same
+    way (up to the GPU's nondeterminism) and restores the best weights by then.
+    Added after the run (69.4)."""
+    best, since, stop, longest = np.inf, 0, None, 0
+    b = int(np.nanargmin(val_loss))
+    for e, v in enumerate(val_loss, start=1):
+        if v < best:
+            best, since = v, 0
+        else:
+            since += 1
+            if e <= b + 1:
+                longest = max(longest, since)
+        if stop is None and since >= patience:
+            stop, kept = e, best
+    return {"stop_epoch": stop, "best_then": float(kept if stop else best),
+            "longest_no_gain_before_best": longest}
+
+
 def training_extra(arm_dir: Path, run: Path, arm: str) -> dict:
     """Per member: the rise in validation loss from the best to the stop,
     the cap and whether the best weights were restored there, and for the
     plateau arms the cuts, the rate at the best, passes to the stop and to
-    the floor, and :func:`schedule_check`."""
+    the floor, :func:`schedule_check`, and (added after the run) whether the
+    CSV is sbi's record epoch for epoch, the lowest rate any gain came at,
+    the passes trained at the floor and :func:`patience_kept` for RESULTS
+    67/68's patience of 20 passes."""
     out = {}
     for f in sorted(arm_dir.glob("s[0-9]*.csv")):
         m = tm.read(f)
@@ -153,12 +183,40 @@ def training_extra(arm_dir: Path, run: Path, arm: str) -> dict:
                "passes_at_stop": float(m["passes"][-1])}
         if arm in NEW:
             floor = cfg["lr_plateau"]["min_lr"]
+            k = cfg.get("noise_copies", 1)
             at_floor = np.flatnonzero(np.isclose(m["lr"], floor, rtol=1e-5))
+            v = np.asarray(m["val_loss"])
+            gains = [e for e in range(1, len(v)) if v[e] < v[:e].min()]
+            kept = patience_kept(v, -(-20 // k))
             rec |= {"lr_at_best": float(m["lr"][b]), "n_cuts": len(summ["lr_cut_after_epochs"]),
                     "passes_at_floor": float(m["passes"][at_floor[0]]) if len(at_floor) else None,
-                    "schedule": schedule_check(f, run)}
+                    "schedule": schedule_check(f, run),
+                    "csv_matches_summary": bool(
+                        np.array_equal(m["epoch"], np.arange(1, len(summ["validation_loss"]) + 1))
+                        and np.allclose(m["val_loss"], summ["validation_loss"], rtol=1e-5, atol=0)
+                        and np.allclose(m["train_loss"], summ["training_loss"], rtol=1e-5,
+                                        atol=0)),
+                    "lowest_rate_of_a_gain": float(min(m["lr"][e] for e in gains)),
+                    "passes_trained_at_floor": int(len(at_floor) * k),
+                    "patience_20": {**kept, "longest_no_gain_before_best":
+                                    kept["longest_no_gain_before_best"] * k,
+                                    "stop_passes": kept["stop_epoch"] and kept["stop_epoch"] * k,
+                                    "same_best": bool(kept["best_then"] == v[b])}}
         out[f.stem] = rec
     return out
+
+
+def bonferroni(d: np.ndarray, w: np.ndarray, m: int, n_boot: int, seed: int) -> list[float]:
+    """The paired interval of :func:`noise_copies.paired_log_q` at level
+    1 - 0.05/m (the six tests set before the run), from ``n_boot`` households
+    resampled. Added after the run (69.5)."""
+    ok = np.isfinite(d) & np.isfinite(w)
+    d, w = d[ok], w[ok]
+    rng = np.random.default_rng(seed)
+    boot = [(w[i] * d[i]).sum() / w[i].sum()
+            for i in (rng.integers(0, len(d), len(d)) for _ in range(n_boot))]
+    a = 0.05 / m / 2
+    return np.percentile(boot, [100 * a, 100 * (1 - a)]).tolist()
 
 
 # -------------------------------------------------------------------- measures
@@ -203,12 +261,21 @@ def measures(args) -> None:
         for dup, orig in NOISE_OF.items():
             if dup != orig and not np.array_equal(rows[f"{net}__{dup}"], rows[f"{net}__{orig}"]):
                 raise SystemExit(f"{net}: {dup}'s held-out windows differ from {orig}'s")
+    for a in ARMS:   # added after the run (69.5): what the ensemble adds to its members
+        h = json.loads((run_dir(a, *roots) / "heldout_check.json").read_text())
+        mem = fn.member_log_q(run_dir(a, *roots))
+        A[a]["members"] = {"mean": float(mem.mean()), "sd": float(mem.std(ddof=1)),
+                           "ensemble_minus_mean": float(h["ensemble"]["log_q_weighted"]
+                                                        - mem.mean())}
     cmp_ = {}
     for a, b in PAIRS:
         n = NOISE_OF[a]
+        lq = nc.paired_log_q({k: rows[f"{k}__{n}"] for k in (a, b)}, w, a, b,
+                             args.n_boot, args.seed)
+        lq[f"ci_bonferroni{len(PAIRS)}"] = bonferroni(rows[f"{a}__{n}"] - rows[f"{b}__{n}"], w,
+                                                      len(PAIRS), 10 * args.n_boot, args.seed)
         cmp_[f"{a}/{b}"] = {
-            "log_q": nc.paired_log_q({k: rows[f"{k}__{n}"] for k in (a, b)}, w, a, b,
-                                     args.n_boot, args.seed),
+            "log_q": lq,
             "on_noise": n,
             "members": fn.member_diff(*(fn.member_log_q(run_dir(k, *roots)) for k in (a, b))),
             "info": nf.info_ratio(A[a]["heldout"]["contraction"], A[b]["heldout"]["contraction"]),
@@ -267,6 +334,25 @@ def measures(args) -> None:
         print(f"{k:28s} member means {m['diff']:+.3f} (se {m['se']:.3f}, Welch p "
               f"{m['welch_p']:.3f}); members {m['range_a'][0]:.3f}-{m['range_a'][1]:.3f} "
               f"against {m['range_b'][0]:.3f}-{m['range_b'][1]:.3f}")
+    print(f"\nadded after the run: the paired interval for {len(PAIRS)} tests (Bonferroni)")
+    for k, c in cmp_.items():
+        lo, hi = c["log_q"][f"ci_bonferroni{len(PAIRS)}"]
+        print(f"{k:28s} {c['log_q']['diff']:+.3f} [{lo:+.3f}, {hi:+.3f}]")
+    print("\nadded after the run: the ensemble's held-out log q over its members' mean")
+    for a in ARMS:
+        m = A[a]["members"]
+        print(f"{a:15s} members {m['mean']:.3f} (sd {m['sd']:.3f}); ensemble "
+              f"{A[a]['heldout']['log_q']:.3f}, {m['ensemble_minus_mean']:+.3f} over the mean")
+    print("\nadded after the run: per member, CSV = sbi's record; lowest rate of a gain; "
+          "passes at the floor; RESULTS 67/68's patience of 20 passes on the same trajectory")
+    for a in NEW:
+        for s, v in A[a]["training_extra"].items():
+            p = v["patience_20"]
+            print(f"{a:15s} {s} csv {v['csv_matches_summary']}; lowest gain rate "
+                  f"{v['lowest_rate_of_a_gain']:.3g}; {v['passes_trained_at_floor']} passes at "
+                  f"the floor; longest run without a gain before the best "
+                  f"{p['longest_no_gain_before_best']} passes; patience 20 stops at "
+                  f"{p['stop_passes']} passes with the same best: {p['same_best']}")
     if "representative_unchanged_from_68" in res:
         same = res["representative_unchanged_from_68"]
         changed = [k for k, v in same.items() if not v]

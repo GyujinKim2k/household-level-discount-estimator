@@ -144,6 +144,28 @@ def test_each_arm_lives_where_the_chain_puts_it():
     assert len(set(lp.COLOR[a] for a in lp.ARMS)) == len(lp.ARMS)
 
 
+def test_what_a_shorter_patience_would_have_kept():
+    # gains at 1, 2, 5 (after 2 bad), 9 (after 3 bad), then 4 bad to the stop
+    val = [3.0, 2.9, 2.95, 2.96, 2.8, 2.85, 2.86, 2.87, 2.7, 2.75, 2.76, 2.77, 2.78]
+    assert lp.patience_kept(val, 4) == {"stop_epoch": 13, "best_then": 2.7,
+                                        "longest_no_gain_before_best": 3}
+    # patience 3 fires after epochs 6-8 without a gain: epoch 9's gain is lost
+    assert lp.patience_kept(val, 3) == {"stop_epoch": 8, "best_then": 2.8,
+                                        "longest_no_gain_before_best": 3}
+    assert lp.patience_kept(val, 50)["stop_epoch"] is None
+
+
+def test_the_bonferroni_interval_holds_the_95_one():
+    rng = np.random.default_rng(3)
+    d, w = rng.normal(0.03, 0.5, 2048), rng.uniform(0.5, 1.5, 2048)
+    lo, hi = lp.bonferroni(d, w, 6, 4000, 0)
+    rng0 = np.random.default_rng(0)
+    lo95, hi95 = np.percentile([(w[i] * d[i]).sum() / w[i].sum() for i in
+                                (rng0.integers(0, 2048, 2048) for _ in range(4000))], [2.5, 97.5])
+    assert lo < lo95 < hi95 < hi
+    assert lp.bonferroni(d, w, 1, 4000, 0) == pytest.approx([lo95, hi95])
+
+
 def test_the_schedule_check_catches_a_rate_off_the_rule(tmp_path):
     # bad at 3, 4: cut after 4, the count restarts (5 is the first bad), a gain at 6,
     # bad at 7, 8: cut after 8
