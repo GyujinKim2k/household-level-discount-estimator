@@ -56,14 +56,20 @@ ARMS = {   # arm: (members' output directory, PSID couples, PSID all 889)
     "gross": ("outputs/optionA2v2_noise_gross",
               "outputs/psid_optionA2v2_noise_gross_couples",
               "outputs/psid_optionA2v2_noise_gross_all"),
-    # RESULTS 63: v2 on the box with the beta strip below 0.3 (RESULTS 1 since 2026-11-05)
+    # RESULTS 63: v2 on the box with the beta strip below 0.3 (RESULTS 1, 2026-11-05 to 11-14)
     "v2_b010": ("outputs/optionA2v2_b010", "outputs/psid_optionA2v2_b010_couples",
                 "outputs/psid_optionA2v2_b010_all"),
+    # RESULTS 69: w07's window, a new noise draw every epoch, the plateau schedule
+    # (RESULTS 1 since 2026-11-14, RESULTS 70)
+    "v2_fresh_rop": ("outputs/lr_plateau/v2_fresh_rop/w07",
+                     "outputs/lr_plateau/v2_fresh_rop/psid_w07_couples",
+                     "outputs/lr_plateau/v2_fresh_rop/psid_w07_all"),
 }
 SBC_SHARDS = Path("data/processed/optionA2v2_sbc16_shards")
 #: an arm's SBC sets, in the order ``sbc_optionA2 --shards`` took them, and its beta floor
-SBC_SETS = {"v2_b010": (SBC_SHARDS, Path("data/processed/optionA2v2_sbc16_betastrip_shards"))}
-BETA_LOW = {"v2_b010": 0.10}
+SBC_SETS = {a: (SBC_SHARDS, Path("data/processed/optionA2v2_sbc16_betastrip_shards"))
+            for a in ("v2_b010", "v2_fresh_rop")}
+BETA_LOW = {"v2_b010": 0.10, "v2_fresh_rop": 0.10}
 NAMES = ("beta", "delta", "crra", "R_gamma")
 PER_DRAW = 16
 Z90 = stats.norm.ppf(0.9)
@@ -72,7 +78,8 @@ OUT = Path("outputs/household_resolution/household_resolution.json")
 FIG = Path("figures/80_household_resolution.png")
 #: the typical gross-arm couple's weighted posterior draws (figure 76)
 COUPLE = Path("figures/76_psid_household_optionA2v2_noise_gross.npz")
-ARM_COLOR = {"v2": "#3B75AF", "typical": "#8D69B8", "gross": "#C53A32", "v2_b010": "#3B75AF"}
+ARM_COLOR = {"v2": "#3B75AF", "typical": "#8D69B8", "gross": "#C53A32", "v2_b010": "#3B75AF",
+             "v2_fresh_rop": "#C9A100"}
 LIMITS = {"beta": (0.30, 1.00), "delta": (0.85, 1.00), "crra": (0.50, 5.00)}  # the box
 VIEW = {**LIMITS, "delta": (0.88, 1.00)}
 LABEL = {"beta": r"$\beta$", "delta": r"$\delta$", "crra": r"$\rho$", "R_gamma": r"$R_\gamma$"}
