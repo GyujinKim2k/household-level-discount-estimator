@@ -161,12 +161,14 @@ def patience_kept(val_loss, patience: int) -> dict:
             "longest_no_gain_before_best": longest}
 
 
-def training_extra(arm_dir: Path, run: Path, arm: str) -> dict:
+def training_extra(arm_dir: Path, run: Path, arm: str,
+                   plateau: bool | None = None) -> dict:
     """Per member: the rise in validation loss from the best to the stop,
     the cap and whether the best weights were restored there, and for the
-    plateau arms the cuts, the rate at the best, passes to the stop and to
-    the floor, :func:`schedule_check`, and (added after the run) whether the
-    CSV is sbi's record epoch for epoch, the lowest rate any gain came at,
+    plateau arms (``arm in NEW``, or ``plateau``; RESULTS 71) the cuts, the
+    rate at the best, passes to the stop and to the floor,
+    :func:`schedule_check`, and (added after the run) whether the CSV is
+    sbi's record epoch for epoch, the lowest rate any gain came at,
     the passes trained at the floor and :func:`patience_kept` for RESULTS
     67/68's patience of 20 passes."""
     out = {}
@@ -181,7 +183,7 @@ def training_extra(arm_dir: Path, run: Path, arm: str) -> dict:
                "restored_best_at_cap": bool(summ.get(
                    "restored_best_at_cap", cfg.get("fresh_noise_restored_best_at_cap", False))),
                "passes_at_stop": float(m["passes"][-1])}
-        if arm in NEW:
+        if (arm in NEW) if plateau is None else plateau:
             floor = cfg["lr_plateau"]["min_lr"]
             k = cfg.get("noise_copies", 1)
             at_floor = np.flatnonzero(np.isclose(m["lr"], floor, rtol=1e-5))

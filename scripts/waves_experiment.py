@@ -398,18 +398,20 @@ def arm_measures(run: Path) -> dict:
             "underfit": underfit(run)}
 
 
-def psid_cov() -> tuple[np.ndarray, np.ndarray]:
+def psid_cov(reference: Path = REFERENCE, arm: str = PSID_ARM) -> tuple[np.ndarray, np.ndarray]:
     """PSID couples' 7-wave covariance of the representative theta under
-    v2_b010 (RESULTS 63.10), and its standard errors."""
-    ref = json.loads(REFERENCE.read_text())["arms"][PSID_ARM]
+    ``arm`` in ``reference`` (laibson_comparison.py's output; by default
+    v2_b010, RESULTS 63.10), and its standard errors."""
+    ref = json.loads(Path(reference).read_text())["arms"][arm]
     se = np.array(ref["representative_se"])
     return np.outer(se, se) * np.array(ref["representative_corr"]), se
 
 
-def psid_cases(se_by_arm: dict, base: str, v_hom) -> tuple[dict, dict]:
+def psid_cases(se_by_arm: dict, base: str, v_hom, psid=None) -> tuple[dict, dict]:
     """:func:`psid_scale` for each arm, its homogeneous se over ``base``'s
-    as the ratio; and the remainder."""
-    v_psid, se = psid_cov()
+    as the ratio; and the remainder. ``psid``: :func:`psid_cov`'s output,
+    v2_b010's by default (RESULTS 71 passes v2_fresh_rop's)."""
+    v_psid, se = psid_cov() if psid is None else psid
     b = np.array(se_by_arm[base])
     out = {}
     for name, s_n in se_by_arm.items():

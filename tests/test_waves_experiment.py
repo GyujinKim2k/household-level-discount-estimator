@@ -225,7 +225,7 @@ SHARDS = [oa.Path(p) for p in ("data/processed/couples_v2_dataset_shards",
 @pytest.mark.skipif(not all(p.exists() for p in SHARDS), reason="v2's shards are not here")
 @pytest.mark.parametrize("which", [0, 2, 3])        # a held-out shard of each run
 def test_every_arms_windows_are_the_stored_panels_read_by_hand(which):
-    """RESULTS 64.1 gate 2 (and 65's annual arms): a wave's stocks are the
+    """RESULTS 64.1 gate 2 (and 65's annual arms, 71's a07 and a10): a wave's stocks are the
     panel's at the start of its last year, its flows the year before
     (flow_lag 1); every start inside the arm's range, every year read inside
     24-64."""
@@ -240,7 +240,7 @@ def test_every_arms_windows_are_the_stored_panels_read_by_hand(which):
     assert lag == 1
     panel = {k[len(PANEL_PREFIX):]: d[k] for k in d.files if k.startswith(PANEL_PREFIX)}
     m = len(panel["t_age"]) // (hi - lo)
-    for label in [we.arm_label(n) for n in we.WAVES] + ["a14", "a20"]:
+    for label in [we.arm_label(n) for n in we.WAVES] + ["a07", "a10", "a14", "a20"]:
         n, wy = we.parse_arm(label)
         win = {**oa.WINDOW, "n_waves": n, "start_low": we.start_low(wy),
                "start_high": we.start_high(n, wy), "wave_years": wy}

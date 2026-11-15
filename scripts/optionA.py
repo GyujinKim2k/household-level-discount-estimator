@@ -319,6 +319,35 @@ MASKABLE = ("consumption", "liquid_assets", "illiquid_assets")
 MASK_SEED = 529_000
 
 
+#: RESULTS 71: the training default for new runs (the user, 2026-11-14): a new
+#: noise draw every epoch (RESULTS 68) and RESULTS 69's plateau rule, with the
+#: patience of 20 passes (RESULTS 69.4: it keeps the weights 60 kept) and a cap
+#: of 600. ``train --recipe plateau_fresh`` sets these flags and writes the
+#: config they write; a bare ``train`` keeps the old settings, so the run
+#: scripts committed before keep their meaning.
+RECIPES = {"plateau_fresh": {"fresh_noise": True, "lr_plateau": 5, "lr_factor": 0.5,
+                             "lr_floor": 1e-5, "patience": 20, "cap": 600}}
+
+
+def apply_recipe(args, parser: argparse.ArgumentParser) -> None:
+    """Set ``args.recipe``'s flags on ``args`` (``parser``: the train
+    subparser, for the defaults), refusing any of them also given with
+    another value, noisy copies, and windows without noise to redraw."""
+    if getattr(args, "recipe", None) is None:
+        return
+    for k, v in RECIPES[args.recipe].items():
+        given = getattr(args, k)
+        if given != parser.get_default(k) and given != v:
+            raise SystemExit(f"--recipe {args.recipe} sets --{k} {v}; got --{k} {given}")
+        setattr(args, k, v)
+    if args.noise_copies > 1:
+        raise SystemExit(f"--recipe {args.recipe} draws new noise every epoch; "
+                         f"it takes no --noise_copies")
+    if not args.obs_noise and args.noise_model is None:
+        raise SystemExit(f"--recipe {args.recipe} draws new noise every epoch; "
+                         f"give --obs_noise or --noise_model")
+
+
 def schedule(copies: int, patience: int, cap: int, plateau: int | None = None,
              factor: float = 0.5, floor: float = 1e-5) -> tuple:
     """Patience, the cap and the plateau rule, given in passes over the clean
@@ -1228,6 +1257,14 @@ def verify(args) -> None:
 
 
 def main() -> None:
+    args = parse()
+    if args.cmd == "evaluate":
+        args.out.mkdir(parents=True, exist_ok=True)
+    {"verify": verify, "train": train, "evaluate": evaluate, "psid": psid}[args.cmd](args)
+
+
+def parse(argv=None) -> argparse.Namespace:
+    """The command line, a train ``--recipe`` applied (:func:`apply_recipe`)."""
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1289,6 +1326,10 @@ def main() -> None:
                         "passes in a row without a gain, in whole epochs (RESULTS 69).")
     t.add_argument("--lr_factor", type=float, default=0.5)
     t.add_argument("--lr_floor", type=float, default=1e-5)
+    t.add_argument("--recipe", choices=sorted(RECIPES), default=None,
+                   help="The training default for new runs (RESULTS 71): plateau_fresh "
+                        "sets --fresh_noise --lr_plateau 5 --lr_factor 0.5 --lr_floor 1e-5 "
+                        "--patience 20 --cap 600. Without it the flags keep their defaults.")
     t.add_argument("--metrics_dir", type=Path, default=None,
                    help=f"Where the per-epoch CSV goes besides the member's metrics.csv "
                         f"(default {METRICS_DIR}/<the output path after outputs/>).")
@@ -1320,10 +1361,10 @@ def main() -> None:
                    help="Multiply PSID's negative liquid wealth (card debt) by this: "
                         "the alpha = 2.02 check (RESULTS 42.3, 43.11).")
     p.add_argument("--out", type=Path, default=Path("outputs/psid_optionA"))
-    args = ap.parse_args()
-    if args.cmd == "evaluate":
-        args.out.mkdir(parents=True, exist_ok=True)
-    {"verify": verify, "train": train, "evaluate": evaluate, "psid": psid}[args.cmd](args)
+    args = ap.parse_args(argv)
+    if args.cmd == "train":
+        apply_recipe(args, t)
+    return args
 
 
 if __name__ == "__main__":
