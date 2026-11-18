@@ -99,7 +99,9 @@ class EpochCSV:
     instance and logs each epoch the first time it is seen, after sbi has
     updated its best loss. Gradient norms are the values sbi's own
     ``clip_grad_norm_`` returns, recorded without changing the call.
-    Nothing here draws random numbers or touches the optimisation."""
+    Nothing here draws random numbers or touches the optimisation. Floats keep
+    9 significant digits (6 before RESULTS 72: below a rate of 1e-5 a gain can
+    be smaller than 6 digits show, RESULTS 71.4)."""
 
     def __init__(self, paths, passes_per_epoch: int = 1):
         self.paths = [Path(p) for p in paths]
@@ -169,7 +171,7 @@ class EpochCSV:
                inference.optimizer.param_groups[0]["lr"], len(inference.train_indices),
                len(inference.val_indices), mem)
         for f in self.files:
-            csv.writer(f).writerow([f"{v:.6g}" if isinstance(v, float) else v for v in row])
+            csv.writer(f).writerow([f"{v:.9g}" if isinstance(v, float) else v for v in row])
             f.flush()
 
 

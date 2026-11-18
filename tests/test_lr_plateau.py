@@ -88,7 +88,9 @@ def _train(tmp_path=None, plateau=None, epochs=30, patience=100, lr=1e-3):
 
 
 @pytest.mark.parametrize("plateau", [{"factor": 0.5, "patience": 1, "min_lr": 1e-3 / 16},
-                                     {"factor": 0.3, "patience": 0, "min_lr": 1e-4}])
+                                     {"factor": 0.3, "patience": 0, "min_lr": 1e-4},
+                                     # RESULTS 72: below 1e-5, down to its floor of 1e-7
+                                     {"factor": 0.1, "patience": 0, "min_lr": 1e-7}])
 def test_the_logged_rate_is_the_rule_rebuilt_from_the_validation_losses(tmp_path, plateau):
     _p, _d, inf = _train(tmp_path, plateau)
     m = tm.read(tmp_path / "s0.csv")
