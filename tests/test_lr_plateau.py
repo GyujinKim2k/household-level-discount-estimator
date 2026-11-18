@@ -190,3 +190,28 @@ def test_the_schedule_check_catches_a_rate_off_the_rule(tmp_path):
     assert lp.schedule_check(tmp_path / "s0.csv", run)["ok"]
     write(np.r_[lr[:5], [1e-3] * 4])                  # a cut that did not happen
     assert not lp.schedule_check(tmp_path / "s0.csv", run)["ok"]
+
+
+def test_gains_below_the_csv_s_precision_count(tmp_path):
+    """RESULTS 71.4: at the floor a gain can be below the CSV's 6 significant
+    digits; the stop's measures read sbi's record, as the stop itself did."""
+    val = 1.0 - 1e-8 * np.arange(25)                  # a gain every epoch, all "1" in the CSV
+    run, mdir = tmp_path / "run", tmp_path / "metrics"
+    (run / "s0").mkdir(parents=True)
+    mdir.mkdir()
+    (run / "s0" / "results.json").write_text(json.dumps(
+        {"_config": {"lr_plateau": {"factor": 0.5, "patience": 100, "min_lr": 1e-5}}}))
+    (run / "s0" / "training_summary.json").write_text(json.dumps(
+        {"lr_cut_after_epochs": [], "validation_loss": val.tolist(),
+         "training_loss": val.tolist()}))
+    with (mdir / "s0.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(METRIC_COLUMNS)
+        for e, v in enumerate(val, start=1):
+            w.writerow([dict(epoch=e, passes=e, val_loss=f"{v:.6g}", train_loss=f"{v:.6g}",
+                             lr="0.001").get(c, 0) for c in METRIC_COLUMNS])
+    assert lp.patience_kept(tm.read(mdir / "s0.csv")["val_loss"], 20)["stop_epoch"] == 21
+    rec = lp.training_extra(mdir, run, "x", plateau=True)["s0"]
+    assert rec["csv_matches_summary"] and rec["schedule"]["ok"]
+    assert rec["patience_20"]["longest_no_gain_before_best"] == 0
+    assert rec["patience_20"]["stop_epoch"] is None

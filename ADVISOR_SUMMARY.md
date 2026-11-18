@@ -1,6 +1,6 @@
 # Household-level preference estimation from PSID — summary for review
 
-*Updated 2026-11-15. This replaces the summary of 2026-09-28, whose headline (β 0.85, ρ 4.5, "no detectable β heterogeneity") has since been superseded or withdrawn; see "How we got here". Section numbers (§) refer to `RESULTS.md`, the full record. The plan for the end of the project is `CONCLUSION_DIRECTION.md`.*
+*Updated 2026-11-18 (§71's results). This replaces the summary of 2026-09-28, whose headline (β 0.85, ρ 4.5, "no detectable β heterogeneity") has since been superseded or withdrawn; see "How we got here". Section numbers (§) refer to `RESULTS.md`, the full record. The plan for the end of the project is `CONCLUSION_DIRECTION.md`.*
 
 ---
 
@@ -21,7 +21,7 @@
 
    - Ours lies within their reported errors.
    - Our standard errors are 1.9–2.2 times smaller than their sampling-only ones, from 409 couples against their 5,710 SCF households.
-4. **More waves.** On simulated households, precision keeps growing with the number of waves (2.1–2.3 times the information at 20 waves), and annual data carry more than biennial in the same years. Longer panels would estimate much more precisely.
+4. **More waves.** On simulated households, precision keeps growing with the number of waves (2.2–2.4 times the information at 20 biennial waves, §71). The model is calibrated on annual panels too: seven annual waves tell one household about as much as PSID's seven biennial ones, and in the same years annual data carry about twice the information on β. Longer panels would estimate much more precisely.
 
 **The main caveat** is the noise model. How much measurement error PSID's data carry moves the population β by 0.24–0.30, about ten of our standard errors. Every population claim is therefore made under our reference noise model, with the alternatives reported beside it.
 
@@ -58,7 +58,7 @@
 | Nov 1 | Conclusion direction set by the user | The four-point story above (`CONCLUSION_DIRECTION.md`) |
 | Nov 6–8 | Waves experiment on simulated households | 7 to 20 biennial waves (§64), annual waves (§65), and noise-free arms (§66) |
 | Nov 9–14 | Training improvements, and a new reference | Noisy copies (§67), a new noise draw every epoch (§68) and reduce-on-plateau (§69) raise held-out log q. The best network, v2_fresh_rop, becomes the reference (user, §70) |
-| Nov 15 | Now running | The waves experiment rerun with the current model and training, biennial and annual (§71) |
+| Nov 15–17 | Waves experiment with the current model (§71) | The current training beats the old at every length; precision grows with waves at both spacings; per household, the number of waves matters more than their spacing |
 
 ---
 
@@ -122,28 +122,31 @@ The representative θ is the single θ whose simulated households the network re
 - **The old headline is reversed.** β 0.85 sat inside the experimental meta-analyses' band [0.66, 0.94]. Now 20% of couples' estimates do.
 - **Figure:** `figures/146_laibson_comparison_lr_plateau.png`, their point and covariance against our representative θ under every noise model, 68/95%.
 
-### 3.6 More waves and annual waves (simulated households, previous training recipe, §64–66)
+### 3.6 More waves and annual waves (simulated households, the current model and training, §71)
 
-- **More biennial waves** (7 to 20, every window inside ages 24–64): one household's data carry 2.1–2.3 times the information, and the curve has not levelled off.
-  - The share of prior variance removed for β goes 0.50 → 0.70, and β's correlation with the truth 0.71 → 0.84.
-  - Household pairs ordered with 90% confidence go from 26% to 44%, and 97–98% of those orderings are right.
-  - See `figures/104_waves_precision.png`.
-- **Annual waves:** in about the same years, every year instead of every other carries 1.9 times the information on β. That is an upper bound, because the simulated noise is independent every wave (`figures/112_annual_waves_precision.png`).
-- **Measurement matters as much as length:** without noise, seven waves tell as much as 20 noisy ones.
-- **The population:** households sharing one θ get standard errors at 20 waves of 0.28–0.47 times seven waves'. For PSID couples, β's se would fall from 0.027 to between 0.007 and 0.022, depending on how much of it is couples differing, which more waves do not narrow.
+Eight arms of five networks: biennial 7, 10, 14 and 20 waves, annual 7, 10, 14 and 20, every year read inside ages 24–64. All are calibrated for β, δ and ρ (90% coverage 0.890–0.918).
+
+- **More biennial waves** (7 to 20): one household's data carry 2.2–2.4 times the information, and the curve has not levelled off.
+  - The share of prior variance removed for β goes 0.53 → 0.73, and β's correlation with the truth 0.73 → 0.85.
+  - Household pairs ordered on β with 90% confidence go from 29% to 47%, and 95–97% of those orderings are right.
+  - β below 0.3 gains less (its interval narrows 17% by 20 waves, against 36% at the top): those households spend most years at the borrowing limit.
+- **Annual waves** (what real households often have):
+  - at the same number of waves, spacing matters little for one household: seven annual waves (8 years) tell about as much as PSID's seven biennial waves (14 years);
+  - in about the same years, every year instead of every other carries about twice the information on β (1.95–1.99). That is an upper bound, because the simulated noise is independent every wave (1.53 without noise, §66);
+  - for the population, years matter more than frequency for β and δ: at the same count, biennial's longer span gives the smaller se.
+- **The training recipe matters at every length:** the current one beats the previous one by +0.18 to +0.40 held-out log q (more for longer windows) and adds 11–17% information on β; the population se does not move.
+- **Measurement matters as much as length:** without noise, seven waves tell as much as 20 noisy ones (§66).
+- **The population:** households sharing one θ get standard errors at 20 biennial waves of 0.26–0.48 times seven waves'. For PSID couples, β's se would fall from 0.027 to between 0.007 and 0.022, depending on how much of it is couples differing, which more waves do not narrow.
+- **Figures:** `figures/150_waves_default_precision.png` (precision against waves and years read), `figures/159_waves_default_one_household.png` (one household, biennial against annual, 68/95%), `figures/160_waves_default_population.png` (the population, 68/95%).
 
 ---
 
-## 4. Now running: the waves experiment with the current model (§71)
+## 4. Last run: the waves experiment with the current model (§71, done 2026-11-17)
 
 - **The user's request** (2026-11-14): "if we apply this to the real household, they usually have the annual data. So, let's test the same model with annual & more wave versions."
-- **The arms.** The reference model and training recipe on biennial 7, 10, 14 and 20 waves and annual 7, 10, 14 and 20 waves, five networks each, so annual and biennial meet at every count.
-- **The tests**, fixed before the run:
-  - calibration;
-  - precision against waves;
-  - annual against biennial;
-  - the new training recipe against the old one at each length.
-- **Status.** Launched 2026-11-15, expected to take 2–3 days. All pre-launch checks passed.
+- **Every test set before the run came out cleanly** (§3.6): all eight arms calibrated; the current recipe helps at all six lengths with a counterpart, after a six-test correction; precision against waves holds at both spacings.
+- **New:** the learning-rate floor binds for the long and annual windows (23 of 35 networks reached their best at it). Whether a lower floor helps was not tested.
+- **R_γ** (a nuisance parameter): coverage 0.881–0.889, rank test failing in three of eight arms; reported, not gated.
 
 ---
 
@@ -169,7 +172,7 @@ The representative θ is the single θ whose simulated households the network re
 
 ## 6. What remains
 
-1. **§71's results**, then the conclusion's point 4: PSID couples shown where seven biennial waves, and annual panels, sit on the precision curve.
+1. **The conclusion's point 4:** PSID couples shown where seven biennial waves, and annual panels, sit on the precision curve (§71 supplies the curve).
 2. **The write-up:** a final headline built on the four-point story.
 3. **Open proposals awaiting a decision:**
    - a simulated population whose θ differ as couples' do, to measure how much of the population se is couples differing (a few GPU-hours);

@@ -187,7 +187,9 @@ def training_extra(arm_dir: Path, run: Path, arm: str,
             floor = cfg["lr_plateau"]["min_lr"]
             k = cfg.get("noise_copies", 1)
             at_floor = np.flatnonzero(np.isclose(m["lr"], floor, rtol=1e-5))
-            v = np.asarray(m["val_loss"])
+            # sbi's record, not the CSV: the CSV keeps 6 significant digits, and
+            # at the floor a gain can be smaller than that (RESULTS 71.4)
+            v = np.asarray(summ["validation_loss"])
             gains = [e for e in range(1, len(v)) if v[e] < v[:e].min()]
             kept = patience_kept(v, -(-20 // k))
             rec |= {"lr_at_best": float(m["lr"][b]), "n_cuts": len(summ["lr_cut_after_epochs"]),
@@ -203,7 +205,7 @@ def training_extra(arm_dir: Path, run: Path, arm: str,
                     "patience_20": {**kept, "longest_no_gain_before_best":
                                     kept["longest_no_gain_before_best"] * k,
                                     "stop_passes": kept["stop_epoch"] and kept["stop_epoch"] * k,
-                                    "same_best": bool(kept["best_then"] == v[b])}}
+                                    "same_best": bool(kept["best_then"] == v.min())}}
         out[f.stem] = rec
     return out
 

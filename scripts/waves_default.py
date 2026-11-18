@@ -404,10 +404,10 @@ def precision(res: dict, path: Path) -> None:
                 Line2D([], [], color="k", ls="-", label="the default recipe (RESULTS 71)"),
                 Line2D([], [], color="k", ls="--", alpha=0.45,
                        label="RESULTS 64/65's recipe")]
-    axs[0, 0].legend(handles=handles, fontsize=8)
+    fig.legend(handles=handles, fontsize=8, ncol=4, loc="lower center")
     fig.suptitle("RESULTS 71: precision against waves (left) and against years read (right) "
                  "under the default recipe;\ndotted: PSID's seven biennial waves", fontsize=10)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.045, 1, 1))
     fig.savefig(path, dpi=130)
     plt.close(fig)
     print(f"wrote {path}")
@@ -500,6 +500,7 @@ def population(res: dict, args, path: Path) -> None:
     lai = json.loads(args.psid_reference.read_text())
     th_l = np.array(lai["theta_laibson"])
     th0 = np.array(json.loads((args.root / "population.json").read_text())["theta0"])
+    th_p = np.array(lai["arms"][PSID_ARM]["representative_theta"])   # couples' estimate
     label = {"beta": r"$\beta$", "delta": r"$\delta$", "crra": r"$\rho$"}
     t = np.linspace(0, 2 * np.pi, 200)
 
@@ -523,18 +524,20 @@ def population(res: dict, args, path: Path) -> None:
                 ellipse(axi, th0, A[a]["population"]["cov"], i, j,
                         we.COLOR[we.parse_arm(a)[0]], ("-", "--"),
                         f"{a}, 409 households sharing θ₀")
-            ellipse(axi, th0, res["psid_remainder"]["cov_psid"], i, j, "#7B3294", ("-", "--"),
+            ellipse(axi, th_p, res["psid_remainder"]["cov_psid"], i, j, "#7B3294", ("-", "--"),
                     "PSID couples, 7 biennial waves (v2_fresh_rop)")
-            ellipse(axi, th0, A[arms[-1]]["psid_scale"]["cov_b"], i, j, "#8C510A",
+            ellipse(axi, th_p, A[arms[-1]]["psid_scale"]["cov_b"], i, j, "#8C510A",
                     ("-.", "-."), f"PSID couples projected to {arms[-1]}, remainder held (b)")
             axi.plot(*th0[[i, j]], "o", color="0.2", ms=4)
+            axi.plot(*th_p[[i, j]], "D", color="#7B3294", ms=4)
             axi.set(xlabel=label[we.NAMES[i]], ylabel=label[we.NAMES[j]],
                     title="biennial waves" if wy == 2 else "annual waves")
             axi.grid(ls=":", lw=0.5)
         axs[r_i, 0].legend(fontsize=7)
     fig.suptitle("RESULTS 71: the population under the default recipe, 68% / 95% regions of "
-                 "the representative θ for 409 households sharing θ₀,\nand for PSID's 409 "
-                 "couples at 7 biennial waves and projected (case b)", fontsize=10)
+                 "the representative θ for 409 households sharing θ₀ (dot: v2_b010's estimate),"
+                 "\nand for PSID's 409 couples at 7 biennial waves and projected (case b), at "
+                 "v2_fresh_rop's estimate (diamond)", fontsize=10)
     fig.tight_layout()
     fig.savefig(path, dpi=120)
     plt.close(fig)

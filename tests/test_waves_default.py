@@ -133,7 +133,9 @@ def test_w07_under_the_default_is_v2_fresh_rop_with_patience_20s_weights():
     from scripts import training_metrics as tm
 
     for f in sorted(wd.W07_METRICS.glob("s[0-9].csv")):
-        v = np.asarray(tm.read(f)["val_loss"])
+        v = np.asarray(json.loads((wd.W07_RUN / f.stem / "training_summary.json").read_text())
+                       ["validation_loss"])
+        assert np.allclose(tm.read(f)["val_loss"], v, rtol=1e-5, atol=0)
         kept = lp.patience_kept(v, 20)
         assert kept["stop_epoch"] is not None and kept["best_then"] == v.min()
     cfg = json.loads((wd.W07_RUN / "s0" / "results.json").read_text())["_config"]

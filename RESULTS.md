@@ -10,7 +10,7 @@ noise model and box, on w07's window, trained with a new noise draw every
 epoch and the plateau schedule. Since 2026-11-14 (user) that recipe, with
 patience 20, is the default for new runs (`optionA.py train --recipe
 plateau_fresh`, §71.0), and R_γ is treated as a nuisance parameter.
-**Last updated:** 2026-11-15 (§71 launched: the waves experiment rerun under the default recipe, biennial 10, 14 and 20 waves and annual 7, 10, 14 and 20, five members each, w07 being v2_fresh_rop; the user's decisions of 2026-11-14 recorded there: the default recipe for new runs is `train --recipe plateau_fresh`, and R_γ is a nuisance parameter whose SBC rank-test failure is accepted, so gates now cover β, δ and ρ; 2026-11-14 (§70: v2_fresh_rop becomes §1's reference, the user's decision; PSID couples move by about a quarter of a posterior sd, couples' representative β is 0.428 (se 0.027); under it R_γ's SBC rank test fails, as for every noisy network on w07's window, and all 889's spread in δ and ρ just exceeds the second null; v2_b010's values are kept beside the new ones; 2026-11-12, §69's results: reduce-on-plateau raises held-out log q by 0.03–0.05 for three of the four arms (not fresh draws under the methodology file's noise); the harder stop bought nothing, since a stop after 20 passes would have kept the same weights in every member; under the schedule v2's networks lose more on the file's noise; both v2-noise schedule arms put couples' representative β at 0.428, so §1's ensemble caveat now cites five ensembles; 2026-11-11, §69 launched: reduce-on-plateau and a harder early stop (patience 60 passes, cap 600) for 8 fixed copies and fresh noise under v2's and the methodology file's noise, four arms of five members against RESULTS 67/68's; 2026-11-10, §68's results: a new noise draw on the training windows every epoch does not beat 8 fixed copies under v2's noise (+0.014 log q, interval spans 0) and gains +0.027 under the methodology file's noise, where the copies gained nothing; nothing downstream moves; a third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453, so §1's ensemble caveat now cites three ensembles; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-18 (§71's results: under the default recipe every arm, biennial 7–20 and annual 7–20 waves, is calibrated for β, δ and ρ; the recipe beats §64/65's at all six lengths (+0.18 to +0.40 held-out log q, more for longer windows); one household's information grows 2.2–2.4 times from 7 to 20 biennial waves; at the same number of waves annual and biennial tell one household about as much (seven annual waves ≈ PSID's seven biennial), in about the same years annual carries about twice the information on β (an upper bound), and for the population's β and δ biennial's longer span wins; the learning-rate floor binds for the long and annual windows; 2026-11-15, §71 launched: the waves experiment rerun under the default recipe, biennial 10, 14 and 20 waves and annual 7, 10, 14 and 20, five members each, w07 being v2_fresh_rop; the user's decisions of 2026-11-14 recorded there: the default recipe for new runs is `train --recipe plateau_fresh`, and R_γ is a nuisance parameter whose SBC rank-test failure is accepted, so gates now cover β, δ and ρ; 2026-11-14 (§70: v2_fresh_rop becomes §1's reference, the user's decision; PSID couples move by about a quarter of a posterior sd, couples' representative β is 0.428 (se 0.027); under it R_γ's SBC rank test fails, as for every noisy network on w07's window, and all 889's spread in δ and ρ just exceeds the second null; v2_b010's values are kept beside the new ones; 2026-11-12, §69's results: reduce-on-plateau raises held-out log q by 0.03–0.05 for three of the four arms (not fresh draws under the methodology file's noise); the harder stop bought nothing, since a stop after 20 passes would have kept the same weights in every member; under the schedule v2's networks lose more on the file's noise; both v2-noise schedule arms put couples' representative β at 0.428, so §1's ensemble caveat now cites five ensembles; 2026-11-11, §69 launched: reduce-on-plateau and a harder early stop (patience 60 passes, cap 600) for 8 fixed copies and fresh noise under v2's and the methodology file's noise, four arms of five members against RESULTS 67/68's; 2026-11-10, §68's results: a new noise draw on the training windows every epoch does not beat 8 fixed copies under v2's noise (+0.014 log q, interval spans 0) and gains +0.027 under the methodology file's noise, where the copies gained nothing; nothing downstream moves; a third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453, so §1's ensemble caveat now cites three ensembles; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -118,15 +118,15 @@ The data carry the audit's fixes (§55.1):
 - **β is weakly identified per couple:** the held-out share of prior variance removed is 0.53 (§69.6; v2_b010 0.52, §63.3). That is not comparable with the old box's 0.40, because β's prior is now wider.
   - On the old box, couples' β piled at the floor of 0.3 (§47.3). On the wider box, 15% of couples' means and 78% of their 5th percentiles are below 0.3 (v2_b010 14% and 75%; §70.2), but no couple's or simulated household's 95th percentile is. That is because one household's 90% interval for β is 0.5–0.6 wide anywhere in the box at seven waves, not because β below 0.3 is worse resolved: it is resolved as well as any band 0.2 wide (§64.12, correcting §63.4 and §64.6).
   - Households whose posterior mean β is below 0.3 are covered 0.893. Simulated households at true β 0.1–0.2 are covered 0.76, and their posterior means average 0.35 (§70.3; v2_b010 0.900, 0.78 and 0.35, §63.3–63.4).
-- **More waves, on simulated households (§64):** from 7 to 20 waves inside ages 24–64, one household's data carry 2.1–2.3 times the information, and 44% of household pairs can be ordered instead of 26%; every arm is calibrated.
-  - β below 0.3 gains less than the rest of the box: by 20 waves its 90% interval narrows 16%, against 32% at the top, because those households spend most years at the borrowing limit (§64.12).
-  - PSID couples' population se for β would fall from 0.027 to between 0.007 and 0.022, depending on how much of it is couples differing, which more waves do not narrow.
+- **More waves, on simulated households (§71, under the reference's training; §64 under the old one):** from 7 to 20 biennial waves inside ages 24–64, one household's data carry 2.2–2.4 times the information (§64: 2.1–2.3), and 47% of household pairs can be ordered on β instead of 29%; every arm is calibrated for β, δ and ρ. The reference's training adds 11–17% information on β at every length (§71.5).
+  - β below 0.3 gains less than the rest of the box: by 20 waves its 90% interval narrows 17%, against 36% at the top, because those households spend most years at the borrowing limit (§71.6, §64.12).
+  - PSID couples' population se for β would fall from 0.027 to between 0.007 and 0.022, depending on how much of it is couples differing, which more waves do not narrow (§71.8).
   - The reference is on the 7-wave arm's window (w07). That arm, trained as v2_b010 was, gave v2_b010's PSID results (§64.7).
   - **Without observation noise (§66):** seven waves would carry 2.1–2.4 times the information on β, δ and ρ, as much as 20 noisy waves. β below 0.3 stays the weakest band: its limit is behaviour, not measurement.
-  - **Annual waves (§65):** in about the same years, every year instead of every other carries 1.9 times the information on one household's β. That is an upper bound, because the simulated noise is fresh every wave.
-    - At the same number of waves, annual beats biennial for β and ρ (1.07–1.17 times) and loses for R_γ (0.81). Without noise biennial wins every parameter (§66.5): that win came from separating fresh noise. In about the same years annual waves still carry 1.53 times the information on β without noise.
-    - For the population at θ₀, the longer biennial span gives the smaller se for β and δ.
-    - PSID couples' population β se stays at 0.023–0.024 under §64.8's case (b).
+  - **Annual waves (§71.7; §65 under the old training):** every annual window, 7 to 20 waves, is calibrated. In about the same years, every year instead of every other carries about twice the information on one household's β (1.95–1.99; §65 1.9). That is an upper bound, because the simulated noise is fresh every wave.
+    - At the same number of waves, spacing matters little for one household: seven annual waves (8 years) carry about what PSID's seven biennial waves (14 years) do (β 1.06, δ and ρ 0.96). At 14 and 20 waves annual beats biennial for β and ρ (1.08–1.16 times) and loses for R_γ (0.77–0.78). Without noise biennial wins every parameter (§66.5): that win came from separating fresh noise. In about the same years annual waves still carry 1.53 times the information on β without noise.
+    - For the population at θ₀, at the same number of waves the longer biennial span gives the smaller se for β and δ (annual 1.23–1.68 times).
+    - PSID couples' population β se stays at 0.022–0.023 under §64.8's case (b) at 20 waves of either spacing.
 - **ρ's posteriors are wide** (median sd 0.94). It is the parameter v2 moved most: −0.17 from A2n (§56.3).
 - **Between §29 and v2 the model changed in several steps:** card-access types (§36), R_gamma estimated (§32), the couples' seed pool (§43.1–43.4), observation noise (§43.7–43.8) and the audit's fixes (§56); then the β strip (§63), w07's window (§64) and the training of §68–69. Each step's effect is recorded in its own section and is not re-attributed here.
 
@@ -12545,7 +12545,7 @@ Only the window changes, and each is trained with the default recipe. Every year
 | a20 | 20 annual | 25–45 | 21 | a20 (§65) |
 
 - **w07 is v2_fresh_rop as trained (§69), not retrained.**
-  - It was trained with patience 60. The cuts depend only on earlier validation losses, and in every member the longest run without a gain before the best was at most 11 passes. So a stop at 20 passes restores the same weights; the test file checks this from its CSVs.
+  - It was trained with patience 60. The cuts depend only on earlier validation losses, and in every member the longest run without a gain before the best was at most 11 passes. So a stop at 20 passes restores the same weights; the test file checks this from sbi's record of the validation losses (from the CSVs before 71.4).
   - `outputs/waves_default/w07` is a link to its members, and its 9 population scorings are linked as well.
 - **a07 and a10 are new:** seven annual waves is the shortest annual panel and the counterpart of PSID's seven biennial ones. With them, annual and biennial meet at every count.
 - **Comparisons:**
@@ -12642,3 +12642,223 @@ All pass. Commands are under *Reproduce*.
     CUDA_VISIBLE_DEVICES= PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_waves_default.py tests/test_waves_experiment.py
     SMOKE=<dir> ./scripts/run_waves_default.sh
     nohup setsid ./scripts/run_waves_default.sh >> logs/waves_default.log 2>&1 < /dev/null &
+
+*71.2 onward were written after the run (2026-11-18).*
+
+### 71.2 The run
+
+- **The chain ran to DONE with no fix and no restart.**
+  - Training ran from 2026-11-15 05:19 to 2026-11-17 13:12: 55.9 h, inside the 40–70 h planned, and 106 member-hours against about 98.
+  - The held-out checks, SBC, the paired scorings, the population, the measures and the figures then took 49 minutes.
+  - The logs hold no errors, only the library warnings every run prints.
+- **The checks after the run pass:**
+  - all 40 members (the 35 trained and w07's 5) follow the plateau rule epoch for epoch (`schedule_check`);
+  - every CSV is sbi's record to its 6 digits;
+  - no member reached the cap of 600;
+  - w07's linked scorings give v2_fresh_rop's population se, and every arm's cached scorings give its stored se (both checked inside `measures`);
+  - every member's window reads only years inside ages 24–64 (`check_window`, from its config).
+- **Two fixes after the run.** Neither touches a network or a scoring.
+  - **Figure 160** drew PSID couples' regions, which use v2_fresh_rop's covariance, around θ₀. But θ₀ is v2_b010's estimate (ρ 1.58). They are now drawn around v2_fresh_rop's own estimate (β 0.428, ρ 1.75) and marked with a diamond.
+    - Figure 150's legend moved below the panels, where it no longer hides a point.
+    - Figures 150, 151, 159 and 160 were redrawn. Figure 159's posterior draws are bit-identical to the chain's.
+  - **One stop measure read the CSV where it should read sbi's record (71.4).**
+    - `lr_plateau.training_extra` now takes the gains, and what a stop after 20 passes keeps, from the validation losses in `training_summary.json`.
+    - `measures` was rerun. Only those fields changed, in two members (71.4); every other number in `waves_default.json` is identical.
+
+### 71.3 Calibration (the gate): all eight arms pass
+
+90% coverage, held-out / SBC (20,992 SBC households per arm):
+
+| | w07 | a07 | w10 | a10 | w14 | a14 | w20 | a20 |
+|---|---|---|---|---|---|---|---|---|
+| β | 0.904 / 0.898 | 0.909 / 0.899 | 0.909 / 0.901 | 0.917 / 0.902 | 0.913 / 0.901 | 0.901 / 0.901 | 0.914 / 0.902 | 0.904 / 0.904 |
+| δ | 0.898 / 0.890 | 0.897 / 0.893 | 0.911 / 0.897 | 0.895 / 0.894 | 0.893 / 0.896 | 0.906 / 0.897 | 0.906 / 0.894 | 0.913 / 0.898 |
+| ρ | 0.905 / 0.901 | 0.899 / 0.898 | 0.910 / 0.896 | 0.918 / 0.898 | 0.896 / 0.896 | 0.912 / 0.902 | 0.902 / 0.898 | 0.907 / 0.901 |
+| R_γ (reported, not gated) | 0.901 / 0.882 | 0.883 / 0.886 | 0.893 / 0.884 | 0.891 / 0.881 | 0.890 / 0.884 | 0.887 / 0.886 | 0.900 / 0.885 | 0.899 / 0.889 |
+| SBC rank test, KS p: β, δ, ρ | 0.99, 0.89, 0.77 | 0.69, 0.77, 0.50 | 0.72, 0.74, 0.92 | 0.92, 0.93, 0.58 | 0.88, 0.73, 0.98 | 0.73, 0.66, 0.90 | 0.64, 0.51, 0.47 | 0.58, 0.81, 0.94 |
+| KS p, R_γ | 0.004 | 0.038 | 0.091 | 0.40 | 0.007 | 0.44 | 0.077 | 0.082 |
+
+- **β, δ and ρ:** coverage is 0.890–0.918 in every arm, and the rank test passes everywhere (p ≥ 0.47).
+- **R_γ:** its SBC coverage is 0.881–0.889 in every arm, at the band's lower edge. Its rank test fails at 5% in three arms (w07, a07, w14). As decided (71.0), it is reported, not gated.
+- **For reference,** §64/65's arms under the old recipe give 0.888–0.922 (w20's held-out β is 0.922).
+
+### 71.4 Training
+
+| | w07 (patience 60) | a07 | w10 | a10 | w14 | a14 | w20 | a20 |
+|---|---|---|---|---|---|---|---|---|
+| epochs | 126–137 | 103–131 | 101–116 | 135–142 | 107–135 | 147–269 | 124–147 | 142–302 |
+| passes at the best | 66–77 | 83–111 | 81–96 | 115–122 | 87–115 | 127–249 | 104–127 | 122–282 |
+| minutes per member (mean) | 159 | 143 | 132 | 172 | 156 | 227 | 178 | 264 |
+| best at the floor rate (1e-5) | 0/5 | 2/5 | 0/5 | 5/5 | 3/5 | 5/5 | 3/5 | 5/5 |
+| passes trained at the floor | 45–50 | 10–30 | 10–15 | 22–42 | 15–33 | 23–157 | 15–36 | 26–160 |
+| longest run without a gain before the best | 5–11 | 5–12 | 5–6 | 5–17 | 5–17 | 5–18 | 5–15 | 6–18 |
+
+- **Every member made all seven cuts and reached the floor.** None reached the cap. After the best, the validation loss rose by at most 0.008.
+- **The floor binds for the long and the annual windows.**
+  - In §69 (w07), no gain came below a rate of 3.1e-5.
+  - Here 23 of 35 members reached their best at the floor, including all five members of a10, a14 and a20. Members trained at the floor for up to 157–160 passes (a14 s2, a20 s0), still gaining there until the last 20.
+  - Whether a lower floor would add more was not tested.
+- **The stop came close to cutting gains off.** The longest run without a gain before the best reached 18 passes (a14, a20), against a patience of 20. A longer patience might have found later gains in those members. The stop rule was set before the run and was kept.
+- **The CSVs' precision.**
+  - The CSVs keep 6 significant digits, and at the floor a gain can be smaller than that.
+  - a14 s2's CSV shows a run of 22 passes without a gain, which the stop could not have allowed. sbi's record shows 18: the gains in between were below 4e-6 of the loss.
+  - The measure now reads sbi's record (71.2). Across all 55 plateau members of §69 and §71 that changes two values: a14 s2's (22 to 18) and v2_fresh_rop s1's (8 to 6). §69.4's "5–11 passes" stands.
+  - The test that a stop after 20 passes keeps v2_fresh_rop's weights now reads sbi's record too. It still passes for all five members.
+
+### 71.5 The recipe against §64/65's: it helps at every length, and more for longer windows
+
+Held-out log q, paired on identical windows:
+
+| | w07 | w10 | w14 | w20 | a14 | a20 |
+|---|---|---|---|---|---|---|
+| the default | 3.828 | 4.598 | 5.247 | 5.985 | 5.695 | 6.562 |
+| §64/65's recipe | 3.648 | 4.410 | 4.985 | 5.690 | 5.346 | 6.165 |
+| difference [95%] | +0.180 [+0.143, +0.216] | +0.188 [+0.143, +0.229] | +0.262 [+0.188, +0.320] | +0.296 [+0.247, +0.338] | +0.349 [+0.307, +0.393] | +0.397 [+0.351, +0.442] |
+| six-test interval | [+0.130, +0.230] | [+0.130, +0.242] | [+0.167, +0.334] | [+0.236, +0.354] | [+0.292, +0.405] | [+0.336, +0.459] |
+| members (Welch p) | +0.220 (< 0.001) | +0.251 (< 0.001) | +0.326 (< 0.001) | +0.372 (< 0.001) | +0.430 (< 0.001) | +0.539 (< 0.001) |
+| information, default ÷ old: β, δ, ρ, R_γ | 1.11, 1.10, 1.10, 1.05 | 1.16, 1.10, 1.10, 1.08 | 1.16, 1.08, 1.13, 1.09 | 1.17, 1.13, 1.17, 1.08 | 1.15, 1.10, 1.14, 1.05 | 1.16, 1.10, 1.16, 1.03 |
+| pairs ordered at p ≥ 0.9, default ÷ old | 1.11, 1.07, 1.08, 1.06 | 1.09, 1.06, 1.08, 1.07 | 1.10, 1.05, 1.09, 1.07 | 1.08, 1.06, 1.08, 1.05 | 1.07, 1.06, 1.08, 1.04 | 1.05, 1.06, 1.07, 1.03 |
+| population se, default ÷ old | 0.99, 1.01, 0.93, 0.91 | 0.94, 0.96, 0.91, 0.96 | 0.93, 0.96, 0.94, 0.91 | 0.94, 0.96, 0.94, 0.92 | 1.00, 1.05, 0.95, 0.99 | 0.91, 0.98, 1.00, 0.98 |
+
+- **The recipe helps at all six lengths,** by the rule set before the run. Every 95% interval and every six-test interval is above 0, and the member check agrees everywhere (p < 0.001).
+- **The gain grows with the window:**
+  - +0.18 at 7 and 10 biennial waves;
+  - +0.26–0.30 at 14 and 20;
+  - +0.35–0.40 for the annual windows.
+  - A reading, not tested: longer windows hold more noisy values per household for one noise draw to be memorised by, and they trained longest at the floor (71.4).
+- **w07's +0.180** is about the sum of §68's +0.129 (a new draw every epoch) and §69's +0.051 (the schedule), here measured in one pair.
+- **For one household** the default gives 3–17% more information (β 11–17%) and 3–11% more pairs ordered.
+- **The population se at θ₀** moves by −9% to +5%. As in §67–69, the recipe sharpens households, not the population.
+
+### 71.6 Precision against waves under the default
+
+One household (held-out; median sd, interval and pairs from the SBC households):
+
+| | w07 | a07 | w10 | a10 | w14 | a14 | w20 | a20 |
+|---|---|---|---|---|---|---|---|---|
+| years read | 14 | 8 | 20 | 11 | 28 | 15 | 40 | 21 |
+| held-out log q | 3.828 | 4.223 | 4.598 | 4.890 | 5.247 | 5.695 | 5.985 | 6.562 |
+| share of prior variance removed: β | 0.531 | 0.545 | 0.613 | 0.619 | 0.662 | 0.693 | 0.727 | 0.755 |
+| δ | 0.492 | 0.481 | 0.565 | 0.540 | 0.624 | 0.618 | 0.679 | 0.687 |
+| ρ | 0.548 | 0.539 | 0.614 | 0.621 | 0.668 | 0.685 | 0.735 | 0.757 |
+| R_γ | 0.483 | 0.452 | 0.572 | 0.503 | 0.627 | 0.569 | 0.692 | 0.634 |
+| information ÷ w07's: β | 1.000 | 1.056 | 1.396 | 1.434 | 1.731 | 1.991 | 2.351 | 2.722 |
+| δ | 1.000 | 0.958 | 1.345 | 1.212 | 1.715 | 1.675 | 2.185 | 2.270 |
+| ρ | 1.000 | 0.964 | 1.315 | 1.353 | 1.662 | 1.791 | 2.295 | 2.575 |
+| R_γ | 1.000 | 0.881 | 1.425 | 1.082 | 1.799 | 1.411 | 2.402 | 1.854 |
+| β: corr(mean, truth) | 0.734 | 0.757 | 0.796 | 0.797 | 0.818 | 0.843 | 0.848 | 0.872 |
+| β: median posterior sd | 0.175 | 0.175 | 0.161 | 0.160 | 0.145 | 0.139 | 0.128 | 0.114 |
+| β: one 90% interval ÷ 5–95% range of means | 1.03 | 1.03 | 0.91 | 0.88 | 0.78 | 0.73 | 0.65 | 0.57 |
+| pairs ordered at p ≥ 0.9: β | 0.286 | 0.293 | 0.348 | 0.361 | 0.410 | 0.433 | 0.472 | 0.509 |
+| δ | 0.269 | 0.256 | 0.324 | 0.309 | 0.385 | 0.372 | 0.448 | 0.444 |
+| ρ | 0.284 | 0.280 | 0.343 | 0.347 | 0.400 | 0.410 | 0.464 | 0.485 |
+| β pairs ordered that are right | 0.946 | 0.947 | 0.955 | 0.958 | 0.961 | 0.966 | 0.969 | 0.972 |
+
+Low β, by true β (§64.12's measures):
+
+| | w07 | a07 | w10 | a10 | w14 | a14 | w20 | a20 |
+|---|---|---|---|---|---|---|---|---|
+| β 90% width, true β 0.1–0.3 | 0.578 | 0.580 | 0.544 | 0.551 | 0.513 | 0.516 | 0.483 | 0.482 |
+| β 90% width, true β 0.8–1.0 | 0.490 | 0.479 | 0.429 | 0.403 | 0.372 | 0.334 | 0.314 | 0.263 |
+| ranked right, 0.1–0.2 against 0.3–0.4 | 0.696 | 0.692 | 0.705 | 0.710 | 0.724 | 0.726 | 0.747 | 0.746 |
+| ranked right, 0.7–0.8 against 0.9–1.0 | 0.735 | 0.734 | 0.770 | 0.790 | 0.811 | 0.833 | 0.863 | 0.890 |
+
+- **Precision grows steadily with waves at both spacings and has not levelled off by 20.**
+  - From 7 to 20 biennial waves, one household's information grows 2.18–2.40 times. On the same windows the old recipe gives 2.12–2.34 (§64: 2.1–2.3).
+  - β's correlation with truth goes from 0.73 to 0.85.
+  - Pairs ordered on β go from 29% to 47%, and 95–97% of them are right.
+  - Each wave beyond the seventh adds 0.64–0.76 of an average first-seven wave (old recipe 0.60–0.72).
+  - From 7 to 20 annual waves, information grows 2.10–2.67 times (β 2.58).
+- **β below 0.3 still gains less.**
+  - From 7 to 20 waves its 90% interval narrows 17% at both spacings, against 36% (biennial) and 45% (annual) at the top of the box.
+  - Its ranking rises 0.05, against 0.13–0.16 at the top.
+  - §64.12 found the same under the old recipe (16% and 32%).
+
+### 71.7 Annual against biennial
+
+The same number of waves (the old recipe in brackets, where it exists):
+
+| | a07 ÷ w07 | a10 ÷ w10 | a14 ÷ w14 | a20 ÷ w20 |
+|---|---|---|---|---|
+| years read | 8 against 14 | 11 against 20 | 15 against 28 | 21 against 40 |
+| information: β, δ, ρ, R_γ | 1.06, 0.96, 0.96, 0.88 | 1.03, 0.90, 1.03, 0.76 | 1.15, 0.98, 1.08, 0.78 (1.17, 0.95, 1.07, 0.81) | 1.16, 1.04, 1.12, 0.77 (1.17, 1.07, 1.13, 0.81) |
+| pairs ordered | 1.02, 0.95, 0.99, 0.87 | 1.04, 0.95, 1.01, 0.85 | 1.06, 0.97, 1.02, 0.83 | 1.08, 0.99, 1.05, 0.85 |
+| population se, β [90%] | 1.26 [1.07, 1.52] | 1.23 [1.08, 1.41] | 1.51 [1.37, 1.65] | 1.62 [1.50, 1.76] |
+| δ | 1.30 [1.11, 1.54] | 1.31 [1.17, 1.48] | 1.60 [1.44, 1.76] | 1.68 [1.49, 1.91] |
+| ρ | 0.91 [0.80, 1.07] | 0.93 [0.86, 1.00] | 0.92 [0.87, 0.98] | 1.01 [0.96, 1.07] |
+| R_γ | 0.82 [0.77, 0.87] | 0.90 [0.86, 0.95] | 0.94 [0.89, 0.99] | 0.97 [0.93, 1.01] |
+
+About the same years:
+
+| | a14 ÷ w07 (15 against 14 years) | a20 ÷ w10 (21 against 20) |
+|---|---|---|
+| information: β, δ, ρ, R_γ | 1.99, 1.68, 1.79, 1.41 (old 1.93, 1.67, 1.74, 1.41) | 1.95, 1.69, 1.96, 1.30 (old 1.95, 1.69, 1.85, 1.36) |
+| pairs ordered | 1.51, 1.38, 1.44, 1.29 | 1.46, 1.37, 1.42, 1.25 |
+| population se [90%] | β 0.66 [0.58, 0.74], δ 0.86 [0.76, 0.96], ρ 0.50 [0.45, 0.55], R_γ 0.58 [0.54, 0.61] | β 0.60 [0.54, 0.66], δ 0.85 [0.75, 0.95], ρ 0.60 [0.55, 0.64], R_γ 0.62 [0.59, 0.66] |
+
+- **At the same number of waves, spacing matters little for one household.**
+  - Seven annual waves (8 years) give one household about the information of seven biennial ones (14 years): β 1.06, δ 0.96, ρ 0.96, R_γ 0.88.
+  - At 14 and 20 waves, annual is ahead for β and ρ (1.08–1.16), even for δ and behind for R_γ (0.77–0.78), as in §65 under the old recipe.
+  - Without noise, biennial wins every parameter at the same count (§66.5), so annual's edge on β and ρ comes from separating fresh noise.
+- **In about the same years, annual waves carry about twice the information on β:** 1.95–1.99 (δ 1.68–1.69, ρ 1.79–1.96, R_γ 1.30–1.41). The population se falls to 0.50–0.86 of biennial's.
+  - This is an upper bound, because the noise is fresh every wave. Without noise, a14 ÷ w07 is 1.53 for β (§66.5).
+  - A wave in between (annual, the same years) adds 0.95–0.99 of an average biennial wave to β. A wave further on (biennial) adds 0.68–0.73. Under the old recipe, §65 found 0.93–0.95 and 0.66–0.67.
+- **For the population at θ₀ and the same count, biennial's longer span wins for β and δ.**
+  - Annual's se is 1.23–1.68 times biennial's, and every interval lies above 1.
+  - Annual is even or better for ρ and R_γ.
+  - As in §65, β's se runs through δ, which needs years.
+
+### 71.8 The population and PSID couples' projection
+
+The population se at 409 households sharing θ₀ (§64's simulations at v2_b010's estimate):
+
+| | w07 | a07 | w10 | a10 | w14 | a14 | w20 | a20 |
+|---|---|---|---|---|---|---|---|---|
+| β | 0.0157 | 0.0198 | 0.0111 | 0.0137 | 0.0069 | 0.0104 | 0.0041 | 0.0067 |
+| δ | 0.00050 | 0.00064 | 0.00038 | 0.00049 | 0.00027 | 0.00042 | 0.00019 | 0.00032 |
+| ρ | 0.0559 | 0.0511 | 0.0386 | 0.0358 | 0.0306 | 0.0280 | 0.0227 | 0.0230 |
+| R_γ | 0.00079 | 0.00065 | 0.00059 | 0.00053 | 0.00048 | 0.00045 | 0.00038 | 0.00037 |
+| PSID couples, β se, case (a) / (b) | 0.0269 / 0.0269 | 0.0340 / 0.0295 | 0.0191 / 0.0245 | 0.0235 / 0.0258 | 0.0118 / 0.0229 | 0.0178 / 0.0242 | 0.0070 / 0.0222 | 0.0114 / 0.0228 |
+| ÷ their sampling-only β se, (a) / (b) | 0.53 / 0.53 | 0.68 / 0.59 | 0.38 / 0.49 | 0.47 / 0.51 | 0.23 / 0.46 | 0.35 / 0.48 | 0.14 / 0.44 | 0.23 / 0.45 |
+
+- **The simulated population.** At 20 biennial waves the se is 0.26–0.48 of 7 waves' (§64 under the old recipe: 0.28–0.47). At 20 annual waves it is 0.34–0.57 of a07's.
+- **PSID couples** are projected from their 7-wave se under v2_fresh_rop (β 0.0269, §69.8), with §64.8's two cases:
+  - **case (a):** couples' extra spread shrinks like noise;
+  - **case (b):** that spread is couples differing, and more waves do not narrow it.
+- Under v2_fresh_rop, 66% of couples' β variance at seven waves is that remainder (v2_b010: 63%).
+- **At 20 waves,** couples' β se is 0.0070 (a) or 0.0222 (b) biennial, and 0.0114 or 0.0228 annual.
+- **Under both cases** the projection stays more precise than Laibson et al.'s sampling-only se: 0.53 of it at seven waves, 0.14–0.44 at w20 and 0.23–0.45 at a20.
+- **Seven annual waves would be less precise for the population β** than PSID's seven biennial ones (0.59–0.68 of their se against 0.53), for the reason given in 71.7.
+- **Figure 160:** the simulated population's regions shrink around θ₀, while PSID couples' region, projected under case (b), barely shrinks.
+
+### 71.9 One household (figure 159)
+
+- The household is figure 105's held-out household, under the eight arms.
+- Its regions narrow with waves at both spacings. At 7 and 10 waves, the two spacings almost coincide.
+- The truth is inside every arm's 95% interval for β and δ. Under w14 and w20 its R_γ rank is 0.005, and under w14 its ρ rank is 0.022, so those fall outside the 95% interval.
+- That is one household. Over 20,992 SBC households, coverage holds (71.3).
+
+### 71.10 What it means
+
+- **For CONCLUSION item 4 ("more waves"),** under §1's model and the default recipe:
+  - one household's precision grows steadily with waves at both spacings and has not levelled off by 20 waves;
+  - the default adds information at every length, and more for longer windows, so §64's curve was if anything conservative.
+- **For the user's question, real households with annual data:**
+  - the model is calibrated on annual windows of every length tried (7 to 20 waves);
+  - for one household, the number of waves is what mainly counts: seven annual waves are about as informative as PSID's seven biennial ones;
+  - a household observed every year for 14–15 years carries about twice the information on β that PSID's seven biennial waves give (an upper bound);
+  - for a population estimate, years matter more than frequency for β and δ.
+- **Caveats:**
+  - the noise is fresh every wave, so the annual gain is an upper bound;
+  - no PSID panel is annual with card debt on its own;
+  - θ₀ is v2_b010's estimate;
+  - GPU training is not bit-reproducible;
+  - six tests on the recipe;
+  - new here: the floor of 1e-5 binds for the long and the annual windows (71.4).
+- **§1 and CONCLUSION_DIRECTION** now cite these numbers for more and annual waves. §64/65's stay beside them as the old recipe's.
+
+**Reproduce** (after the chain):
+
+    PYTHONPATH=.:src .venv/bin/python scripts/waves_default.py measures --root outputs/waves_default --old_root outputs/waves --metrics_dir training_metrics --sim_cache outputs/waves/population --n_boot 1000
+    PYTHONPATH=.:src .venv/bin/python scripts/waves_default.py figures --root outputs/waves_default --old_root outputs/waves --fig_dir figures
+    CUDA_VISIBLE_DEVICES= PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_waves_default.py tests/test_lr_plateau.py
