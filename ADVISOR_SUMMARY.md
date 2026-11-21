@@ -81,7 +81,7 @@
 
 - **β and ρ are confounded:** both raise saving. A β estimate correlates 0.73 with the true β and 0.39 with the true ρ.
 - **One household's β interval is 0.5–0.6 wide anywhere in the box.** β below 0.3 is resolved as well as any band 0.2 wide (§64.12).
-- **Figures:** a simulated household with its truth (`figures/147_simulated_household_lr_plateau_v2_fresh_rop.png`), and the PSID couple nearest couples' median (`figures/148_psid_household_lr_plateau_v2_fresh_rop.png`), both with 68/95% contours.
+- **Figures:** a simulated household with its truth (`figures/147_simulated_household_lr_plateau_v2_fresh_rop.png`), and the PSID couple nearest couples' median (`figures/148_psid_household_lr_plateau_v2_fresh_rop.png`), both with 68/95% contours. Clean versions with β, δ and ρ only: `figures/181_advisor_simulated_household.png` and `figures/180_advisor_psid_couple.png`.
 
 ### 3.3 PSID couples (409)
 
@@ -121,7 +121,7 @@ The representative θ is the single θ whose simulated households the network re
 - **The noise model is the main uncertainty.** It moves β by 0.24–0.30. Five ensembles trained for the same noise and data give β 0.384–0.453 (sd 0.027, about one se), so the network's own variability is small beside the noise model's effect.
 - **The noise model is needed.** With no noise, the network reads PSID's consumption noise as ρ near its floor (median 0.76), and no noise-free population fits couples (§66).
 - **The old headline is reversed.** β 0.85 sat inside the experimental meta-analyses' band [0.66, 0.94]. Now 20% of couples' estimates do.
-- **Figure:** `figures/146_laibson_comparison_lr_plateau.png`, their point and covariance against our representative θ under every noise model, 68/95%.
+- **Figure:** `figures/146_laibson_comparison_lr_plateau.png`, their point and covariance against our representative θ under every noise model, 68/95%. A clean version for the reference network alone, β, δ and ρ: `figures/179_advisor_laibson_comparison.png`.
 
 ### 3.6 More waves and annual waves (simulated households, the current model and training, §71)
 
@@ -138,7 +138,7 @@ Eight arms of five networks: biennial 7, 10, 14 and 20 waves, annual 7, 10, 14 a
 - **The training recipe matters at every length:** the current one beats the previous one by +0.18 to +0.40 held-out log q (more for longer windows) and adds 11–17% information on β; the population se does not move. Lowering its learning-rate floor from 1e-5 to 1e-7 adds nothing (§72).
 - **Measurement matters as much as length:** without noise, seven waves tell as much as 20 noisy ones (§66).
 - **The population:** households sharing one θ get standard errors at 20 biennial waves of 0.26–0.48 times seven waves'. For PSID couples, β's se would fall from 0.027 to between 0.007 and 0.022, depending on how much of it is couples differing, which more waves do not narrow.
-- **Figures:** `figures/150_waves_default_precision.png` (precision against waves and years read), `figures/159_waves_default_one_household.png` (one household, biennial against annual, 68/95%), `figures/160_waves_default_population.png` (the population, 68/95%).
+- **Figures:** `figures/150_waves_default_precision.png` (precision against waves and years read), `figures/159_waves_default_one_household.png` (one household, biennial against annual, 68/95%), `figures/160_waves_default_population.png` (the population, 68/95%). Seven biennial against twenty annual waves in one figure: `figures/182_advisor_biennial7_vs_annual20.png`.
 
 ---
 
