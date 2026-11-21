@@ -101,6 +101,9 @@
        - Annual against biennial in about the same years is unchanged: 1.94–1.98 times the information on β (1.95–1.99 at 1e-5), an upper bound; the population se 0.51–0.85 of biennial's.
        - New: rerunning one recipe (w07) moves held-out log q by up to about 0.03, the resolution of a paired test between two ensembles of five.
        - The default recipe keeps its floor of 1e-5; no claim changes.
+   - **A longer patience with the low floor (RESULTS 73, set up 2026-11-21, the user's request):** "try longer patience with the low floor". RESULTS 72's four models retrained with a stop after 60 passes without a gain instead of 20, the floor at 1e-7, nothing else changed; the user chose all four. Five members each.
+     - **Tests, set before the run:** calibration of β, δ and ρ; within each run, what a stop after 20 (and 40) passes would have kept; per arm, held-out log q at patience 60 against RESULTS 72's at 20 on identical windows (four tests), RESULTS 71's default beside it; annual against biennial in about the same years only.
+     - Expected about 48 h of training (`scripts/run_low_floor_p60.sh`, outputs `outputs/low_floor_p60/`).
    - **Models.** Train with 7 (retrained on the matched range), 10, 14 and 20 waves, under v2's noise model on the box with the β strip, with everything else as v2. If the longer windows underfit (training loss still falling while held-out loss stalls), add one wider-embedder arm. That costs GPU-hours, not a regeneration. The training set is dense enough as it is (RESULTS 63.8).
    - **No regeneration needed.** The stored panels cover ages 20–90 for every household, so longer windows are cut from the existing shards (`optionA.py train --n_waves --start_high`). Every window lies inside ages 24–64 (start ≤ 65 − 2 × waves; the user's choice, 2026-11-05); PSID's start ages run forward to 83 is the fallback.
    - **Measures, per number of waves:**
