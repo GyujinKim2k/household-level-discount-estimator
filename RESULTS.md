@@ -10,7 +10,7 @@ noise model and box, on w07's window, trained with a new noise draw every
 epoch and the plateau schedule. Since 2026-11-14 (user) that recipe, with
 patience 20, is the default for new runs (`optionA.py train --recipe
 plateau_fresh`, §71.0), and R_γ is treated as a nuisance parameter.
-**Last updated:** 2026-11-18 (§72 launched: a learning-rate floor of 1e-7 instead of 1e-5 on four models, the two same-years pairs w07/a14 and w10/a20, against §71's networks, and annual against biennial in the same years only, the user's request; §71's results: under the default recipe every arm, biennial 7–20 and annual 7–20 waves, is calibrated for β, δ and ρ; the recipe beats §64/65's at all six lengths (+0.18 to +0.40 held-out log q, more for longer windows); one household's information grows 2.2–2.4 times from 7 to 20 biennial waves; at the same number of waves annual and biennial tell one household about as much (seven annual waves ≈ PSID's seven biennial), in about the same years annual carries about twice the information on β (an upper bound), and for the population's β and δ biennial's longer span wins; the learning-rate floor binds for the long and annual windows; 2026-11-15, §71 launched: the waves experiment rerun under the default recipe, biennial 10, 14 and 20 waves and annual 7, 10, 14 and 20, five members each, w07 being v2_fresh_rop; the user's decisions of 2026-11-14 recorded there: the default recipe for new runs is `train --recipe plateau_fresh`, and R_γ is a nuisance parameter whose SBC rank-test failure is accepted, so gates now cover β, δ and ρ; 2026-11-14 (§70: v2_fresh_rop becomes §1's reference, the user's decision; PSID couples move by about a quarter of a posterior sd, couples' representative β is 0.428 (se 0.027); under it R_γ's SBC rank test fails, as for every noisy network on w07's window, and all 889's spread in δ and ρ just exceeds the second null; v2_b010's values are kept beside the new ones; 2026-11-12, §69's results: reduce-on-plateau raises held-out log q by 0.03–0.05 for three of the four arms (not fresh draws under the methodology file's noise); the harder stop bought nothing, since a stop after 20 passes would have kept the same weights in every member; under the schedule v2's networks lose more on the file's noise; both v2-noise schedule arms put couples' representative β at 0.428, so §1's ensemble caveat now cites five ensembles; 2026-11-11, §69 launched: reduce-on-plateau and a harder early stop (patience 60 passes, cap 600) for 8 fixed copies and fresh noise under v2's and the methodology file's noise, four arms of five members against RESULTS 67/68's; 2026-11-10, §68's results: a new noise draw on the training windows every epoch does not beat 8 fixed copies under v2's noise (+0.014 log q, interval spans 0) and gains +0.027 under the methodology file's noise, where the copies gained nothing; nothing downstream moves; a third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453, so §1's ensemble caveat now cites three ensembles; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
+**Last updated:** 2026-11-21 (§72's results: a learning-rate floor of 1e-7 instead of 1e-5 adds nothing in any of the four arms (held-out log q −0.024 to −0.001, every interval spans 0; information, pairs ordered and the population se within 2.3%), though where 1e-5 bound the networks trained on below it, gaining no more than §71's did at 1e-5; all four calibrated; in about the same years annual waves still carry 1.94–1.98 times biennial's information on β (1.95–1.99 at 1e-5), an upper bound; the default recipe keeps its floor of 1e-5; 2026-11-18, §72 launched: a learning-rate floor of 1e-7 instead of 1e-5 on four models, the two same-years pairs w07/a14 and w10/a20, against §71's networks, and annual against biennial in the same years only, the user's request; §71's results: under the default recipe every arm, biennial 7–20 and annual 7–20 waves, is calibrated for β, δ and ρ; the recipe beats §64/65's at all six lengths (+0.18 to +0.40 held-out log q, more for longer windows); one household's information grows 2.2–2.4 times from 7 to 20 biennial waves; at the same number of waves annual and biennial tell one household about as much (seven annual waves ≈ PSID's seven biennial), in about the same years annual carries about twice the information on β (an upper bound), and for the population's β and δ biennial's longer span wins; the learning-rate floor binds for the long and annual windows; 2026-11-15, §71 launched: the waves experiment rerun under the default recipe, biennial 10, 14 and 20 waves and annual 7, 10, 14 and 20, five members each, w07 being v2_fresh_rop; the user's decisions of 2026-11-14 recorded there: the default recipe for new runs is `train --recipe plateau_fresh`, and R_γ is a nuisance parameter whose SBC rank-test failure is accepted, so gates now cover β, δ and ρ; 2026-11-14 (§70: v2_fresh_rop becomes §1's reference, the user's decision; PSID couples move by about a quarter of a posterior sd, couples' representative β is 0.428 (se 0.027); under it R_γ's SBC rank test fails, as for every noisy network on w07's window, and all 889's spread in δ and ρ just exceeds the second null; v2_b010's values are kept beside the new ones; 2026-11-12, §69's results: reduce-on-plateau raises held-out log q by 0.03–0.05 for three of the four arms (not fresh draws under the methodology file's noise); the harder stop bought nothing, since a stop after 20 passes would have kept the same weights in every member; under the schedule v2's networks lose more on the file's noise; both v2-noise schedule arms put couples' representative β at 0.428, so §1's ensemble caveat now cites five ensembles; 2026-11-11, §69 launched: reduce-on-plateau and a harder early stop (patience 60 passes, cap 600) for 8 fixed copies and fresh noise under v2's and the methodology file's noise, four arms of five members against RESULTS 67/68's; 2026-11-10, §68's results: a new noise draw on the training windows every epoch does not beat 8 fixed copies under v2's noise (+0.014 log q, interval spans 0) and gains +0.027 under the methodology file's noise, where the copies gained nothing; nothing downstream moves; a third v2-noise ensemble puts couples' representative β at 0.444, beside v2_k8's 0.453, so §1's ensemble caveat now cites three ensembles; 2026-11-09, §67's results: 8 fixed noisy copies of every clean training window raise held-out log q by 0.115 under v2's noise and nothing under the noise model of "psid noise methodology.md"; that model puts couples' representative β at 0.15–0.18, with the PSID-level arms; two ensembles of the same design differ by about two bootstrap se in the representative θ, a caveat in §1; per-epoch training CSVs under training_metrics/; 2026-11-08, §66: noise-free arms' results; measured exactly, seven waves tell as much as 20 noisy ones; part of §65's annual advantage was the noise; on PSID the noise-free network reads consumption noise as ρ near the floor and no noise-free population fits; 2026-11-07, §65: annual waves, 14 and 20 one-year waves against the biennial arms; in about the same years they carry 1.9 times the information on one household's β, an upper bound; for the population at the same number of waves the longer biennial span wins for β and δ; §64.12: β below 0.3 is resolved like the rest of the box at seven waves and gains less with more waves, correcting §63.4 and §64.6; 2026-11-06, §64: the waves experiment's results, 7 to 20 waves on simulated households; earlier, 2026-11-05: §1 switched to v2 on the wider box, the β floor stays at 0.10, §63.10).
 
 Per-household posteriors over (β, δ, ρ, R_gamma) for 889 PSID households,
 409 of them couples, observed in seven biennial waves, 2011–2023, against
@@ -12697,7 +12697,7 @@ All pass. Commands are under *Reproduce*.
 - **The floor binds for the long and the annual windows.**
   - In §69 (w07), no gain came below a rate of 3.1e-5.
   - Here 23 of 35 members reached their best at the floor, including all five members of a10, a14 and a20. Members trained at the floor for up to 157–160 passes (a14 s2, a20 s0), still gaining there until the last 20.
-  - Whether a lower floor would add more was not tested.
+  - Whether a lower floor would add more was not tested here. *(Tested in §72 on four arms: a floor of 1e-7 adds nothing.)*
 - **The stop came close to cutting gains off.** The longest run without a gain before the best reached 18 passes (a14, a20), against a patience of 20. A longer patience might have found later gains in those members. The stop rule was set before the run and was kept.
 - **The CSVs' precision.**
   - The CSVs keep 6 significant digits, and at the floor a gain can be smaller than that.
@@ -12854,7 +12854,7 @@ The population se at 409 households sharing θ₀ (§64's simulations at v2_b010
   - θ₀ is v2_b010's estimate;
   - GPU training is not bit-reproducible;
   - six tests on the recipe;
-  - new here: the floor of 1e-5 binds for the long and the annual windows (71.4).
+  - new here: the floor of 1e-5 binds for the long and the annual windows (71.4). *(§72: lowering it to 1e-7 adds nothing.)*
 - **§1 and CONCLUSION_DIRECTION** now cite these numbers for more and annual waves. §64/65's stay beside them as the old recipe's.
 
 **Reproduce** (after the chain):
@@ -12865,9 +12865,9 @@ The population se at 409 households sharing θ₀ (§64's simulations at v2_b010
 
 ---
 
-## 72. A lower learning-rate floor on four models, and annual against biennial in the same years
+## 72. A lower learning-rate floor on four models adds nothing (held-out log q −0.024 to −0.001, every interval spans 0); in about the same years annual waves still carry about twice biennial's information on β
 
-*72.0–72.1 are the launch record, written before the run (2026-11-18).*
+*72.0–72.1 are the launch record, written before the run (2026-11-18); 72.2–72.8 are the results (2026-11-21).*
 
 **The user's request (2026-11-18):** "ok let's train with lower floor. give the models chance to learn more. not all models. let's pick representative models and train only 4 models. also make sure compare Annual and Biennial with same years not same waves." The plan was approved as it stands here.
 
@@ -12997,3 +12997,154 @@ Their sections stand as written, and their committed scripts regenerate them. Th
     CUDA_VISIBLE_DEVICES= PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_low_floor.py tests/test_lr_plateau.py
     SMOKE=<dir> ./scripts/run_low_floor.sh
     nohup setsid ./scripts/run_low_floor.sh >> logs/low_floor.log 2>&1 < /dev/null &
+
+### 72.2 The run
+
+- **The chain ran to DONE with no fix and no restart.**
+  - Training ran from 2026-11-18 23:29 to 2026-11-20 06:37: 31.1 h, under the 40 h planned (30–70), and 59.5 member-hours against about 80.
+  - The held-out checks, SBC, the paired scorings, the population, the measures and the figures then took 29 minutes.
+  - The logs hold no errors.
+- **The checks after the run pass:**
+  - all 20 members follow the plateau rule epoch for epoch (`schedule_check`), and every CSV is sbi's record, now to 9 digits;
+  - no member reached the cap of 600;
+  - each member's config differs from its §71 counterpart's only in `lr_plateau.min_lr`; w07's also differs in the stop (20 against v2_fresh_rop's 60);
+  - the 1e-5 columns below reproduce §71's numbers: held-out log q, coverage, population se and the same-years ratios;
+  - `low_floor.py measures`, rerun after the chain, rewrites a byte-identical `low_floor.json`.
+
+### 72.3 Calibration (the gate): all four arms pass
+
+90% coverage at floor 1e-7, held-out / SBC (20,992 SBC households per arm):
+
+| | w07 | a14 | w10 | a20 |
+|---|---|---|---|---|
+| β | 0.911 / 0.899 | 0.904 / 0.901 | 0.907 / 0.901 | 0.917 / 0.904 |
+| δ | 0.901 / 0.892 | 0.903 / 0.895 | 0.911 / 0.894 | 0.914 / 0.899 |
+| ρ | 0.905 / 0.900 | 0.912 / 0.900 | 0.915 / 0.897 | 0.912 / 0.900 |
+| R_γ (reported, not gated) | 0.906 / 0.882 | 0.886 / 0.887 | 0.893 / 0.883 | 0.896 / 0.888 |
+| SBC rank test, KS p: β, δ, ρ | 0.91, 0.90, 0.81 | 0.94, 0.20, 0.84 | 0.55, 0.95, 0.82 | 0.65, 0.71, 0.37 |
+| KS p, R_γ | 0.011 | 0.083 | 0.14 | 0.24 |
+
+- **β, δ and ρ:** coverage is 0.892–0.917 in every arm, and the rank test passes everywhere (p ≥ 0.20).
+- **R_γ:** its SBC coverage is 0.882–0.888. Its rank test fails at 5% in w07 (p 0.011; v2_fresh_rop's is 0.004). It is reported, not gated.
+- **Against §71's networks at 1e-5** (71.3), every coverage is within 0.013.
+
+### 72.4 Training: where 1e-5 bound, the networks went on below it, and gained no more than §71's did at 1e-5
+
+Floor 1e-7, with §71's floor-1e-5 networks in brackets:
+
+| | w07 | a14 | w10 | a20 |
+|---|---|---|---|---|
+| epochs | 89–98 (126–137, patience 60) | 147–211 (147–269) | 106–127 (101–116) | 163–194 (142–302) |
+| passes at the best | 69–78 (66–77) | 127–191 (127–249) | 86–107 (81–96) | 143–174 (122–282) |
+| minutes per member (mean) | 115 (159) | 228 (227) | 145 (132) | 226 (264) |
+| rate at the best | 6.3e-5–1.3e-4 (3.1e-5–6.3e-5) | 1e-7–2e-6 (1e-5) | 9.8e-7–3.1e-5 (1.6e-5–3.1e-5) | 2.4e-7–9.8e-7 (1e-5) |
+| lowest rate reached | 7.8e-6–1.6e-5 | 1e-7–2.4e-7 | 1.2e-7–3.9e-6 | 1e-7–1.2e-7 |
+| members that reached 1e-7 | 0/5 | 4/5 | 0/5 | 4/5 |
+| passes trained below 1e-5 | 0–5 | 38–104 | 10–40 | 47–79 |
+| best below 1e-5 | 0/5 | 5/5 | 2/5 | 5/5 |
+| fall in the best validation loss after the rate reached 1e-5 | 0, in the two that reached it (0) | 0.0026–0.0058 (0.0013–0.0081) | 0–0.0008 (0) | 0.0042–0.0086 (0.0034–0.0076) |
+| longest run without a gain before the best | 5–6 (5–11) | 6–17 (5–18) | 5–11 (5–6) | 6–17 (6–18) |
+| best validation loss, mean of the five, 1e-7 minus 1e-5 | +0.018 | +0.005 | −0.001 | +0.005 |
+| sd of the best validation loss across §71's five | 0.005 | 0.020 | 0.005 | 0.009 |
+
+- **Where §71's floor bound (a14, a20), the networks went on below it.**
+  - Every member's best came below 1e-5, at rates of 1e-7 to 2e-6. Eight of the ten reached 1e-7.
+  - They trained 38–104 passes below 1e-5, and their best validation loss fell another 0.003–0.009 there.
+- **§71's networks gained as much by staying at 1e-5:** their best fell 0.001–0.008 after they reached the floor. Halving further moved where the gains came, not how large they were.
+- **Training did not take longer:** 59.5 member-hours against 65.1 for §71's same four arms (w07's at patience 60).
+  - The members that trained longest at 1e-5 stopped sooner at 1e-7: a20 s0 ran 302 epochs at 1e-5 and 180 at 1e-7; a14 s2 ran 269 and 211.
+  - A reading, not tested: at rates near 1e-7 the steps are too small to find a gain within 20 passes, so the stop comes sooner.
+- **w07 and w10 hardly went below 1e-5,** as expected where §71's floor never bound.
+  - w07 spent 0–5 passes there. It is in effect a second run of §71's recipe, and its five best validation losses came out 0.006–0.039 above v2_fresh_rop's.
+  - w10 spent 10–40 passes there. Two members' best came below 1e-5, by at most 0.0008.
+- **Networks with the same seed are not one trajectory.**
+  - The two floors share the validation set: the grouped split and the validation rows' noise draw are fixed, the same for every member.
+  - The validation losses of each seed's pair differ from the first epoch (GPU nondeterminism). So the 1e-7 and 1e-5 networks are independent replicates, not one network trained further.
+  - The spread of the best validation loss across §71's five members (sd 0.005–0.020) is as large as what training below 1e-5 added, or larger.
+- **The stop still came close:** a14 and a20 went up to 17 passes without a gain before their best, against a patience of 20.
+
+### 72.5 The floor of 1e-7 against 1e-5: it does not help
+
+Held-out log q, paired on identical windows (2,048):
+
+| | w07 | a14 | w10 | a20 |
+|---|---|---|---|---|
+| floor 1e-7 | 3.815 | 5.671 | 4.596 | 6.547 |
+| floor 1e-5 (§71) | 3.828 | 5.695 | 4.598 | 6.562 |
+| difference [95%] | −0.013 [−0.038, +0.012] | −0.024 [−0.053, +0.004] | −0.001 [−0.031, +0.033] | −0.015 [−0.042, +0.014] |
+| four-test interval | [−0.045, +0.018] | [−0.060, +0.012] | [−0.038, +0.044] | [−0.052, +0.020] |
+| members (Welch p) | −0.026 (0.054) | +0.006 (0.80) | −0.012 (0.48) | −0.032 (0.10) |
+| information, 1e-7 ÷ 1e-5: β, δ, ρ, R_γ | 1.005, 0.993, 1.009, 1.002 | 1.002, 0.998, 0.995, 1.001 | 0.995, 0.999, 0.991, 0.997 | 0.991, 0.998, 0.994, 1.005 |
+| pairs ordered at p ≥ 0.9, 1e-7 ÷ 1e-5 | 1.00, 1.00, 1.00, 0.99 | 1.00, 1.00, 1.00, 1.00 | 1.00, 1.00, 1.00, 1.00 | 1.00, 1.00, 1.00, 1.00 |
+| population se at θ₀, 1e-7 ÷ 1e-5 | 1.00, 1.00, 0.99, 1.00 | 1.00, 1.00, 1.01, 1.00 | 0.99, 0.99, 0.98, 0.99 | 0.99, 0.99, 0.99, 1.00 |
+
+- **By the rule set before the run, the lower floor helps in no arm.**
+  - Every 95% interval and every four-test interval includes 0.
+  - All four differences are at or below 0 (−0.024 to −0.001).
+  - The member check agrees (every p ≥ 0.054).
+- **The expectation was gains in a14 and a20,** where §71's floor bound. They came out at −0.024 [−0.053, +0.004] and −0.015 [−0.042, +0.014].
+- **Nothing downstream moves:**
+  - information is 0.991–1.009 of 1e-5's;
+  - pairs ordered, 0.993–1.003;
+  - the population se, 0.977–1.006.
+  - One of the 16 se ratios has its 90% interval off 1: w10's ρ, 0.977 [0.96, 0.99]. About 1.6 such ratios are expected by chance.
+- **What the test can resolve.**
+  - At w07 training at 1e-7 is §71's recipe run again, and it gives −0.013 [−0.038, +0.012]. So rerunning one recipe moves held-out log q by up to about 0.03.
+  - Training below 1e-5 lowered the validation loss by no more than §71's networks gained at 1e-5 (72.4). No difference was expected from that, and none was found.
+
+### 72.6 Annual against biennial in about the same years
+
+| | a14 ÷ w07, floor 1e-7 | a14 ÷ w07, 1e-5 (§71) | a20 ÷ w10, floor 1e-7 | a20 ÷ w10, 1e-5 (§71) |
+|---|---|---|---|---|
+| years read | 15 against 14 | | 21 against 20 | |
+| information: β, δ, ρ, R_γ | 1.98, 1.69, 1.77, 1.41 | 1.99, 1.68, 1.79, 1.41 | 1.94, 1.69, 1.96, 1.31 | 1.95, 1.69, 1.96, 1.30 |
+| pairs ordered at p ≥ 0.9 | 1.50, 1.38, 1.44, 1.29 | 1.51, 1.38, 1.44, 1.29 | 1.45, 1.37, 1.41, 1.25 | 1.46, 1.37, 1.42, 1.25 |
+| population se, β [90%] | 0.66 [0.58, 0.75] | 0.66 [0.58, 0.74] | 0.60 [0.54, 0.66] | 0.60 [0.54, 0.66] |
+| δ | 0.85 [0.76, 0.96] | 0.86 [0.76, 0.96] | 0.85 [0.76, 0.95] | 0.85 [0.75, 0.95] |
+| ρ | 0.51 [0.46, 0.56] | 0.50 [0.45, 0.55] | 0.60 [0.56, 0.65] | 0.60 [0.55, 0.64] |
+| R_γ | 0.58 [0.54, 0.61] | 0.58 [0.54, 0.61] | 0.63 [0.59, 0.66] | 0.62 [0.59, 0.66] |
+
+- **Under the lower floor, annual waves in about the same years still carry about twice the information on β:**
+  - 1.98 times biennial's for a14 ÷ w07, and 1.94 for a20 ÷ w10 (§71 at 1e-5: 1.99 and 1.95);
+  - δ 1.69, ρ 1.77–1.96, R_γ 1.31–1.41;
+  - 45–50% more pairs ordered on β.
+- **For the population at θ₀,** annual's se is 0.60–0.66 of biennial's for β, 0.85 for δ, 0.51–0.60 for ρ and 0.58–0.63 for R_γ. Every 90% interval lies below 1.
+- **The floor moves no ratio by more than 0.02.** A wave in between (annual, the same years) adds 0.94–0.98 of an average biennial wave to β (§71: 0.95–0.99).
+- **This is an upper bound,** as in §65 and §71:
+  - the noise is fresh every wave; without noise, a14 ÷ w07 is 1.53 for β (§66.5);
+  - an annual window reads one year more.
+
+### 72.7 The population and one household (figures 168, 167)
+
+- **The population (figure 168).**
+  - For 409 households sharing θ₀, the 68/95% regions under the two floors cannot be told apart.
+  - β's se at 1e-7 is 0.0157 (w07), 0.0104 (a14), 0.0110 (w10) and 0.0066 (a20), against 0.0157, 0.0104, 0.0111 and 0.0067 at 1e-5.
+  - PSID couples' regions are v2_fresh_rop's, as in figure 160. Couples were not refit under the new w07, since it is no better.
+- **One household (figure 167):** figure 105's held-out household under the four arms at 1e-7, a row per same-years pair.
+  - The annual windows narrow ρ a little: posterior sd 0.95 against w07's 1.05, and 0.97 against w10's 1.03. β's is 0.20 under all four.
+  - The truth lies inside every arm's 95% interval: marginal ranks 0.33–0.98, with δ's near the top (0.96–0.98).
+  - That is one household. Over 20,992 SBC households coverage holds (72.3).
+
+### 72.8 What it means
+
+- **The floor of 1e-5 is not what limits the networks.**
+  - §71 found it binding: networks had their best at the floor and were still gaining there.
+  - At 1e-7 the networks train on below it. But held-out log q, the information per household, the pairs ordered and the population se are unchanged in all four arms.
+  - The gains at the floor were small (at most 0.009 in validation loss), and §71's networks got as much at 1e-5.
+- **The default recipe keeps its floor of 1e-5.** 1e-7 costs no more time but buys nothing. Changing the default is the user's call, and nothing here argues for it.
+- **§71's results stand.** In particular, in about the same years annual waves carry about twice biennial's information on one household's β (1.94–1.98 at 1e-7, 1.95–1.99 at 1e-5, an upper bound), and the population se falls to 0.5–0.86 of biennial's.
+- **New: what a rerun moves.** The same recipe trained again (w07) moves held-out log q by up to about 0.03. That is the resolution of a paired test between two ensembles of five.
+- **Caveats:**
+  - the noise is fresh every wave, so the annual gain is an upper bound;
+  - θ₀ is v2_b010's estimate;
+  - GPU training is not bit-reproducible, so each floor's networks are replicates, not one network trained further;
+  - four tests;
+  - w07's counterpart was trained with patience 60, but a stop at 20 keeps its weights in all five members (71.4);
+  - only patience 20 was tried. A longer patience at a low floor was not tested; the longest run without a gain before a best was 17 passes.
+- **§1 and CONCLUSION_DIRECTION:** no claim changes. v2_fresh_rop stays §1's reference.
+
+**Reproduce** (after the chain):
+
+    PYTHONPATH=.:src .venv/bin/python scripts/low_floor.py measures
+    PYTHONPATH=.:src .venv/bin/python scripts/low_floor.py figures
+    CUDA_VISIBLE_DEVICES= PYTHONPATH=.:src .venv/bin/python -m pytest tests/test_low_floor.py tests/test_lr_plateau.py
