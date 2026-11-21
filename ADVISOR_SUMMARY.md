@@ -81,7 +81,7 @@
 
 - **β and ρ are confounded:** both raise saving. A β estimate correlates 0.73 with the true β and 0.39 with the true ρ.
 - **One household's β interval is 0.5–0.6 wide anywhere in the box.** β below 0.3 is resolved as well as any band 0.2 wide (§64.12).
-- **Figures:** a simulated household with its truth (`figures/147_simulated_household_lr_plateau_v2_fresh_rop.png`), and the PSID couple nearest couples' median (`figures/148_psid_household_lr_plateau_v2_fresh_rop.png`), both with 68/95% contours. Clean versions with β, δ and ρ only: `figures/181_advisor_simulated_household.png` and `figures/180_advisor_psid_couple.png`.
+- **Figures:** a simulated household with its truth (`figures/147_simulated_household_lr_plateau_v2_fresh_rop.png`), and the PSID couple nearest couples' median (`figures/148_psid_household_lr_plateau_v2_fresh_rop.png`), both with 68/95% contours. Clean versions with β, δ and ρ only: `figures/181_advisor_simulated_household.png` and `figures/180_advisor_psid_couple.png`. The same simulated household under 20 annual waves: `figures/183_advisor_simulated_household_annual20.png`, and both designs overlaid: `figures/184_advisor_simulated_household_biennial_vs_annual.png`.
 
 ### 3.3 PSID couples (409)
 

@@ -9,6 +9,11 @@ training, no new sampling). β, δ and ρ only: R_γ is a nuisance parameter
   couples' median (figure 148's couple and draws).
 * 181: one held-out simulated household's posterior against its true θ under
   v2_fresh_rop (figure 147's household and draws, picked by rule).
+* 183: figure 181's household under 20 annual waves (a20, RESULTS 71): its own
+  panel cut as 20 annual waves from the same start age, with its own draw of
+  v2's measurement error; the only figure here that samples (once, on the GPU
+  if there is one; cached in ``--annual_cache``).
+* 184: figures 181 and 183 overlaid.
 * 182: 7 biennial waves (w07, v2_fresh_rop) against 20 annual waves (a20,
   RESULTS 71): every simulated household's posterior sd, the share of prior
   variance removed, β's posterior sd against the true β, and pairs of
@@ -38,6 +43,10 @@ BOX = {"beta": (0.1, 1.0), "delta": (0.85, 1.0), "crra": (0.5, 5.0)}
 OURS, LAI, TRUTH = "#1f5fa8", "0.15", "#c0392b"
 BIENNIAL, ANNUAL = "#1f5fa8", "#e07b00"
 REFERENCE = "v2_fresh_rop"
+#: the annual window's measurement-error draw (figure 183)
+ANNUAL_SEED = 183_000
+#: figure 147's pool of held-out households (plot_optionA2_households --pool)
+POOL = 300
 
 
 def style() -> None:
@@ -256,32 +265,48 @@ def household(args, which: str) -> None:
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
-    src = args.sim_draws if which == "sim" else args.psid_draws
-    z = np.load(src)
+    z = annual_draws(args) if which == "sim20" else np.load(
+        args.sim_draws if which == "sim" else args.psid_draws)
+    color = ANNUAL if which == "sim20" else OURS
     d = resample(z["draws"], z["log_w"], args.n_plot, seed=0)[:, :3]
     lim = dict(BOX)
     fig = plt.figure(figsize=(10.5, 9.2))
     ax = corner_axes(fig)
-    draw_samples(ax, d, OURS, lim)
+    draw_samples(ax, d, color, lim)
     mean = d.mean(0)
-    handles = [Patch(fc=OURS, alpha=0.4, ec=OURS, label="posterior: 68% (filled), 95% (dashed)"),
+    handles = [Patch(fc=color, alpha=0.4, ec=color,
+                     label="posterior: 68% (filled), 95% (dashed)"),
                Line2D([], [], color="k", marker="X", ls="none", ms=8, label="posterior mean")]
-    if which == "sim":
+    if which in ("sim", "sim20"):
         truth = np.asarray(z["truth"])[:3]
         mark(ax, truth, marker="*", ms=16, color=TRUTH, mec="white", mew=0.7, zorder=5)
         handles.insert(1, Line2D([], [], color=TRUTH, marker="*", ls="none", ms=14,
                                  label="true θ (generated the data)"))
         lo, hi = np.percentile(d, [5, 95], axis=0)
         covered = ((truth >= lo) & (truth <= hi)).all()
-        title = "One simulated household: posterior against the truth"
-        sub = ("A household held out from training, 7 biennial waves (ages 34–46). The true θ "
-               "lies inside the 90% interval\nfor " + ("all three parameters." if covered
-                                                       else "some parameters only."))
-        note = ("Picked by rule, not by eye: among 300 held-out households, the one with the "
-                "median error of the posterior mean (true θ at least 10% inside the prior box).\n"
-                "Axes span the prior box. Above each marginal: posterior mean and 90% interval. "
-                f"Network: {REFERENCE} (5-member ensemble; card type marginalised).")
-        name = "181_advisor_simulated_household.png"
+        inside = ("all three parameters." if covered else "some parameters only.")
+        if which == "sim":
+            title = "One simulated household: posterior against the truth"
+            sub = ("A household held out from training, 7 biennial waves (ages 34–46). The true "
+                   "θ lies inside the 90% interval\nfor " + inside)
+            note = ("Picked by rule, not by eye: among 300 held-out households, the one with the "
+                    "median error of the posterior mean (true θ at least 10% inside the prior "
+                    "box).\nAxes span the prior box. Above each marginal: posterior mean and 90% "
+                    f"interval. Network: {REFERENCE} (5-member ensemble; card type marginalised).")
+            name = "181_advisor_simulated_household.png"
+        else:
+            ages = np.asarray(z["ages"]).astype(int)
+            title = "The same household, 20 annual waves: posterior against the truth"
+            sub = (f"Figure 181's household observed every year from age {ages[0]} to "
+                   f"{ages[-1]} (20 annual waves) instead of every other year\nfrom 34 to 46. "
+                   "The true θ lies inside the 90% interval for " + inside)
+            note = ("The same simulated household and true θ as figure 181: its panel cut as 20 "
+                    "annual waves from the same start age, with its own draw of the measurement "
+                    "error.\nIt was picked under 7 biennial waves (figure 181), not re-picked "
+                    "here. Axes span the prior box. Above each marginal: posterior mean and 90% "
+                    "interval.\nNetwork: RESULTS 71's a20 (5-member ensemble, trained like "
+                    f"{REFERENCE}; card type marginalised).")
+            name = "183_advisor_simulated_household_annual20.png"
     else:
         lai = LAIBSON
         mark(ax, lai, marker="*", ms=15, color="0.55", mec="white", mew=0.7, zorder=4)
@@ -305,6 +330,141 @@ def household(args, which: str) -> None:
     fig.text(0.07, 0.905, sub, fontsize=11)
     fig.text(0.07, 0.015, note, fontsize=8.5, color="0.3", va="bottom")
     out = args.fig_dir / name
+    fig.savefig(out, dpi=200)
+    plt.close(fig)
+    print(f"wrote {out}")
+
+
+def annual_draws(args) -> dict:
+    """Figure 147's household under a20: figure 147's pick recovered as
+    ``plot_optionA2_households.simulated`` made it, the household's panel
+    found among its draw's households by its clean 7-wave window, cut as 20
+    annual waves from the same start age, noised with v2's measurement error
+    (``ANNUAL_SEED``) and sampled by a20's ensemble as ``optionA psid`` does.
+    Cached in ``args.annual_cache`` (outputs/, not committed)."""
+    if args.annual_cache.exists():
+        return dict(np.load(args.annual_cache))
+    import torch
+
+    from hh_npe.data.waves import FEATURES_TWOASSET_AGE
+    from hh_npe.data.windows import _panel_of, cut_windows
+    from scripts import optionA as oa
+    from scripts import waves_experiment as we
+    from scripts.plot_optionA2_households import weighted_draws
+    from scripts.sbc_optionA2 import Members
+
+    z = np.load(args.sim_draws)
+    cfg = json.loads((args.w07_run / "s0" / "results.json").read_text())["_config"]
+    spec, win = oa.spec_of(cfg), oa.window_of(cfg)
+    theta_all, _c, _t, held_f, _p, _s = oa.load_shards(list(args.shards))
+    th, _x, pid = oa.windows_raw(held_f, theta_all, seed=oa.HELD_SEED, noise=spec.obs_noise,
+                                 mask=spec.mask_patterns(), window=win)
+    pick1 = oa.one_per_draw(pid, seed=0)
+    pool = np.sort(np.random.default_rng(1).choice(pick1, min(POOL, len(pick1)), replace=False))
+    row = int(pool[int(z["pick"])])
+    draw = int(z["draw"])
+    if int(pid[row]) != draw or not np.allclose(th[row].numpy(), z["truth"], atol=1e-6):
+        raise SystemExit("figure 147's household was not recovered")
+    clean = torch.cat([c[2] for c in oa.clean_windows(held_f, theta_all, oa.HELD_SEED,
+                                                       window=win)])[row].numpy()
+    age0 = int(round(clean[0, -1]))         # the age channel of the first wave
+    f = next(s for s in held_f
+             if int(np.load(s.path)["lo"]) <= draw - s.offset < int(np.load(s.path)["hi"]))
+    d = np.load(f.path)
+    lo, hi, local = int(d["lo"]), int(d["hi"]), draw - f.offset
+    panel = _panel_of(d)
+    m = len(next(iter(panel.values()))) // (hi - lo)
+    lag = oa.flow_lag_of([f.path])
+
+    def cut(r, n, wy, s):
+        one = {k: v[[r]] for k, v in panel.items()}
+        return cut_windows(one, theta_all[f.offset + local][None], np.array([draw]),
+                           np.array([[s]]), n, wy, FEATURES_TWOASSET_AGE, "last", lag)[1]
+
+    # the age channel is not the start argument (it depends on the spacing and
+    # the flow lag): read the offset off a cut of the same spacing
+    probe = next(x for r in (local - lo) * m + np.arange(m)
+                 if len(x := cut(r, win["n_waves"], win["wave_years"], age0)))
+    start = 2 * age0 - int(round(probe[0, 0, -1]))
+    hits = [int(r) for r in (local - lo) * m + np.arange(m)
+            if len(x := cut(r, win["n_waves"], win["wave_years"], start))
+            and np.allclose(x[0], clean, equal_nan=True)]
+    if len(hits) != 1:
+        raise SystemExit(f"figure 147's window matches {len(hits)} of its draw's households")
+    raw = cut(hits[0], 20, 1, start)
+    if len(raw) != 1:
+        raise SystemExit("the household does not live through 20 annual waves")
+    members = Members(we.members_of(args.a20_run), args.device)
+    s20 = oa.spec_of(members.cfg)
+    if members.window["wave_years"] != 1 or members.window["n_waves"] != 20 or not (
+            members.window["start_low"] <= start <= members.window["start_high"]):
+        raise SystemExit(f"{args.a20_run}: not 20 annual waves from age {start}")
+    x = oa.add_obs_noise(torch.from_numpy(raw).float(), s20.obs_noise, seed=ANNUAL_SEED)
+    xt, _f = oa.transform(x, masked=s20.masked)
+    inv, lw = oa._weighting(members.proposal, s20)
+    torch.manual_seed(0)
+    dr, lwt = weighted_draws(members.nets, xt, args.n_raw, s20.flow_box(), inv, lw)
+    out = {"draws": dr, "log_w": lwt, "truth": np.asarray(z["truth"]), "draw": draw,
+           "panel_row": hits[0], "start": start, "ages": raw[0, :, -1]}
+    args.annual_cache.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(args.annual_cache, **out)
+    print(f"figure 147's household: draw {draw}, panel row {hits[0]}, start age {start}; "
+          f"{len(dr):,} a20 draws kept; wrote {args.annual_cache}")
+    return out
+
+
+def compare_household(args) -> None:
+    """184: figure 181's household under 7 biennial and 20 annual waves."""
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    z7, z20 = np.load(args.sim_draws), annual_draws(args)
+    d7 = resample(z7["draws"], z7["log_w"], args.n_plot, seed=0)[:, :3]
+    d20 = resample(z20["draws"], z20["log_w"], args.n_plot, seed=0)[:, :3]
+    truth = np.asarray(z7["truth"])[:3]
+    ages = np.asarray(z20["ages"]).astype(int)
+    lim = dict(BOX)
+    fig = plt.figure(figsize=(10.5, 9.2))
+    ax = corner_axes(fig)
+    draw_samples(ax, d7, BIENNIAL, lim)
+    draw_samples(ax, d20, ANNUAL, lim)
+    mark(ax, truth, marker="*", ms=16, color=TRUTH, mec="white", mew=0.7, zorder=5)
+    finish(ax, lim, ticks={"beta": [0.2, 0.4, 0.6, 0.8, 1.0], "delta": [0.88, 0.92, 0.96, 1.0],
+                           "crra": [1, 2, 3, 4, 5]})
+    q7, q20 = (np.percentile(d, [5, 95], axis=0) for d in (d7, d20))
+    fmt = ("{:.2f}", "{:.3f}", "{:.2f}")
+    for r, p in enumerate(NAMES):
+        f = fmt[r]
+        ax[r][r].set_title(f"{SYM[p]}, 90% interval\n[{f.format(q7[0, r])}, "
+                           f"{f.format(q7[1, r])}] → [{f.format(q20[0, r])}, "
+                           f"{f.format(q20[1, r])}]", fontsize=9.5)
+    shrink = 1 - (q20[1] - q20[0]) / (q7[1] - q7[0])
+    fig.legend(handles=[Patch(fc=BIENNIAL, ec=BIENNIAL, alpha=0.45,
+                              label="7 biennial waves, ages 34–46 (PSID's design)"),
+                        Patch(fc=ANNUAL, ec=ANNUAL, alpha=0.45,
+                              label=f"20 annual waves, ages {ages[0]}–{ages[-1]}"),
+                        Line2D([], [], color=TRUTH, marker="*", ls="none", ms=14,
+                               label="true θ (generated the data)"),
+                        Line2D([], [], color="k", lw=1.6, label="68%"),
+                        Line2D([], [], color="k", lw=1.2, ls="--", label="95%")],
+               loc="upper left", bbox_to_anchor=(0.52, 0.82), fontsize=10.5)
+    fig.text(0.07, 0.955, "One simulated household: 7 biennial against 20 annual waves",
+             fontsize=15, weight="bold")
+    fig.text(0.07, 0.905, "The same household and true θ under each design. Its 90% interval "
+             "narrows by " + ", ".join(f"{100 * s:.0f}% ({SYM[p]})"
+                                       for p, s in zip(NAMES, shrink, strict=True))
+             + ";\nacross all simulated households the median posterior sd falls by about a "
+             "third (figure 182).", fontsize=11)
+    fig.text(0.07, 0.015,
+             "Figure 181's household (picked by rule under 7 biennial waves) and figure 183's. "
+             "The annual panel is the same household's, with its own draw of the measurement\n"
+             "error; the annual gain is an upper bound, since that error is drawn afresh every "
+             f"wave. Networks: {REFERENCE} (biennial) and RESULTS 71's a20 (annual), trained the "
+             "same way.\nAbove each marginal: the 90% interval under each design. ρ's runs into "
+             "the top of the prior box (5) under both, which is why it barely narrows here.",
+             fontsize=8.5, color="0.3", va="bottom")
+    out = args.fig_dir / "184_advisor_simulated_household_biennial_vs_annual.png"
     fig.savefig(out, dpi=200)
     plt.close(fig)
     print(f"wrote {out}")
@@ -431,8 +591,19 @@ def main() -> None:
     ap.add_argument("--n_plot", type=int, default=20000,
                     help="equally weighted draws resampled, as for figures 147 and 148")
     ap.add_argument("--fig_dir", type=Path, default=Path("figures"))
-    ap.add_argument("--only", nargs="+", choices=("laibson", "psid", "sim", "information"),
-                    default=("laibson", "psid", "sim", "information"))
+    ap.add_argument("--w07_run", type=Path, default=Path("outputs/lr_plateau/v2_fresh_rop/w07"))
+    ap.add_argument("--a20_run", type=Path, default=Path("outputs/waves_default/a20"))
+    ap.add_argument("--shards", type=Path, nargs="+",
+                    default=[Path("data/processed/couples_v2_dataset_shards"),
+                             Path("data/processed/couples_v2_strip_dataset_shards"),
+                             Path("data/processed/couples_v2_betastrip_dataset_shards")])
+    ap.add_argument("--annual_cache", type=Path,
+                    default=Path("outputs/advisor/annual20_household.npz"))
+    ap.add_argument("--n_raw", type=int, default=40000,
+                    help="raw draws for figure 183's household, as for figure 147")
+    ap.add_argument("--device", default=None)
+    figs = ("laibson", "psid", "sim", "information", "sim20", "compare")
+    ap.add_argument("--only", nargs="+", choices=figs, default=figs)
     args = ap.parse_args()
     import matplotlib
     matplotlib.use("Agg")
@@ -445,6 +616,10 @@ def main() -> None:
         household(args, "sim")
     if "information" in args.only:
         information(args)
+    if "sim20" in args.only:
+        household(args, "sim20")
+    if "compare" in args.only:
+        compare_household(args)
 
 
 if __name__ == "__main__":
