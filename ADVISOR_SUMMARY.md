@@ -1,6 +1,6 @@
 # Household-level preference estimation from PSID — summary for review
 
-*Updated 2026-11-21 (§72's results). This replaces the summary of 2026-09-28, whose headline (β 0.85, ρ 4.5, "no detectable β heterogeneity") has since been superseded or withdrawn; see "How we got here". Section numbers (§) refer to `RESULTS.md`, the full record. The plan for the end of the project is `CONCLUSION_DIRECTION.md`.*
+*Updated 2026-11-23 (§73's results). This replaces the summary of 2026-09-28, whose headline (β 0.85, ρ 4.5, "no detectable β heterogeneity") has since been superseded or withdrawn; see "How we got here". Section numbers (§) refer to `RESULTS.md`, the full record. The plan for the end of the project is `CONCLUSION_DIRECTION.md`.*
 
 ---
 
@@ -60,6 +60,7 @@
 | Nov 9–14 | Training improvements, and a new reference | Noisy copies (§67), a new noise draw every epoch (§68) and reduce-on-plateau (§69) raise held-out log q. The best network, v2_fresh_rop, becomes the reference (user, §70) |
 | Nov 15–17 | Waves experiment with the current model (§71) | The current training beats the old at every length; precision grows with waves at both spacings; per household, the number of waves matters more than their spacing |
 | Nov 18–20 | A lower learning-rate floor on four models (§72) | A floor of 1e-7 instead of 1e-5 adds nothing; annual against biennial in the same years is unchanged |
+| Nov 21–22 | A longer patience at that floor (§73) | A stop after 60 passes instead of 20 adds nothing: 16 of 20 networks keep the same weights; annual against biennial unchanged |
 
 ---
 
@@ -133,27 +134,29 @@ Eight arms of five networks: biennial 7, 10, 14 and 20 waves, annual 7, 10, 14 a
   - β below 0.3 gains less (its interval narrows 17% by 20 waves, against 36% at the top): those households spend most years at the borrowing limit.
 - **Annual waves** (what real households often have):
   - at the same number of waves, spacing matters little for one household: seven annual waves (8 years) tell about as much as PSID's seven biennial waves (14 years);
-  - in about the same years, every year instead of every other carries about twice the information on β (1.95–1.99; 1.94–1.98 with a lower learning-rate floor, §72). That is an upper bound, because the simulated noise is independent every wave (1.53 without noise, §66);
+  - in about the same years, every year instead of every other carries about twice the information on β (1.95–1.99; 1.94–1.98 with a lower learning-rate floor, §72; 1.92–1.99 with a longer patience too, §73). That is an upper bound, because the simulated noise is independent every wave (1.53 without noise, §66);
   - for the population, years matter more than frequency for β and δ: at the same count, biennial's longer span gives the smaller se.
-- **The training recipe matters at every length:** the current one beats the previous one by +0.18 to +0.40 held-out log q (more for longer windows) and adds 11–17% information on β; the population se does not move. Lowering its learning-rate floor from 1e-5 to 1e-7 adds nothing (§72).
+- **The training recipe matters at every length:** the current one beats the previous one by +0.18 to +0.40 held-out log q (more for longer windows) and adds 11–17% information on β; the population se does not move. Lowering its learning-rate floor from 1e-5 to 1e-7 adds nothing (§72), nor does a longer patience at that floor (§73).
 - **Measurement matters as much as length:** without noise, seven waves tell as much as 20 noisy ones (§66).
 - **The population:** households sharing one θ get standard errors at 20 biennial waves of 0.26–0.48 times seven waves'. For PSID couples, β's se would fall from 0.027 to between 0.007 and 0.022, depending on how much of it is couples differing, which more waves do not narrow.
 - **Figures:** `figures/150_waves_default_precision.png` (precision against waves and years read), `figures/159_waves_default_one_household.png` (one household, biennial against annual, 68/95%), `figures/160_waves_default_population.png` (the population, 68/95%). Seven biennial against twenty annual waves in one figure: `figures/182_advisor_biennial7_vs_annual20.png`.
 
 ---
 
-## 4. Last run: a lower learning-rate floor on four models (§72, done 2026-11-20)
+## 4. Last run: a longer patience at the low floor (§73, done 2026-11-22)
 
-- **The user's request** (2026-11-18): "ok let's train with lower floor. give the models chance to learn more. not all models. let's pick representative models and train only 4 models. also make sure compare Annual and Biennial with same years not same waves."
-- **Why:** in §71 the learning-rate floor of 1e-5 bound for the long and annual windows (23 of 35 networks reached their best at it).
-- **Design:** the two same-years pairs (7 biennial waves against 14 annual, 10 biennial against 20 annual), retrained with the floor at 1e-7 and nothing else changed, against §71's networks on identical held-out windows.
+- **The user's request** (2026-11-21): "try longer patience with the low floor".
+- **Why:** §72's lower floor (1e-7) added nothing, but its stop came close: some networks went up to 17 passes without a gain before their best, against a stop after 20.
+- **Design:** §72's four models (7 biennial waves against 14 annual, 10 biennial against 20 annual), retrained with a stop after 60 passes instead of 20 and nothing else changed. They were compared with §72's networks on identical held-out windows, and with §71's default beside that.
 - **Results:**
-  - all four calibrated for β, δ and ρ (0.892–0.917);
-  - the lower floor helps in no arm: held-out log q −0.024 to −0.001, every interval spanning 0; information, pairs ordered and the population se within 2.3%;
-  - where 1e-5 bound, the networks trained on below it, but gained no more than §71's had at 1e-5;
-  - in about the same years annual waves still carry about twice the information on β (1.94–1.98, against 1.95–1.99 at 1e-5), an upper bound.
-- **Consequence:** the training recipe keeps its floor of 1e-5, and no claim changes. Rerunning one recipe moves held-out log q by up to about 0.03, which is the resolution of comparisons between ensembles.
-- **Before it, §71** (done 2026-11-17): every test set before the run came out cleanly (§3.6). R_γ, a nuisance parameter, had coverage 0.881–0.889 and its rank test failed in three of eight arms (reported, not gated).
+  - all four calibrated for β, δ and ρ (0.891–0.913);
+  - the longer stop buys nothing. In 16 of the 20 networks a stop after 20 would have kept the very same weights, and the other four gained at most 0.0003 in validation loss. It costs 36% more training;
+  - by the 95% rule set before the run, one arm gains (+0.024) and one loses (−0.030). Neither can come from the patience, since those networks kept what a stop after 20 would have kept. Both are the spread between training runs. The four-test intervals and the member check find nothing;
+  - information, pairs ordered and the population se are within 3.2%;
+  - in about the same years annual waves still carry about twice the information on β (1.92–1.99 under the three settings), an upper bound.
+- **Consequence:** the training recipe stays as it is (floor 1e-5, patience 20), and no claim changes.
+- **New, on method:** the paired household interval holds the networks fixed, so it leaves out the spread between training runs. Between ensembles, differences under about 0.03 need the member-level check as well. The recipe's gain over the previous one (+0.18 to +0.40) is far beyond that.
+- **Before it, §72** (done 2026-11-20): a floor of 1e-7 instead of 1e-5 added nothing in any arm (−0.024 to −0.001, every interval spanning 0).
 
 ---
 
